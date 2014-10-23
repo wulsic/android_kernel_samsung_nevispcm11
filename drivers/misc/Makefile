@@ -90,3 +90,4 @@ obj-$(CONFIG_BRCM_BTPORT_DRV)   += btport/
 obj-$(CONFIG_BRCM_EMMC_RPMB)	+= emmc_rpmb/
 obj-$(CONFIG_SENSORS_BMA222)    += bma222.o
 obj-$(CONFIG_AMI306)		+= ami306/
+obj-$(CONFIG_BLX)               += blx.o

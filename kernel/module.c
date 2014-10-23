@@ -1028,7 +1028,6 @@ static int check_version(Elf_Shdr *sechdrs,
  		return 1;
 #endif
 
-
 	/* Exporting module didn't supply crcs?  OK, we're already tainted. */
 	if (!crc)
 		return 1;
