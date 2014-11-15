@@ -213,6 +213,8 @@ static ssize_t spa_power_attrs_show(struct device *pdev, struct device_attribute
 
 	unsigned int view_all=0;
 
+	if(!spa_power_iter)return 0;
+
 	switch(off)
 	{
 		case SPA_POWER_PROP_ALL:
@@ -338,6 +340,8 @@ static ssize_t spa_power_attrs_store(struct device *pdev, struct device_attribut
 
 	const ptrdiff_t off = attr-spa_power_attrs;
 
+	if(!spa_power_iter)return 0;
+
 	if(off == SPA_POWER_PROP_DBG_SIMUL)
 	{
 		sscanf(buf, "%d", &intval);
@@ -441,6 +445,8 @@ static ssize_t ss_batt_ext_attrs_show(struct device *pdev, struct device_attribu
 
 	const ptrdiff_t off = attr-ss_batt_ext_attrs;
 
+	if(!spa_power_iter)return 0;
+
 	switch(off)
 	{
 		case SS_BATT_LP_CHARGING:
@@ -481,6 +487,7 @@ static ssize_t ss_batt_ext_attrs_store(struct device *pdev, struct device_attrib
 
 	//struct power_supply *ps;
 	//union power_supply_propval value;
+	if(!spa_power_iter)return 0;
 
 	switch(off)
 	{
@@ -506,7 +513,33 @@ static ssize_t ss_batt_ext_attrs_store(struct device *pdev, struct device_attrib
 
 #endif
 
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+static int spa_back_charging_work(struct work_struct *work)
+{
+	int ret=0;
+	struct power_supply *ps;
+	union power_supply_propval value;
+	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, back_charging_work.work);
 
+	pr_spa_dbg(LEVEL3, "%s : enter \n", __func__);
+	ps = power_supply_get_by_name(spa_power_iter->charger_info.charger_name);
+	pr_spa_dbg(LEVEL3, "%s : Actual discharging. after %d mins\n", __func__, spa_power_iter->pdata->backcharging_time);
+	value.intval = POWER_SUPPLY_STATUS_DISCHARGING;
+	ps->set_property(ps, POWER_SUPPLY_PROP_STATUS, &value);
+	spa_stop_charge_timer(spa_power_iter->charging_status, spa_power_iter);
+	if(spa_power_iter->charging_status.phase == POWER_SUPPLY_STATUS_FULL)
+	{
+		spa_power_iter->charging_status.status = SPA_STATUS_NONE;
+	}
+	else
+	{
+		pr_spa_dbg(LEVEL3, "%s: Wrong case !!!\n",__func__);
+	}
+	pr_spa_dbg(LEVEL3, "%s : leave \n", __func__);
+
+	return 0;
+}
+#endif
 static int spa_set_charge(struct spa_power_desc *spa_power_iter, unsigned int act)
 {
 	struct spa_power_data *pdata = spa_power_iter->pdata;
@@ -517,7 +550,7 @@ static int spa_set_charge(struct spa_power_desc *spa_power_iter, unsigned int ac
 
 	ps = power_supply_get_by_name(spa_power_iter->charger_info.charger_name);
 
-	if(act == 1)
+	if(act == SPA_CMD_CHARGE)
 	{
 		// 1. Charging current
 		if(spa_power_iter->charger_info.charger_type == POWER_SUPPLY_TYPE_MAINS ||
@@ -538,10 +571,22 @@ static int spa_set_charge(struct spa_power_desc *spa_power_iter, unsigned int ac
 		value.intval = FIRST_CHG_CURR_ABSORBING_SHOCK;
 		ps->set_property(ps, POWER_SUPPLY_PROP_CURRENT_NOW, &value);
 
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
 		// 2. eoc current
+		if( spa_power_iter->charging_status.phase == POWER_SUPPLY_STATUS_FULL )
+		{
+			value.intval = pdata->recharging_eoc;
+			ps->set_property(ps, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, &value);
+		}
+		else
+		{
 		value.intval = spa_power_iter->charger_info.eoc_current;
 		ps->set_property(ps, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, &value);
-
+		}
+#else
+		value.intval = spa_power_iter->charger_info.eoc_current;
+		ps->set_property(ps, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, &value);
+#endif
 		// 3. charging now.
 		value.intval = POWER_SUPPLY_STATUS_CHARGING;
 		ps->set_property(ps, POWER_SUPPLY_PROP_STATUS, &value);
@@ -555,15 +600,28 @@ static int spa_set_charge(struct spa_power_desc *spa_power_iter, unsigned int ac
 				spa_power_iter->charger_info.charging_current, 
 				spa_power_iter->charger_info.eoc_current);
 	}
-	else if(act == 0) // discharging
+	else if(act == SPA_CMD_DISCHARGE) // discharging
 	{
 		// 1. stop charging
 		spa_power_iter->charger_info.charging_current=0;
 		value.intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		ps->set_property(ps, POWER_SUPPLY_PROP_STATUS, &value);
 		cancel_delayed_work_sync(&spa_power_iter->fast_charging_work);
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+		cancel_delayed_work_sync(&spa_power_iter->back_charging_work);
+#endif
 		pr_spa_dbg(LEVEL2, "%s : Discharging!! ", __func__ );
 	}
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+	else if(act == SPA_CMD_DELAYED_DISCHARGE)
+	{
+		spa_power_iter->charger_info.charging_current=0;
+		cancel_delayed_work_sync(&spa_power_iter->fast_charging_work);
+		cancel_delayed_work_sync(&spa_power_iter->back_charging_work);
+		schedule_delayed_work(&spa_power_iter->back_charging_work, msecs_to_jiffies(MINUTE_BY_MSEC*spa_power_iter->pdata->backcharging_time));
+		pr_spa_dbg(LEVEL2, "%s : Delayed Discharging!! delay time = %d", __func__,  spa_power_iter->pdata->backcharging_time);
+	}
+#endif
 	else
 	{
 		// 1. stop charging
@@ -882,7 +940,7 @@ static int spa_get_batt_vf_status(struct spa_power_desc *spa_power_iter)
 	pr_spa_dbg(LEVEL4, "%s : leave \n", __func__);
 	return value.intval;
 }
-
+#if 0
 static int spa_do_transition(struct spa_power_desc *spa_power_iter, unsigned int status)
 {
 	switch(status)
@@ -906,6 +964,7 @@ static int spa_do_transition(struct spa_power_desc *spa_power_iter, unsigned int
 
 	}
 }
+#endif
 
 static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char machine, unsigned int phase, unsigned int status)
 {
@@ -916,7 +975,7 @@ static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char ma
 	{
 		if(phase == POWER_SUPPLY_STATUS_DISCHARGING)  //----------------------------------- DISCHARGING
 		{
-			spa_set_charge(spa_power_iter, 0);
+			spa_set_charge(spa_power_iter, SPA_CMD_DISCHARGE);
 			spa_power_iter->charging_status.phase = POWER_SUPPLY_STATUS_DISCHARGING;
 			spa_power_iter->charging_status.status = SPA_STATUS_NONE;
 			spa_power_iter->batt_info.update_interval = SPA_BATT_UPDATE_INTERVAL;
@@ -940,7 +999,7 @@ static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char ma
 				pr_spa_dbg(LEVEL2, "%s : Wrong type of charger \n", __func__);
 				return -1;
 			}
-			spa_set_charge(spa_power_iter, 1);
+			spa_set_charge(spa_power_iter, SPA_CMD_CHARGE);
 			spa_power_iter->charging_status.phase=POWER_SUPPLY_STATUS_CHARGING;
 			spa_power_iter->charging_status.status=SPA_STATUS_NONE;
 
@@ -953,25 +1012,36 @@ static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char ma
 		{
 			if(spa_power_iter->charging_status.phase != POWER_SUPPLY_STATUS_FULL)
 			{ // just now full-charged after normal charging.
-				spa_set_charge(spa_power_iter, 0);
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+				spa_set_charge(spa_power_iter, SPA_CMD_DELAYED_DISCHARGE);
+				spa_power_iter->charging_status.phase = POWER_SUPPLY_STATUS_FULL;
+				spa_power_iter->charging_status.status = SPA_STATUS_BACKCHARGING;
+#else
+				spa_set_charge(spa_power_iter, SPA_CMD_DISCHARGE);
 				spa_power_iter->charging_status.phase = POWER_SUPPLY_STATUS_FULL;
 				spa_power_iter->charging_status.status = SPA_STATUS_NONE;
 				spa_stop_charge_timer(spa_power_iter->charging_status, spa_power_iter);
+#endif
 				pr_spa_dbg(LEVEL1, "%s : Do full charged - normal full \n", __func__);
 			}
 			else if(spa_power_iter->charging_status.phase == POWER_SUPPLY_STATUS_FULL)
 			{
 				if(status == SPA_STATUS_FULL_RECHARGE)
 				{ // recharging after full-charged
-					spa_set_charge(spa_power_iter, 1);
+					spa_set_charge(spa_power_iter, SPA_CMD_CHARGE);
 					spa_power_iter->charging_status.status = SPA_STATUS_FULL_RECHARGE;
 					spa_start_charge_timer(CHARGE_TIMER_5HOUR, spa_power_iter);
 					pr_spa_dbg(LEVEL1, "%s : Do recharging after full charged \n", __func__);
 				}
 				else
 				{ // full-charged after recharging.
-					spa_set_charge(spa_power_iter, 0);
+#if 0  //defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+					spa_set_charge(spa_power_iter, SPA_CMD_DELAYED_DISCHARGE);
+					spa_power_iter->charging_status.status = SPA_STATUS_FULL_RECHARGE_BACK_CHARGING;
+#else
+					spa_set_charge(spa_power_iter, SPA_CMD_DISCHARGE);
 					spa_power_iter->charging_status.status = SPA_STATUS_NONE;
+#endif
 					spa_stop_charge_timer(spa_power_iter->charging_status, spa_power_iter);
 					pr_spa_dbg(LEVEL1, "%s : Do full charged - recharge full \n", __func__);
 				}
@@ -980,7 +1050,7 @@ static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char ma
 		else if(phase == POWER_SUPPLY_STATUS_NOT_CHARGING) //--------------------------------- NOT CHARGING
 		{
 			pr_spa_dbg(LEVEL1, "%s : Do not charging \n", __func__);
-			spa_set_charge(spa_power_iter, 0);
+			spa_set_charge(spa_power_iter, SPA_CMD_DISCHARGE);
 			spa_power_iter->charging_status.phase = POWER_SUPPLY_STATUS_NOT_CHARGING;
 			if(status == SPA_STATUS_SUSPEND_OVP)
 			{
@@ -1023,14 +1093,14 @@ static int spa_do_status(struct spa_power_desc *spa_power_iter, unsigned char ma
 		{
 			if(status == SPA_STATUS_FULL_FORCE) // FORCE FULL
 			{
-				spa_set_charge(spa_power_iter, 0);
+				spa_set_charge(spa_power_iter, SPA_CMD_DISCHARGE);
 				spa_power_iter->charging_status.phase = POWER_SUPPLY_STATUS_FULL;
 				spa_power_iter->charging_status.status = SPA_STATUS_FULL_FORCE;
 				pr_spa_dbg(LEVEL1, "%s : Do full charged - force full \n", __func__);
 			}
 			else if(status == SPA_STATUS_FULL_RECHARGE) // RECHARGE AFTER FORCE FULL
 			{
-				spa_set_charge(spa_power_iter, 1);
+				spa_set_charge(spa_power_iter, SPA_CMD_CHARGE);
 				spa_power_iter->charging_status.status = SPA_STATUS_FULL_RECHARGE;
 				pr_spa_dbg(LEVEL1, "%s : Do recharging after full charged \n", __func__);
 			}
@@ -1099,7 +1169,7 @@ static void spa_stop_charge_timer(SPA_CHARGING_STATUS_T endtype, void *data)
 
 static void spa_expire_charge_timer(struct work_struct *work)
 {
-	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, spa_expire_charge_work);
+	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, spa_expire_charge_work.work);
 
 	volatile unsigned int times_expired=0;
 
@@ -1278,7 +1348,7 @@ static void spa_update_power_supply_charger(struct spa_power_desc *spa_power_ite
 
 static void spa_fast_charging_work(struct work_struct *work)
 {
-	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, fast_charging_work);
+	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, fast_charging_work.work);
 	struct power_supply *ps;
 	union power_supply_propval value;
 
@@ -1298,7 +1368,7 @@ static void spa_fast_charging_work(struct work_struct *work)
 
 static void spa_batt_work(struct work_struct *work)
 {
-	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, battery_work);
+	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, battery_work.work);
 #if !defined(SPA_TEMPERATURE_INT)
 	struct spa_power_data *pdata = spa_power_iter->pdata;
 #endif
@@ -1639,7 +1709,7 @@ static void spa_delayed_init_work(struct work_struct *work)
 {
 	int ret=0;
 	unsigned int init_progress;
-	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, delayed_init_work);
+	struct spa_power_desc *spa_power_iter = container_of(work, struct spa_power_desc, delayed_init_work.work);
 
 	struct power_supply *ps;
 
@@ -1733,6 +1803,9 @@ static int spa_power_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&spa_power_iter->battery_work, spa_batt_work);
 	INIT_DELAYED_WORK(&spa_power_iter->delayed_init_work, spa_delayed_init_work);
 	INIT_DELAYED_WORK(&spa_power_iter->fast_charging_work, spa_fast_charging_work);
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+	INIT_DELAYED_WORK(&spa_power_iter->back_charging_work, spa_back_charging_work);
+#endif
 	INIT_DELAYED_WORK(&spa_power_iter->spa_expire_charge_work, spa_expire_charge_timer);
 
 	spa_init_config(spa_power_iter);
@@ -1776,6 +1849,9 @@ static void __devexit spa_power_remove(struct platform_device *pdev)
 
 	pr_spa_dbg(LEVEL4,"%s : enter \n", __func__);
 	cancel_delayed_work_sync(&spa_power_iter->battery_work);
+#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+	cancel_delayed_work_sync(&spa_power_iter->back_charging_work);
+#endif
 	cancel_delayed_work_sync(&spa_power_iter->spa_expire_charge_work);
 
 	destroy_workqueue(spa_power_iter->spa_workqueue);

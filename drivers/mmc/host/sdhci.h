@@ -282,6 +282,8 @@ struct sdhci_ops {
 	void	(*platform_reset_enter)(struct sdhci_host *host, u8 mask);
 	void	(*platform_reset_exit)(struct sdhci_host *host, u8 mask);
 	int	(*set_uhs_signaling)(struct sdhci_host *host, unsigned int uhs);
+	int	(*platform_set_timeout)(struct sdhci_host *host, unsigned int timeout);
+	int	(*platform_get_timeout)(struct sdhci_host *host, bool def_val, unsigned int *timeout);
 
 };
 

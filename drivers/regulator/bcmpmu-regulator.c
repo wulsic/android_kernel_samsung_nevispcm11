@@ -197,11 +197,8 @@ static int bcmpmureg_get_status(struct regulator_dev *rdev)
 	case LDO_RESERVED_SR_NM2:
 		if (ldo_or_sr == BCMPMU_SR)
 			return REGULATOR_STATUS_FAST;
-	else
-		return -EINVAL;
-	default:
-		return -EINVAL;
 	}
+		return -EINVAL;
 }
 
 /*
@@ -240,11 +237,8 @@ static unsigned int bcmpmureg_get_mode(struct regulator_dev *rdev)
 	case LDO_RESERVED_SR_NM2:
 	if (ldo_or_sr == BCMPMU_SR)
 		return REGULATOR_MODE_FAST;
-	else
-		return -EINVAL;
-	default:
-	return -EINVAL;
 	}
+	return -EINVAL;
 }
 
 /*

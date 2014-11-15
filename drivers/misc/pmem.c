@@ -50,8 +50,8 @@ struct pmem_data {
 	 * same time as this sem, the mm sem must be taken first (as this is
 	 * the order for vma_open and vma_close ops */
 	struct rw_semaphore sem;
-	/* info about the mmaping process */
-	struct vm_area_struct *vma;
+	/* Backup pfn to track the bug */
+	unsigned long backup_pfn;
 	/* task struct of the mapping process */
 	struct task_struct *task;
 	/* process id of teh mapping process */
@@ -248,13 +248,25 @@ static void pmem_update_kernel_mappings(int id, struct file *file,
 		return;
 
 	if (!pfn_valid(data->pfn)) {
-		printk(KERN_EMERG"pmem: pfn(%lx) is invalid\n"
+		struct task_struct *tsk;
+		rcu_read_lock();
+		tsk = find_task_by_pid_ns(data->pid, &init_pid_ns);
+		rcu_read_unlock();
+
+		printk(KERN_EMERG"pmem: mem_map(0x%p) sizeof(struct page:%d)"
+				"pfn(%lx) backup_pfn(%lx) is invalid\n"
 				" flags(0x%08x) process(%s/%d/%d)"
+				" allocating process (%s/%d/%d)"
 				" allocsize(%ld pages). Crashing now!!\n",
-				data->pfn, data->flags,
+				mem_map, sizeof(struct page),
+				data->pfn, data->backup_pfn, data->flags,
 				current->group_leader->comm,
 				current->group_leader->pid,
-				current->pid, (pmem_len(data) >> PAGE_SHIFT));
+				current->pid,
+				tsk ? tsk->comm : "NULL Task",
+				tsk ? tsk->pid : -1,
+				tsk ? tsk->pid : -1,
+				(pmem_len(data) >> PAGE_SHIFT));
 		BUG();
 	}
 
@@ -370,7 +382,7 @@ static bool should_retry_allocation(int id, struct pmem_data *data)
 /* Must have down_write(&data->sem) locked */
 static int pmem_cma_allocate(int id, unsigned long len, struct pmem_data *data)
 {
-	struct page *page;
+	struct page *page = NULL;
 	unsigned long nr_pages = len >> PAGE_SHIFT;
 	unsigned int pass = 0;
 	int ret = 0;
@@ -383,12 +395,23 @@ static int pmem_cma_allocate(int id, unsigned long len, struct pmem_data *data)
 	do {
 		page = dma_alloc_from_contiguous(&pmem[id].pdev->dev,
 						nr_pages, 0);
-		if (likely(page))
-			break;
+		if (page != NULL) {
+			if (!pfn_valid(page_to_pfn(page))) {
+				printk(KERN_EMERG
+					"pmem: Invalid page mem_map(0x%p)"
+					" sizeof(struct page:%d)"
+					" pfn(%lx) page(%p)"
+					" process(%s/%d/%d)"
+					" allocsize(%ld pages)!!\n",
+					mem_map, sizeof(struct page),
+					page_to_pfn(page), page,
+					current->group_leader->comm,
+					current->group_leader->pid,
+					current->pid, nr_pages);
+				BUG();
 
-		if (fatal_signal_pending(current)) {
-			ret = -EINTR;
-			goto out;
+			}
+			break;
 		}
 
 		if ((++pass % 10) == 0) {
@@ -398,20 +421,41 @@ static int pmem_cma_allocate(int id, unsigned long len, struct pmem_data *data)
 					current->pid, pass,
 					nr_pages);
 		}
+
 		if (pass > 50) {
 			ret = -ENOMEM;
 			goto out;
 		}
 	} while (should_retry_allocation(id, data));
 
-	if (unlikely(fatal_signal_pending(current)))
+	if (page == NULL) {
+		if (unlikely(fatal_signal_pending(current)))
+			ret = -EINTR;
+		else
+			ret = -ENOMEM;
 		goto out;
+	}
 
-	BUG_ON(!current->group_leader->mm);
-	add_mm_counter(current->group_leader->mm, MM_CMAPAGES, nr_pages);
+	if (current->group_leader->mm)
+		add_mm_counter(current->group_leader->mm,
+				MM_CMAPAGES, nr_pages);
 	data->pfn = page_to_pfn(page);
+	data->backup_pfn = page_to_pfn(page);
 	data->size = len;
 	data->flags |= PMEM_FLAGS_CMA;
+	if (!pfn_valid(data->pfn)) {
+		printk(KERN_EMERG"pmem: mem_map(0x%p) sizeof(struct page:%d)"
+				" pfn(%lx) backup_pfn(%lx) is invalid\n"
+				" flags(0x%08x) process(%s/%d/%d)"
+				" allocsize(%ld pages). Crashing now!!\n",
+				mem_map, sizeof(struct page),
+				data->pfn, data->backup_pfn, data->flags,
+				current->group_leader->comm,
+				current->group_leader->pid,
+				current->pid,
+				len >> PAGE_SHIFT);
+		BUG();
+	}
 
 	if (!pmem_watermark_ok(&pmem[id]))
 		wake_up_all(&cleaners);
@@ -451,6 +495,8 @@ static int pmem_allocate(struct file *file, int id, struct pmem_data *data,
 		if (addr) {
 			data->flags |= PMEM_FLAGS_KMALLOC;
 			data->pfn = __phys_to_pfn(virt_to_phys((void *)addr));
+			data->backup_pfn =
+				__phys_to_pfn(virt_to_phys((void *)addr));
 			data->size = len;
 			goto out_unlock;
 		}
@@ -464,6 +510,7 @@ static int pmem_allocate(struct file *file, int id, struct pmem_data *data,
 		if (addr) {
 			data->flags |= PMEM_FLAGS_CARVEOUT;
 			data->pfn = __phys_to_pfn(addr);
+			data->backup_pfn = __phys_to_pfn(addr);
 			data->size = len;
 			outer_inv_range(addr, addr+len);
 			goto out_unlock;
@@ -474,7 +521,7 @@ static int pmem_allocate(struct file *file, int id, struct pmem_data *data,
 	}
 
 	ret = pmem_cma_allocate(id, len, data);
-	if (ret == -ENOMEM) {
+	if (ret && ret != -EINTR) {
 		printk(KERN_ERR"%s:%d pmem: Alloc failed (%ldkB, %ld pages)\n",
 				current->group_leader->comm,
 				current->group_leader->pid,
@@ -645,10 +692,10 @@ end:
 
 static int pmem_cma_free(int id, struct pmem_data *data)
 {
-	int ret;
 	struct page *page;
 	int nr_pages = pmem_len(data) >> PAGE_SHIFT;
 	struct task_struct *task = current->group_leader;
+	bool ret;
 
 	BUG_ON(!nr_pages);
 	BUG_ON(!(data->flags & PMEM_FLAGS_CMA));
@@ -657,7 +704,7 @@ static int pmem_cma_free(int id, struct pmem_data *data)
 	DLOG("pfn %d\n", data->pfn);
 
 	ret = dma_release_from_contiguous(&pmem[id].pdev->dev, page, nr_pages);
-	BUG_ON(ret == 0);
+	BUG_ON(!ret);
 
 	if (!(task->flags & PF_EXITING) &&
 		task_is_allocator(data, task) &&
@@ -729,6 +776,7 @@ static int pmem_free(struct file *file, int id, struct pmem_data *data)
 	}
 
 	data->pfn = -1UL;
+	data->backup_pfn = -1UL;
 	data->size = 0;
 
 out_unlock:
@@ -862,6 +910,7 @@ static int pmem_open(struct inode *inode, struct file *file)
 	}
 
 	data->pfn = -1UL;
+	data->backup_pfn = -1UL;
 	INIT_LIST_HEAD(&data->list);
 	init_rwsem(&data->sem);
 

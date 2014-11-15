@@ -1713,8 +1713,19 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		} else
 			conn->state = BT_CONNECTED;
 
+/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
+//		hci_conn_hold_device(conn);
+//		hci_conn_add_sysfs(conn);
+
+/* We could have somehow not hci_conn_deleted, due to errors in the HCI transport. */
+		if (atomic_read(&conn->devref) == 0) {
 		hci_conn_hold_device(conn);
 		hci_conn_add_sysfs(conn);
+		} else {
+			BT_ERR("connection to %s was never torn down", batostr(&ev->bdaddr));
+			hci_proto_disconn_cfm(conn, 0x16);
+		}
+/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
 
 		if (test_bit(HCI_AUTH, &hdev->flags))
 			conn->link_mode |= HCI_LM_AUTH;
@@ -2928,8 +2939,18 @@ static inline void hci_sync_conn_complete_evt(struct hci_dev *hdev, struct sk_bu
 		conn->handle = __le16_to_cpu(ev->handle);
 		conn->state  = BT_CONNECTED;
 
+/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
+//		hci_conn_hold_device(conn);
+//		hci_conn_add_sysfs(conn);
+/* We could have somehow not hci_conn_deleted, due to errors in the HCI transport. */
+		if (atomic_read(&conn->devref) == 0) {
 		hci_conn_hold_device(conn);
 		hci_conn_add_sysfs(conn);
+		} else {
+			BT_ERR("sync connection to %s was never torn down", batostr(&ev->bdaddr));
+			hci_proto_disconn_cfm(conn, 0x16);
+		}
+/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
 		break;
 
 	/*case 0x10:*//* Connection Accept Timeout */

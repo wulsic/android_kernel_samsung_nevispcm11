@@ -159,7 +159,7 @@ static int vibrator_probe(struct platform_device *pdev)
 	vibrator_timed_dev.enable = vibrator_enable_set_timeout;
 	vibrator_timed_dev.get_time = vibrator_get_remaining_time;
 	
-#if defined(CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_IVORYSS) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
+#if defined(CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_IVORYSS) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
 	vib_voltage = 3000000;
 #else
 	vib_voltage = 3300000;

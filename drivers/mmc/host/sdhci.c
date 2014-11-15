@@ -50,6 +50,7 @@
 #define MAX_TUNING_LOOP 40
 
 static unsigned int debug_quirks = 0;
+extern bool SDstatusChaning;
 
 #ifdef CONFIG_SDHCI_THROUGHPUT
 
@@ -2073,6 +2074,32 @@ static int sdhci_disable(struct mmc_host *mmc, int lazy)
 		return -ENODEV;
 }
 
+static int sdhci_set_timeout(struct mmc_host *mmc,unsigned int timeout)
+{
+	struct sdhci_host *host = mmc_priv(mmc);
+	
+	if (host->ops->platform_set_timeout)
+			return host->ops->platform_set_timeout(host,timeout);
+		else{
+			printk("%s- Don't Support platform_set_timeout\n",__func__);
+			return -ENODEV;
+		}
+
+
+}
+static int sdhci_get_timeout(struct mmc_host *mmc, bool def_val, unsigned int *timeout)
+{
+	struct sdhci_host *host = mmc_priv(mmc);
+	
+	if (host->ops->platform_get_timeout)
+			return host->ops->platform_get_timeout(host, def_val,timeout);
+	else{
+		printk("%s- Don't Support platform_get_timeout\n",__func__);
+		return -ENODEV;
+	}
+
+}
+
 static const struct mmc_host_ops sdhci_ops = {
 	.request	= sdhci_request,
 	.set_ios	= sdhci_set_ios,
@@ -2083,6 +2110,8 @@ static const struct mmc_host_ops sdhci_ops = {
 	.enable_preset_value		= sdhci_enable_preset_value,
 	.disable	= sdhci_disable,
 	.enable		= sdhci_enable,
+	.set_timeout = sdhci_set_timeout,
+	.get_timeout = sdhci_get_timeout,
 };
 
 /*****************************************************************************\
@@ -2101,7 +2130,9 @@ static void sdhci_tasklet_card(unsigned long param)
 	host = (struct sdhci_host*)param;
 
 	spin_lock_irqsave(&host->lock, flags);
-
+	if (!strcmp(mmc_hostname(host->mmc), "mmc1")) {
+		SDstatusChaning = true;
+	}
 	if (host->mrq) {
 		if (!(sdhci_readl(host, SDHCI_PRESENT_STATE) &
 					SDHCI_CARD_PRESENT)) {
@@ -2749,12 +2780,11 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 	 * in case of SDIO. (The type is detected dynamically while talking to
 	 * the card from mmc_sdio_init_card function.
 	 */
-	if (mmc->card) {
-		ret = mmc_suspend_host(host->mmc);
-			if (ret)
-				goto suspend_ret;
+	ret = mmc_suspend_host(host->mmc);
+	if (ret)
+		goto suspend_ret;
 			
-		if(mmc->card->type == MMC_TYPE_SD)
+	if (mmc->card && (mmc->card->type == MMC_TYPE_SD)) {
 			mdelay(50);// this is Samsung internal specification.
 	}
 
@@ -2816,8 +2846,7 @@ int sdhci_resume_host(struct sdhci_host *host)
 	 * only for non SDIO case, so resume too should happen only for non
 	 * SDIO case.
 	 */
-	if (mmc->card)
-		ret = mmc_resume_host(host->mmc);
+	ret = mmc_resume_host(host->mmc);
 
 	sdhci_enable_card_detection(host);
 

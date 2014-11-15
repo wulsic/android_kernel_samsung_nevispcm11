@@ -92,7 +92,7 @@ static const char __initdata d2083_battery_banner[] = \
 extern int fsa9480_read_charger_status(u8 *val);
 extern int fsa9480_read_charge_current(u8 *val);
 extern int fsa9480_reset_ic(void);
-extern int fsa9480_is_back_chg();
+extern int fsa9480_is_back_chg(void);
 
 extern int musb_info_handler(struct notifier_block *nb, unsigned long event, void *para);
 
@@ -1654,7 +1654,7 @@ static int d2083_get_calibration_offset(int voltage, int y1, int y0)
  */
 static int d2083_read_voltage(struct d2083_battery *pbat)
 {
-	int new_vol_adc = 0, base_weight = 0,base_diff_adc, new_vol_orign;
+	int new_vol_adc = 0, base_weight = 0,new_vol_orign;
 	int battery_status, offset_with_old, offset_with_new = 0;
 	int ret = 0;
 	static int calOffset_4P2, calOffset_3P4 = 0;
@@ -1856,7 +1856,6 @@ static int d2083_read_voltage(struct d2083_battery *pbat)
 			u8 i = 0;
 			u8 res_msb, res_lsb, is_convert = 0;
 			u32 capacity, convert_vbat_adc;
-			int result=0,result_vol_adc=0,result_temp_adc=0;
 			int X1, X0;
 			int Y1, Y0 = FIRST_VOLTAGE_DROP_ADC;
 			int X = C2K(pbat_data->average_temperature);
@@ -1905,9 +1904,7 @@ static int d2083_read_voltage(struct d2083_battery *pbat)
 										pbat->pd2083->vbat_init_adc[2]) / 3;
 
 				if(pchg_data->is_charging) {
-					u8 i, read_status, is_cv_charging = 0;
-					u16 orign_average_voltage_adc = 0;
-					u32 orign_sum_voltage_adc = 0;
+					u8 read_status, is_cv_charging;
 					int Y;
 
 					fsa9480_read_charger_status(&read_status);
@@ -2327,6 +2324,21 @@ static void d2083_vf_charge_stop(struct d2083_battery *pbat)
 
 
 /* 
+ * Name : d2083_vf_charge_restart
+ */
+static void d2083_vf_charge_restart(struct d2083_battery *pbat)
+{
+	if(d2083_get_charger_type(pbat) != CHARGER_TYPE_NONE) {
+		pr_info("%s. Restart charging from vf open recovery\n", __func__);
+		d2083_set_battery_health(pbat, POWER_SUPPLY_HEALTH_GOOD);
+		d2083_clear_end_of_charge(pbat, BAT_END_OF_CHARGE_BY_VF_OPEN);
+		d2083_set_battery_status(pbat, POWER_SUPPLY_STATUS_CHARGING);
+		d2083_start_charge(pbat, BAT_CHARGE_START_TIMER);
+	}
+}
+
+
+/* 
  * Name : d2083_ta_get_property
  */
 static int d2083_ta_get_property(struct power_supply *psy,
@@ -2675,10 +2687,16 @@ static void d2083_monitor_voltage_work(struct work_struct *work)
 
 		ret = d2083_read_vf(pbat); 
 		if(!ret) {
-			if(pbat_data->vf_adc == 0xFFF) {
+			if(pbat_data->vf_adc == 0xFFF 
+				&& pbat_data->battery_present == TRUE) {
 				// In case of, battery was removed.
 				pbat_data->battery_present = FALSE;
 					d2083_vf_charge_stop(pbat);
+			} else if(pbat_data->battery_present == FALSE
+				&& (pbat_data->vf_adc < 0xFFF) 
+				&& d2083_check_end_of_charge(pbat, BAT_END_OF_CHARGE_BY_VF_OPEN) == 0) {
+				pbat_data->battery_present = TRUE;
+				d2083_vf_charge_restart(pbat);
 			}
 		} else {
 			pr_err("%s. Read VF ADC failure\n", __func__);

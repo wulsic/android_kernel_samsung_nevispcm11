@@ -1354,14 +1354,6 @@ static int __devexit fsa9480_remove(struct i2c_client *client)
 
 static int fsa9480_suspend(struct i2c_client *client)
 {
-#if 0	// TODO: 
-	gpio_direction_output(mfp_to_gpio(MFP_PIN_GPIO64),1); // set_value
-	gpio_direction_output(mfp_to_gpio(MFP_PIN_GPIO66),1);
-#endif
-
-	printk("[FSA9480] fsa9480_suspend  enable_irq_wake...\n");
-		enable_irq_wake(client->irq);
-
        return 0;
 }
 
@@ -1369,23 +1361,12 @@ static int fsa9480_suspend(struct i2c_client *client)
 #ifdef CONFIG_PM
 static int fsa9480_resume(struct i2c_client *client)
 {
-	   printk("[FSA9480] fsa9480_resume  disable_irq_wake...\n");
-	   disable_irq_wake(client->irq);
-#if 0
-	if(isManual==1)
-	{
-		if(muic_type==muicTypeFSA880)
-			fsa9480_write_reg(client, FSA9480_REG_CTRL, 0x04);
-		else
-			fsa9480_write_reg(client, FSA9480_REG_CTRL, 0x1E);
 
-		isManual=0;
-	}
-#endif
        return 0;
 }
 #else
 #define fsa9480_resume         NULL
+
 #endif
 
 static void TSU8111_Charger_BackCHG_Enable(void)

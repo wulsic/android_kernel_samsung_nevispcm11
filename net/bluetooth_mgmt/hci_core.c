@@ -1591,11 +1591,12 @@ static void hci_clear_adv_cache(unsigned long arg)
 	BT_DBG("");
 	return;
 
-	hci_dev_lock(hdev);
+/* This code cannot be reached */
+/*	hci_dev_lock(hdev);
 
 	hci_adv_entries_clear(hdev);
 
-	hci_dev_unlock(hdev);
+	hci_dev_unlock(hdev); */
 }
 
 int hci_adv_entries_clear(struct hci_dev *hdev)

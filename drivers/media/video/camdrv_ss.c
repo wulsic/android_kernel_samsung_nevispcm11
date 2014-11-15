@@ -90,7 +90,11 @@ static dev_t rear_flash_devnum;
 static bool cam_class_init = false;
 ssize_t maincamtype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorname = CAMDRV_SS_MODULE_NAME_MAIN;
+	char *sensorname;    /* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
+	#if defined(CONFIG_SOC_CAMERA)
+	camdrv_ss_sensor_main_name( &sensor);
+        #endif
+	sensorname=sensor.name;
 	CAM_INFO_PRINTK("%s  Enter\n", __func__);
 
 	return sprintf(buf, "%s\n", sensorname);
@@ -105,7 +109,7 @@ ssize_t maincamtype_store(struct device *dev, struct device_attribute *attr, con
 ssize_t maincamfw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	char *sensorfw ;
-	#if defined(CONFIG_SOC_SUB_CAMERA) ||defined (CONFIG_MACH_RHEA_SS_CORSICA)
+	#if defined(CONFIG_SOC_CAMERA)
 		camdrv_ss_sensor_main_name( &sensor);
          #endif
 
@@ -123,7 +127,11 @@ ssize_t maincamfw_store(struct device *dev, struct device_attribute *attr, const
 
 ssize_t subcamtype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorname = CAMDRV_SS_MODULE_NAME_SUB;
+	char *sensorname;    /* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
+	#ifdef CONFIG_SOC_SUB_CAMERA
+	camdrv_ss_sensor_sub_name( &sensor);
+	#endif
+	sensorname=sensor.name;
 	CAM_INFO_PRINTK("%s  Enter\n", __func__);
 
 	return sprintf(buf, "%s\n", sensorname);
@@ -203,6 +211,7 @@ ssize_t rear_flash_show(struct device *dev,
 	size_t count)
 {
         struct v4l2_subdev *sd;
+        sd = NULL;
 	if (buf[0] == '0')
 	{
 		if (sensor.AAT_flash_control != NULL)
@@ -225,6 +234,7 @@ ssize_t rear_flash_store(struct device *dev,
 	size_t count)
 {
         struct v4l2_subdev *sd;
+        sd = NULL;
 	
 		camdrv_ss_sensor_init_main(0, &sensor);
 	if (buf[0] == '0')
@@ -3064,7 +3074,7 @@ static int camdrv_ss_set_ev(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		if (sensor.ev_plus_1_5_regs == 0)
 			CAM_ERROR_PRINTK("%s %s : ev_plus_1_5_regs not supported !!!\n", sensor.name, __func__);
 		else
-			err = camdrv_ss_i2c_set_config_register(client, sensor.ev_plus_1_regs, sensor.rows_num_ev_plus_1_5_regs, "ev_plus_1_5_regs");
+			err = camdrv_ss_i2c_set_config_register(client, sensor.ev_plus_1_5_regs, sensor.rows_num_ev_plus_1_5_regs, "ev_plus_1_5_regs");
 
 		break;
 	}
@@ -3514,7 +3524,7 @@ static int camdrv_ss_set_autocontrast(struct v4l2_subdev *sd, struct v4l2_contro
 		/*  off */
 		CAM_INFO_PRINTK("%s %s :OFF !!\n", sensor.name, __func__);
 
-		if (sensor.auto_contrast_on_regs == NULL)
+		if (sensor.auto_contrast_off_regs == NULL)
 			CAM_ERROR_PRINTK("%s %s : auto_contrast_off_regs is NULL, please check if it is needed !!!\n", sensor.name, __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sensor.auto_contrast_off_regs, sensor.rows_num_auto_contrast_off_regs, "auto_contrast_off_regs");

@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 363319 2012-10-17 04:44:07Z $
+ * $Id: dhd.h 383286 2013-02-06 06:41:25Z $
  */
 
 /****************
@@ -684,15 +684,11 @@ extern uint dhd_sdiod_drive_strength;
 /* Override to force tx queueing all the time */
 extern uint dhd_force_tx_queueing;
 /* Default KEEP_ALIVE Period is 55 sec to prevent AP from sending Keep Alive probe frame */
-#if defined(CUSTOMER_HW4)
-#ifdef KEEP_ALIVE_PACKET_PERIOD_30_SEC
-#define KEEP_ALIVE_PERIOD 30000
-#else /* KEEP_ALIVE_PACKET_PERIOD_30_SEC */
-#define KEEP_ALIVE_PERIOD 55000
-#endif /* KEEP_ALIVE_PACKET_PERIOD_30_SEC */
-#else
-#define KEEP_ALIVE_PERIOD 55000
-#endif /* CUSTOMER_HW4 */
+#define DEFAULT_KEEP_ALIVE_VALUE 	55000 /* msec */
+#ifndef CUSTOM_KEEP_ALIVE_SETTING
+#define CUSTOM_KEEP_ALIVE_SETTING 	DEFAULT_KEEP_ALIVE_VALUE
+#endif /* DEFAULT_KEEP_ALIVE_VALUE */
+
 #define NULL_PKT_STR	"null_pkt"
 
 /* hooks for custom glom setting option via Makefile */

@@ -3,13 +3,13 @@
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
  * Copyright (C) 1999-2012, Broadcom Corporation
- *
+ * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
  * under the terms of the GNU General Public License version 2 (the "GPL"),
  * available at http://www.broadcom.com/licenses/GPLv2.php, with the
  * following added to such license:
- *
+ * 
  *      As a special exception, the copyright holders of this software give you
  * permission to link this software with independent modules, and to copy and
  * distribute the resulting executable under terms of your choice, provided that
@@ -17,12 +17,12 @@
  * the license of that module.  An independent module is a module which is not
  * derived from this software.  The special exception does not apply to any
  * modifications of the software.
- *
+ * 
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_linux.c 373329 2012-12-07 04:46:09Z $
+ * $Id: dhd_linux.c 394921 2013-04-04 06:53:21Z $
  */
 
 #include <typedefs.h>
@@ -657,9 +657,9 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 	/* wl_pkt_filter_enable_t	enable_parm; */
 	char iovbuf[32];
 	int bcn_li_dtim = 0; /* Default bcn_li_dtim in resume mode is 0 */
-#ifndef DISABLE_FW_ROAM_SUSPEND
+#ifndef ENABLE_FW_ROAM_SUSPEND
 	uint roamvar = 1;
-#endif
+#endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
 	int bcn_li_bcn;
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
@@ -709,12 +709,12 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 					4, iovbuf, sizeof(iovbuf));
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 
-#ifndef DISABLE_FW_ROAM_SUSPEND
+#ifndef ENABLE_FW_ROAM_SUSPEND
 				/* Disable firmware roaming during suspend */
 				bcm_mkiovar("roam_off", (char *)&roamvar, 4,
 					iovbuf, sizeof(iovbuf));
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-#endif
+#endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
 				bcn_li_bcn = 0;
 				bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
@@ -754,12 +754,12 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 					4, iovbuf, sizeof(iovbuf));
 
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-#ifndef DISABLE_FW_ROAM_SUSPEND
+#ifndef ENABLE_FW_ROAM_SUSPEND
 				roamvar = dhd_roam_disable;
 				bcm_mkiovar("roam_off", (char *)&roamvar, 4, iovbuf,
 					sizeof(iovbuf));
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-#endif
+#endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
 				bcn_li_bcn = 1;
 				bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
@@ -1238,7 +1238,7 @@ dhd_op_if(dhd_if_t *ifp)
 		}
 		/* Allocate etherdev, including space for private structure */
 		if (!(ifp->net = alloc_etherdev(sizeof(dhd)))) {
-			DHD_ERROR(("%s: OOM - alloc_etherdev\n", __FUNCTION__));
+			DHD_ERROR(("%s: OOM - alloc_etherdev(%d)\n", __FUNCTION__, sizeof(dhd)));
 			ret = -ENOMEM;
 		}
 		if (ret == 0) {
@@ -1764,6 +1764,9 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 		struct dot11_llc_snap_header *lsh;
 #endif
 
+		pnext = PKTNEXT(dhdp->osh, pktbuf);
+		PKTSETNEXT(wl->sh.osh, pktbuf, NULL);
+
 		ifp = dhd->iflist[ifidx];
 		if (ifp == NULL) {
 			DHD_ERROR(("%s: ifp is NULL. drop packet\n",
@@ -1784,9 +1787,6 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			continue;
 		}
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0) */
-
-		pnext = PKTNEXT(dhdp->osh, pktbuf);
-		PKTSETNEXT(wl->sh.osh, pktbuf, NULL);
 
 #ifdef WLBTAMP
 		eh = (struct ether_header *)PKTDATA(wl->sh.osh, pktbuf);
@@ -2183,7 +2183,6 @@ dhd_dpc_thread(void *data)
 			break;
 	}
 
-	printk("dhd_dpc_thread terminated.\n");
 	complete_and_exit(&tsk->completed, 0);
 }
 #endif /* DHDTHREAD */
@@ -2801,6 +2800,12 @@ dhd_open(struct net_device *net)
 	int ifidx;
 	int32 ret = 0;
 
+	/* WAR : to prevent calling dhd_open abnormally in quick succession after hang event */
+	if (dhd->pub.hang_was_sent == 1) {
+		DHD_ERROR(("%s: HANG was sent up earlier\n", __FUNCTION__));
+		return -1;
+	}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) && 1
 	if (mutex_is_locked(&_dhd_sdio_mutex_lock_) != 0) {
 		DHD_ERROR(("%s : dhd_open: call dev open before insmod complete!\n", __FUNCTION__));
@@ -3020,7 +3025,7 @@ dhd_add_if(dhd_info_t *dhd, int ifidx, void *handle, char *name,
 		}
 	} else
 		if ((ifp = MALLOC(dhd->pub.osh, sizeof(dhd_if_t))) == NULL) {
-			DHD_ERROR(("%s: OOM - dhd_if_t\n", __FUNCTION__));
+			DHD_ERROR(("%s: OOM - dhd_if_t(%d)\n", __FUNCTION__, sizeof(dhd_if_t)));
 			return -ENOMEM;
 		}
 
@@ -3584,7 +3589,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	int ret = 0;
 	char eventmask[WL_EVENTING_MASK_LEN];
 	char iovbuf[WL_EVENTING_MASK_LEN + 12];	/*  Room for "event_msgs" + '\0' + bitvec  */
-
+	uint32 buf_key_b4_m4 = 1;
 #if !defined(WL_CFG80211)
 	uint up = 0;
 #endif /* !defined(WL_CFG80211) */
@@ -3890,6 +3895,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		}
 	}
 #endif /* defined(KEEP_ALIVE) */
+
+	bcm_mkiovar("buf_key_b4_m4", (char *)&buf_key_b4_m4, 4, iovbuf, sizeof(iovbuf));
+	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 
 	/* Read event_msgs mask */
 	bcm_mkiovar("event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf, sizeof(iovbuf));
@@ -4566,7 +4574,6 @@ void dhd_detach(dhd_pub_t *dhdp)
 		wake_lock_destroy(&dhd->wl_ctrlwake);
 #endif /* CONFIG_HAS_WAKELOCK */
 	}
-	DHD_ERROR(("dhd_detach done. \n"));
 }
 
 
@@ -5512,7 +5519,7 @@ dhd_get_pend_8021x_cnt(dhd_info_t *dhd)
 	return (atomic_read(&dhd->pend_8021x_cnt));
 }
 
-#define MAX_WAIT_FOR_8021X_TX	25
+#define MAX_WAIT_FOR_8021X_TX	50
 
 int
 dhd_wait_pend8021x(struct net_device *dev)
@@ -5532,7 +5539,10 @@ dhd_wait_pend8021x(struct net_device *dev)
 		pend = dhd_get_pend_8021x_cnt(dhd);
 	}
 	if (ntimes == 0)
+	{
+		atomic_set(&dhd->pend_8021x_cnt, 0);
 		DHD_ERROR(("%s: TIMEOUT\n", __FUNCTION__));
+	}
 	return pend;
 }
 
@@ -5788,6 +5798,9 @@ int dhd_ioctl_entry_local(struct net_device *net, wl_ioctl_t *ioc, int cmd)
 	}
 
 	dhd = *(dhd_info_t **)netdev_priv(net);
+	if (!dhd)
+		return -EINVAL;
+
 	ifidx = dhd_net2idx(dhd, net);
 	if (ifidx == DHD_BAD_IF) {
 		DHD_ERROR(("%s bad ifidx\n", __FUNCTION__));

@@ -466,7 +466,7 @@ static int bcmpmu_chrgr_get_property(struct power_supply *ps,
 			propval->intval = POWER_SUPPLY_TYPE_USB;
 		else if (pchrgr->chrgrtype == PMU_CHRGR_TYPE_CDP)
 			propval->intval = POWER_SUPPLY_TYPE_USB_CDP;
-#if defined(CONFIG_MACH_RHEA_SS_CORIPLUS) || defined(CONFIG_MACH_RHEA_SS_ZANIN)
+#if defined(CONFIG_MACH_RHEA_SS_CORIPLUS) || defined(CONFIG_MACH_RHEA_SS_ZANIN)|| defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
         else if (pchrgr->chrgrtype == PMU_CHRGR_TYPE_TYPE1)
             propval->intval = POWER_SUPPLY_TYPE_USB_DCP;
 #endif
@@ -558,7 +558,7 @@ static int bcmpmu_chrgr_event_handler(struct notifier_block *nb,
 			data = POWER_SUPPLY_TYPE_USB;
 		else if (pchrgr->chrgrtype == PMU_CHRGR_TYPE_CDP)
 			data = POWER_SUPPLY_TYPE_USB_CDP;
-#if defined(CONFIG_MACH_RHEA_SS_CORIPLUS)|| defined(CONFIG_MACH_RHEA_SS_ZANIN)
+#if defined(CONFIG_MACH_RHEA_SS_CORIPLUS)|| defined(CONFIG_MACH_RHEA_SS_ZANIN)|| defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
         else if (pchrgr->chrgrtype == PMU_CHRGR_TYPE_TYPE1)
             data = POWER_SUPPLY_TYPE_USB_DCP;                  
 #endif
@@ -875,7 +875,7 @@ static int __init bcmpmu_chrgr_init(void)
 {
 	return platform_driver_register(&bcmpmu_chrgr_driver);
 }
-module_init(bcmpmu_chrgr_init);
+subsys_initcall(bcmpmu_chrgr_init);
 
 static void __exit bcmpmu_chrgr_exit(void)
 {

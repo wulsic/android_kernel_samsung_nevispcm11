@@ -1782,11 +1782,11 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 		if (rc)
 			goto err_free_clk;
 	} else {
-		/* use default speed */
-		dev->speed = DEFAULT_I2C_BUS_SPEED;
-		dev->high_speed_mode = 0;
-		dev->bsc_clk = NULL;
-		dev->bsc_apb_clk = NULL;
+		/* Currently BSC i2c does not support if
+		 * platform data is NULL */
+		 pr_err("BSC: Platform data is NULL\n");
+		 rc = -EINVAL;
+		 goto err_free_dev_mem;
 	}
 
 	/* Initialize the error flag */
@@ -1829,7 +1829,6 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	 * If the platform data is not present set it to default speed using
 	 * the 13MHz reference
 	 */
-	if (hw_cfg) {
 		if (dev->high_speed_mode)
 			bsc_set_bus_speed((uint32_t)dev->virt_base,
 				  gBusSpeedTable[dev->speed],
@@ -1838,10 +1837,6 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 			bsc_set_bus_speed((uint32_t)dev->virt_base,
 				  gBusSpeedTable[dev->speed],
 				  hw_cfg->fs_ref);
-	} else
-		bsc_set_bus_speed((uint32_t)dev->virt_base,
-				  gBusSpeedTable[dev->speed],
-				  BSC_BUS_REF_13MHZ);
 
 	/* curent speed configured */
 	dev->current_speed = dev->speed;
@@ -1901,7 +1896,7 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	adap->algo = &bsc_algo;
 	adap->dev.parent = &pdev->dev;
 	adap->nr = pdev->id;
-	adap->retries = hw_cfg ? hw_cfg->retries : 0;
+	adap->retries = hw_cfg->retries;
 
 	/* Initialize the proc entry */
 	rc = proc_init(pdev);
@@ -1927,7 +1922,7 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	 * reboot
 	 *
 	 */
-	if (dev->high_speed_mode && hw_cfg && hw_cfg->is_pmu_i2c) {
+	if (dev->high_speed_mode && hw_cfg->is_pmu_i2c) {
 #ifdef CONFIG_KONA_PMU_BSC_USE_PMGR_HW_SEM
 		rc = pwr_mgr_pm_i2c_sem_lock();
 		if (rc) {

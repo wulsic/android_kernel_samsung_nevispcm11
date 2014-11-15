@@ -513,6 +513,12 @@ config RMI4_FW_CORSICA
 	help
 	  This enables support for Synaptics RMI over I2C based touchscreens.
 
+config RMI4_FW_CORSICASS
+	tristate "Synaptics i2c touchscreen for CORSICASS"
+	depends on I2C
+	help
+	  This enables support for Synaptics RMI over I2C based touchscreens.
+
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
 	select SERIO
@@ -901,4 +907,7 @@ config TOUCHSCREEN_MMS134S
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called mms134s_ts.     
+
+source "drivers/input/touchscreen/imagis/Kconfig"
+
 endif

@@ -1042,9 +1042,9 @@ static unsigned int  rheass_button_adc_values [3][2] =
 	/* SEND/END Min, Max*/
         {0,     95},
 	/* Volume Up  Min, Max*/
-        {96,    240},
+        {96,    200},
 	/* Volue Down Min, Max*/
-        {241,   500},
+        {201,   480},
 };
 
 static struct kona_headset_pd headset_data = {

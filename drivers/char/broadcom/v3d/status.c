@@ -108,10 +108,15 @@ static int proc_entry_verbose_read(
 	void  *context)
 {
 	proc_entry_t *instance = (proc_entry_t *) context;
-	v3d_driver_t *driver   = instance->driver;
+	v3d_driver_t *driver;
 	unsigned int copy;
-	if (offset == 0 || instance == NULL) {
-		if (instance == NULL || instance->buffer == NULL) {
+	if (instance == NULL) {
+		*eof = 1;
+		return 0;
+	}
+	driver = instance->driver;
+	if (offset == 0) {
+		if (instance->buffer == NULL) {
 			*eof = 1;
 			return 0;
 		}
@@ -491,10 +496,6 @@ unsigned int session_read(v3d_driver_t *driver, char *buffer, unsigned int bytes
 			calculated_statistics_t calculated_statistics[5];
 			statistics_t   statistics[5];
 			unsigned int   run = session->total_run;
-			unsigned int   queued = 0;
-			unsigned int   active = 0;
-			unsigned int   completed = 0;
-			unsigned int   failed = 0;
 			v3d_driver_job_t *job;
 			unsigned long  flags;
 
@@ -537,12 +538,6 @@ unsigned int session_read(v3d_driver_t *driver, char *buffer, unsigned int bytes
 			calculate_job_statistics(&calculated_statistics[3], &statistics[3]);
 			calculate_job_statistics(&calculated_statistics[4], &statistics[4]);
 
-			if (queued + active + completed + failed != 0)
-				offset += my_snprintf(
-					buffer + offset, bytes - offset,
-					"  Jobs\n"
-					"   Queued %2u  active %2u  completed %2u  failed %2u\n",
-					queued, active, completed, failed);
 			output_job_statistics("Bin/Render jobs", &calculated_statistics[0], buffer, bytes, &offset, elapsed);
 			if (calculated_statistics[4].samples != 0)
 				offset += statistics_output(

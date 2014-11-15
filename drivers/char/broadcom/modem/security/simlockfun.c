@@ -1310,6 +1310,7 @@ static SEC_SimLock_Status_t SIMLockSetLockOneType(SimNumber_t SimId,
 				/* These two case shouldn't happen,
 				*  add for fixing compile warning.
 				*/
+				/* Coverity [DEADCODE] */
 				case SEC_SIMLOCK_PHONE_LOCK:
 				/* Coverity [DEADCODE] */
 				case SEC_SIMLOCK_INVALID_LOCK:
@@ -2433,17 +2434,12 @@ UInt16 SIMLockGetLockCodeInform(SEC_SimLock_LockType_t lockType,
 				    simlockFile->
 				    resetUnlockCounter ? &Network_Unlock_Attempt
 				    : &simlock_nvdata.corporate_unlock_attempt;
-				if (NULL != unlock_attempt) {
 					remain_attempt =
 					    (*unlock_attempt <
 					     simlockFile->
 					     maxUnlockAttempt ? simlockFile->
 					     maxUnlockAttempt -
 					     (*unlock_attempt) : 0);
-				} else {
-					remain_attempt =
-					    simlockFile->maxUnlockAttempt;
-				}
 
 				lockinfo[1] = remain_attempt;
 

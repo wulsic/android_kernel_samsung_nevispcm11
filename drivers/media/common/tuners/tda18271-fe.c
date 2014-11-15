@@ -631,8 +631,6 @@ static int tda18271_rf_tracking_filters_init(struct dvb_frontend *fe, u32 freq)
 			map[i].rf_b2 = (prog_cal[RF2] - prog_tab[RF2]);
 			map[i].rf3   = rf_freq[RF3] / 1000;
 			break;
-		default:
-			BUG();
 		}
 	}
 

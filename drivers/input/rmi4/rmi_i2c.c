@@ -37,6 +37,7 @@
 #include <linux/rmi.h>
 #include <linux/err.h>
 #include "rmi_driver.h"
+#include "synaptics_fw_updater.h"
 
 #define RMI_PAGE_SELECT_REGISTER 0xff
 #define RMI_I2C_PAGE(addr) (((addr) >> 8) & 0xff)
@@ -66,18 +67,16 @@ unsigned char touch_sw_ver = 0;
 #define NODE_X_NUM 11
 #define NODE_Y_NUM 14
 
-//unsigned int cm_abs[NODE_NUM]= {{0,},};;
-//unsigned int cm_delta[NODE_NUM]= {{0,},};;
-
 s16 cm_abs[NODE_NUM]= {{0,},};;
 s16 cm_delta[NODE_NUM]= {{0,},};;
 
-extern  const unsigned char SynaFirmware[];
 
 #define TSP_CMD_STR_LEN 32
 #define TSP_CMD_RESULT_STR_LEN 512
 #define TSP_CMD_PARAM_NUM 8
 #endif /* SEC_TSP_FACTORY_TEST */
+
+extern  const unsigned char SynaFirmware[];
 
 enum {
 	BUILT_IN = 0,
@@ -85,11 +84,11 @@ enum {
 	REQ_FW,
 };
 
-struct device *sec_touchscreen;
-struct device *sec_touchkey;
+struct device *sec_touchscreen_rmi;
+struct device *sec_touchkey_rmi;
 
-EXPORT_SYMBOL(sec_touchscreen);
-EXPORT_SYMBOL(sec_touchkey);
+EXPORT_SYMBOL(sec_touchscreen_rmi);
+EXPORT_SYMBOL(sec_touchkey_rmi);
 extern struct class *sec_class;
 
 struct i2c_client *gb_client;
@@ -180,61 +179,45 @@ struct tsp_cmd {
 	void	(*cmd_func)(void *device_data);
 };
 
-static void fw_update(void *device_data);
 static void get_fw_ver_bin(void *device_data);
 static void get_fw_ver_ic(void *device_data);
-static void get_config_ver(void *device_data);
 static void get_threshold(void *device_data);
-static void module_off_master(void *device_data);
-static void module_on_master(void *device_data);
-static void module_off_slave(void *device_data);
-static void module_on_slave(void *device_data);
 static void get_chip_vendor(void *device_data);
 static void get_chip_name(void *device_data);
-static void get_reference(void *device_data);
 static void get_cm_abs(void *device_data);
 static void get_rawcap(void *device_data);
 static void get_cm_delta(void *device_data);
 static void get_rx_to_rx(void *device_data);
-static void get_intensity(void *device_data);
 static void get_x_num(void *device_data);
 static void get_y_num(void *device_data);
-static void run_reference_read(void *device_data);
 static void run_cm_abs_read(void *device_data);
 static void run_rawcap_read(void *device_data);
 static void run_cm_delta_read(void *device_data);
 static void run_rx_to_rx_read(void *device_data);
-static void run_intensity_read(void *device_data);
 static void not_support_cmd(void *device_data);
 static void run_raw_node_read(void *device_data);
 
-struct tsp_cmd tsp_cmds[] = {
-	{TSP_CMD("fw_update", not_support_cmd),},
+struct tsp_cmd tsp_cmds_rmi[] = {
 	{TSP_CMD("get_fw_ver_bin", get_fw_ver_bin),},
 	{TSP_CMD("get_fw_ver_ic", get_fw_ver_ic),},
-	{TSP_CMD("get_config_ver", not_support_cmd),},
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
+	{TSP_CMD("get_threshold", get_threshold),},
+#else
 	{TSP_CMD("get_threshold", not_support_cmd),},
-	{TSP_CMD("module_off_master", not_support_cmd),},
-	{TSP_CMD("module_on_master", not_support_cmd),},
-	{TSP_CMD("module_off_slave", not_support_cmd),},
-	{TSP_CMD("module_on_slave", not_support_cmd),},
+#endif
 	{TSP_CMD("get_chip_vendor", get_chip_vendor),},
 	{TSP_CMD("get_chip_name", get_chip_name),},
 	{TSP_CMD("run_raw_node_read", run_raw_node_read),},
 	{TSP_CMD("get_x_num", get_x_num),},
 	{TSP_CMD("get_y_num", get_y_num),},
-	{TSP_CMD("get_reference", not_support_cmd),},
 	{TSP_CMD("get_cm_abs", get_cm_abs),}, //
 	{TSP_CMD("get_rawcap", get_rawcap),}, //
 	{TSP_CMD("get_cm_delta", get_cm_delta),}, //
 	{TSP_CMD("get_rx_to_rx", get_rx_to_rx),}, //
-	{TSP_CMD("get_intensity", not_support_cmd),},
-	{TSP_CMD("run_reference_read", not_support_cmd),},
 	{TSP_CMD("run_cm_abs_read", run_cm_abs_read),}, //
 	{TSP_CMD("run_rawcap_read", run_rawcap_read),}, //
 	{TSP_CMD("run_cm_delta_read", run_cm_delta_read),}, //
 	{TSP_CMD("run_rx_to_rx_read", run_rx_to_rx_read),}, //
-	{TSP_CMD("run_intensity_read", not_support_cmd),},
 	{TSP_CMD("not_support_cmd", not_support_cmd),},
 };
 #endif
@@ -491,13 +474,6 @@ static void not_support_cmd(void *device_data)
 	return;
 }
 
-static void fw_update(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
 
 extern bool not_reset;
 extern bool F54_SetRawCapData(struct i2c_client *ts_client, s16 *node_data);
@@ -583,10 +559,8 @@ static void get_fw_ver_bin(void *device_data)
 	FW_BIN_VERSION[2] = SynaFirmware[0xb102];
 	FW_BIN_VERSION[3] = SynaFirmware[0xb103];
 	FW_BIN_VERSION[4] = '\0';
-    
-	//phone_ver = FW_KERNEL_VERSION;
 
-#if defined (CONFIG_RMI4_FW_CORSICA)
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
 	if (hw_rev == 0x2200)
 		snprintf(buff, sizeof(buff), "%c%c%03X%03X", FW_BIN_VERSION[0], FW_BIN_VERSION[1], FW_BIN_VERSION[2], FW_BIN_VERSION[3]);
 #else    
@@ -614,14 +588,12 @@ static void get_fw_ver_ic(void *device_data)
 	set_default_result(info);
 
 
-#if defined (CONFIG_RMI4_FW_CORSICA)
-	//ver = info->fw_ic_ver;
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
 	read_ts_data(0x33,buf_temp,4);
 	strncpy(FW_CHIP_VERSION, buf_temp, 4);
 	FW_CHIP_VERSION[4] = '\0';    
 	snprintf(buff, sizeof(buff), "%c%c%03X%03X", FW_CHIP_VERSION[0], FW_CHIP_VERSION[1], FW_CHIP_VERSION[2], FW_CHIP_VERSION[3]);
 #else    
-	//ver = info->fw_ic_ver;
 	read_ts_data(0x37,buf_temp,4);
 	strncpy(FW_CHIP_VERSION, buf_temp, 4);
 	FW_CHIP_VERSION[4] = '\0';    
@@ -633,46 +605,25 @@ static void get_fw_ver_ic(void *device_data)
 			buff, strnlen(buff, sizeof(buff)));
 }
 
-static void get_config_ver(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
 static void get_threshold(void *device_data)
 {
 	struct ts_data *info = (struct ts_data *)device_data;
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
+	u8 buf_temp[3] = {0, };
+	char buff[16] = {0};
 
+	printk("[TSP] %s\n",__func__);
+	set_default_result(info);
+	read_ts_data(0x47, buf_temp, 1); //register address for corsica is 0x47
+	printk("[TSP] %s, %d !!! \n",__func__,buf_temp[0]);
+	sprintf(buff, "%d" , buf_temp[0]);
+	set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+	info->cmd_state = 2;
+	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+			buff, strnlen(buff, sizeof(buff)));
+#else
 	not_support_cmd(info);
-}
-
-static void module_off_master(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
-static void module_on_master(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
-static void module_off_slave(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
-static void module_on_slave(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
+#endif
 }
 
 static void get_chip_vendor(void *device_data)
@@ -731,21 +682,12 @@ static int check_rx_tx_num(void *device_data)
 		node = -1;
 		return node;
              }
-	//node = info->cmd_param[1] * NODE_Y_NUM + info->cmd_param[0];
 	node = info->cmd_param[0] * NODE_Y_NUM + info->cmd_param[1];
 	dev_info(&info->client->dev, "%s: node = %d\n", __func__,
 			node);
 	return node;
 
  }
-
-static void get_reference(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-    
-}
 
 static void get_cm_abs(void *device_data)
 {
@@ -803,7 +745,6 @@ static void get_cm_delta(void *device_data)
 	struct ts_data *info = (struct ts_data *)device_data;
 
 	char buff[16] = {0};
-	//unsigned int val;
 	int val;
 	int node;
 
@@ -829,7 +770,6 @@ static void get_rx_to_rx(void *device_data)
 	struct ts_data *info = (struct ts_data *)device_data;
 
 	char buff[16] = {0};
-	//unsigned int val;
 	int val;
 	int node;
 
@@ -850,25 +790,16 @@ static void get_rx_to_rx(void *device_data)
 			strnlen(buff, sizeof(buff)));
 }
 
-static void get_intensity(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-}
-
 static void get_x_num(void *device_data)
 {
 	struct ts_data *info = (struct ts_data *)device_data;
 
 	char buff[16] = {0};
-	//int ver;
 
 	printk("[TSP] %s, %d\n", __func__, __LINE__ );
 	
 	set_default_result(info);
 
-	//ver = info->fw_ic_ver;
 	snprintf(buff, sizeof(buff), "%d", NODE_X_NUM);
 
 	set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
@@ -895,15 +826,6 @@ static void get_y_num(void *device_data)
 	info->cmd_state = 2;
 	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
 			buff, strnlen(buff, sizeof(buff)));
-}
-
-static void run_reference_read(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-
-/*	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__); */
 }
 
 static void run_cm_abs_read(void *device_data)
@@ -937,7 +859,6 @@ static void run_cm_abs_read(void *device_data)
     
     	return;
 
-/*	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__); */
 }
 
 static void run_rawcap_read(void *device_data)
@@ -1029,7 +950,6 @@ static void run_cm_delta_read(void *device_data)
        
     	return;
 
-/*	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__); */
 }
 
 static void run_rx_to_rx_read(void *device_data)
@@ -1063,16 +983,6 @@ static void run_rx_to_rx_read(void *device_data)
        
     	return;
 
-/*	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__); */
-}
-
-static void run_intensity_read(void *device_data)
-{
-	struct ts_data *info = (struct ts_data *)device_data;
-
-	not_support_cmd(info);
-
-/*	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__); */
 }
 
 static ssize_t store_cmd(struct device *dev, struct device_attribute
@@ -1329,6 +1239,14 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	}
 	i2c_set_clientdata(client, rmi_phys);
 
+#if 0
+	if (!strcmp("S2200", get_Product_name(client)))
+	{	
+		dev_err(&client->dev,"It's not synaptic TSP IC\n");
+		goto err_unregister;
+	}
+#endif	
+
 	if (pdata->attn_gpio > 0) {
 		error = acquire_attn_irq(data);
 		if (error < 0) {
@@ -1364,34 +1282,31 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	dev_info(&client->dev, "registered rmi i2c driver at 0x%.2X.\n",
 			client->addr);
 
-
-
-
 ///////////////////////////////////////test mode///////////////////////////////////////
 
       gb_client = client;
 
       /* sys fs */
-	sec_touchscreen = device_create(sec_class, NULL, 0, rmi_phys, "sec_touchscreen");
-	if (IS_ERR(sec_touchscreen)) 
+	sec_touchscreen_rmi = device_create(sec_class, NULL, 0, rmi_phys, "sec_touchscreen");
+	if (IS_ERR(sec_touchscreen_rmi)) 
 	{
 		dev_err(&client->dev,"Failed to create device for the sysfs1\n");
 		ret = -ENODEV;
 	}
 
-	if (device_create_file(sec_touchscreen, &dev_attr_tsp_firm_version_phone) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_tsp_firm_version_phone) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_tsp_firm_version_phone.attr.name);
-	if (device_create_file(sec_touchscreen, &dev_attr_tsp_firm_version_panel) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_tsp_firm_version_panel) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_tsp_firm_version_panel.attr.name);
-	if (device_create_file(sec_touchscreen, &dev_attr_tsp_threshold) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_tsp_threshold) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_tsp_threshold.attr.name);
-	if (device_create_file(sec_touchscreen, &dev_attr_tsp_firm_update) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_tsp_firm_update) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_tsp_firm_update.attr.name);
-	if (device_create_file(sec_touchscreen, &dev_attr_tsp_firm_update_status) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_tsp_firm_update_status) < 0)
 		pr_err("[TSP] Failed to create device file(%s)!\n", dev_attr_tsp_firm_update_status.attr.name);
- 	if (device_create_file(sec_touchscreen, &dev_attr_touchkey_menu) < 0)
+ 	if (device_create_file(sec_touchscreen_rmi, &dev_attr_touchkey_menu) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_touchkey_menu.attr.name);
-	if (device_create_file(sec_touchscreen, &dev_attr_touchkey_back) < 0)
+	if (device_create_file(sec_touchscreen_rmi, &dev_attr_touchkey_back) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_touchkey_back.attr.name);
 
 	touch_dev = kzalloc(sizeof(struct ts_data), GFP_KERNEL);
@@ -1404,24 +1319,24 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, touch_dev);
 
       /* sys fs for touch keys*/
-	sec_touchkey = device_create(sec_class, NULL, 0, rmi_phys, "sec_touchkey");
-	if (IS_ERR(sec_touchkey)) 
+	sec_touchkey_rmi = device_create(sec_class, NULL, 0, rmi_phys, "sec_touchkey");
+	if (IS_ERR(sec_touchkey_rmi)) 
 	{
 		dev_err(&client->dev,"Failed to create device for the sysfs1 touchkey\n");
 		ret = -ENODEV;
 	}
 
- 	if (device_create_file(sec_touchkey, &dev_attr_touchkey_menu) < 0)
+ 	if (device_create_file(sec_touchkey_rmi, &dev_attr_touchkey_menu) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_touchkey_menu.attr.name);
-	if (device_create_file(sec_touchkey, &dev_attr_touchkey_back) < 0)
+	if (device_create_file(sec_touchkey_rmi, &dev_attr_touchkey_back) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_touchkey_back.attr.name);
-	if (device_create_file(sec_touchkey, &dev_attr_touchkey_threshold) < 0)
+	if (device_create_file(sec_touchkey_rmi, &dev_attr_touchkey_threshold) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_touchkey_threshold.attr.name);
 
     #ifdef SEC_TSP_FACTORY_TEST
 		INIT_LIST_HEAD(&touch_dev->cmd_list_head);
-		for (i = 0; i < ARRAY_SIZE(tsp_cmds); i++)
-			list_add_tail(&tsp_cmds[i].list, &touch_dev->cmd_list_head);
+		for (i = 0; i < ARRAY_SIZE(tsp_cmds_rmi); i++)
+			list_add_tail(&tsp_cmds_rmi[i].list, &touch_dev->cmd_list_head);
 
 		mutex_init(&touch_dev->cmd_lock);
 		touch_dev->cmd_is_running = false;
@@ -1437,10 +1352,7 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 
       /* sys fs */
 
-    //touch_dev->fw_ic_ver = touch_dev->cap_info.chip_reg_data_version;
-
 ///////////////////////////////////////test mode///////////////////////////////////////
-
 
 	/* Check the new fw. and update */
 	set_fw_version(FW_KERNEL_VERSION, FW_DATE);  
@@ -1532,7 +1444,7 @@ static ssize_t phone_firmware_show(struct device *dev, struct device_attribute *
 	FW_KERNEL_VERSION[3] = SynaFirmware[0xb103];
 	FW_KERNEL_VERSION[4] = '\0';
 
-#if defined (CONFIG_RMI4_FW_CORSICA)
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
     printk("[TSP] %s, %c%c%03X%03X !!!\n",__func__, FW_KERNEL_VERSION[0], FW_KERNEL_VERSION[1], FW_KERNEL_VERSION[2], FW_KERNEL_VERSION[3]);
 	return sprintf(buf, "%c%c%03X%03X", FW_KERNEL_VERSION[0], FW_KERNEL_VERSION[1], FW_KERNEL_VERSION[2], FW_KERNEL_VERSION[3]);
 #else
@@ -1546,19 +1458,40 @@ static ssize_t part_firmware_show(struct device *dev, struct device_attribute *a
 {   
 	printk("[TSP] %s\n",__func__);
 	u8 buf_temp[4] = {0, };
+	u8 buf_page[2]={RMI_PAGE_SELECT_REGISTER,0}, page_number=0;
 
-#if 0
-	ts_read_reg_data(gb_client, get_reg_address(gb_client, FW_ADDRESS), buf_temp, 4);
-#endif
-#if defined (CONFIG_RMI4_FW_CORSICA)
-	read_ts_data(0x33,buf_temp,4);
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
+	if(read_ts_data(RMI_PAGE_SELECT_REGISTER, &page_number, 1) < 0 )
+	{
+		printk("[TSP] %s error in reading the page number \n", __func__ );
+	}else
+	{
+		printk("[TSP] %s current page number is %d\n" , __func__ , page_number );
+	}
+
+	buf_page[1] = 0x00;	//setting page 0 for accessing configuration registers
+	if (i2c_master_send(gb_client, buf_page, 2) < 0)
+		printk("[TSP] %s error in writing the page address %d to TSP IC\n" , __func__ , buf_page[1]);
+	else
+		printk("[TSP] %s success in changing the page address %d to TSP IC\n", __func__ , buf_page[1]);	
+
+	read_ts_data(0x33,buf_temp,4);	//version read from the TSP IC
+
+	if ( 0 != page_number )
+	{
+		buf_page[1] = page_number;
+		if (i2c_master_send(gb_client, buf_page, 2) < 0)
+			printk("[TSP] %s error in writing the page address %d to TSP IC\n",  __func__ , buf_page[1]);	
+		else
+			printk("[TSP] %s success in changing the page address %d to TSP IC\n",  __func__ , buf_page[1]);	
+}
 #else
 	read_ts_data(0x37,buf_temp,4);
 #endif
 	strncpy(FW_IC_VERSION, buf_temp, 4);
 	FW_IC_VERSION[4] = '\0';
 
-#if defined (CONFIG_RMI4_FW_CORSICA)
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
 	printk("[TSP] %s, %c%c%03X%03X !!! \n",__func__,FW_IC_VERSION[0], FW_IC_VERSION[1], FW_IC_VERSION[2], FW_IC_VERSION[3]);
 	return sprintf(buf, "%c%c%03X%03X", FW_IC_VERSION[0], FW_IC_VERSION[1], FW_IC_VERSION[2], FW_IC_VERSION[3]);
 #else
@@ -1664,7 +1597,7 @@ static bool fw_updater(struct ts_data *ts, char *mode)
 		if (read_ts_data(get_reg_address(gb_client, FW_ADDRESS), buf, 4) > 0) {
 			strncpy(FW_IC_VERSION, buf, 5);
 	
-			#if defined (CONFIG_RMI4_FW_CORSICA )
+			#if defined (CONFIG_RMI4_FW_CORSICA ) || defined (CONFIG_RMI4_FW_CORSICASS)
 				pr_info("tsp: fw. ver. : IC (%c%c%03X%03X), Internal (%c%c%03X%03X)\n",FW_IC_VERSION[0],FW_IC_VERSION[1],FW_IC_VERSION[2],FW_IC_VERSION[3],FW_KERNEL_VERSION[0],FW_KERNEL_VERSION[1],FW_KERNEL_VERSION[2],FW_KERNEL_VERSION[3] );
 			#else
 				pr_info("tsp: fw. ver. : IC (%s), Internal (%s)\n",	(char *)FW_IC_VERSION,(char *)FW_KERNEL_VERSION);
@@ -1689,9 +1622,36 @@ s16 touchkey_raw[2];
 extern bool F54_ButtonDeltaImage(struct i2c_client *ts_client, s16 *node_data);
 
 
+s16 test_touchkey_raw[2];
+void synaptics_touchkey_sensitivity_show()
+{  
+	F54_ButtonDeltaImage(gb_client, test_touchkey_raw);
+
+      printk("[TSP] %s, touchkey_raw[0] : %d !!! \n", __func__, test_touchkey_raw[0]);
+      printk("[TSP] %s, touchkey_raw[1] : %d !!! \n", __func__, test_touchkey_raw[1]);
+
+      if(test_touchkey_raw[0] < 0)
+      {
+        test_touchkey_raw[0] = 0;
+      }
+
+      if(test_touchkey_raw[1] < 0)
+      {
+        test_touchkey_raw[1] = 0;
+      }
+}
+
+
 static ssize_t synaptics_menu_sensitivity_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	u16 menu_sensitivity=0;
+    
+    	if(test_touchkey_raw[0] > 0)
+	{
+	    menu_sensitivity = test_touchkey_raw[0];
+	    test_touchkey_raw[0] = 0;
+	    return sprintf(buf, "%d\n",  menu_sensitivity);
+	}
     
 	F54_ButtonDeltaImage(gb_client, touchkey_raw);
 
@@ -1716,6 +1676,13 @@ static ssize_t synaptics_menu_sensitivity_show(struct device *dev, struct device
 static ssize_t synaptics_back_sensitivity_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	u16 back_sensitivity=0;
+
+    	if(test_touchkey_raw[1] > 0)
+	{
+	    back_sensitivity = test_touchkey_raw[1];
+	    test_touchkey_raw[1] = 0;
+	    return sprintf(buf, "%d\n",  back_sensitivity);
+	}
 
 	F54_ButtonDeltaImage(gb_client, touchkey_raw);
     

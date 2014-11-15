@@ -88,6 +88,7 @@ struct v3d_device_tag {
 	struct mutex power;
 	int          on;
 	struct delayed_work switch_off;
+	struct delayed_work free_bin_memory;
 
 	struct {
 		uint32_t physical;

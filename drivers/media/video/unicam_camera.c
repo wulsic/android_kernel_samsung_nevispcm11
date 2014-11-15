@@ -1066,7 +1066,7 @@ static irqreturn_t unicam_camera_isr(int irq, void *arg)
 			/* mark  the buffer done */
 			/* queue another buffer and trigger capture */
 			if (unicam_dev->skip_frames <= 0) {
-				struct v4l2_control ctrl;
+				struct v4l2_control ctrl = {0};
 				ctrl.id = V4L2_CID_CAMERA_READ_MODE_CHANGE_REG;
 				v4l2_subdev_call(sd, core, g_ctrl, &ctrl);
 

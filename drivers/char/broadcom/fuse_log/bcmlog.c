@@ -365,7 +365,11 @@ static long BCMLOG_Ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		if (lcl.size == 0)
 			return -EINVAL;
-		if (!BCMLOG_LogIdIsEnabled(lcl.sender))
+		if (lcl.size > BCMLOG_MAX_ASCII_STRING_LENGTH + 1)
+			return -EINVAL;
+		if (lcl.sender >= BCMLOG_MAX_LOG_ID)
+			return -EINVAL;
+		if (BCMLOG_LogIdIsEnabled(lcl.sender) == 0)
 			return -ENXIO;
 
 		kbuf_str = kmalloc(lcl.size + 1, GFP_KERNEL);
@@ -417,6 +421,8 @@ static long BCMLOG_Ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		if (!BCMLOG_LogIdIsEnabled(lcl.sender))
 			return -ENXIO;
+		if (lcl.sigBufSize > (WORDS_PER_SIGNAL << 2))
+			return -EINVAL;
 		if (lcl.sigBufSize > 0) {
 			void *kernelSigBuf;
 

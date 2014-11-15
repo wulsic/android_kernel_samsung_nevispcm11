@@ -25,5 +25,6 @@ bool F54_SetRawCapData(struct i2c_client *, s16 *);
 bool F54_SetRxToRxData(struct i2c_client *, s16 *);
 bool F54_TxToTest(struct i2c_client *, s16 *, int);
 void F01_SetTABit(struct i2c_client *, int);
+u8 * get_Product_name(struct i2c_client *ts_client);
 
 #endif

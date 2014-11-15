@@ -962,6 +962,18 @@ static struct i2c_board_info __initdata synaptics_i2c_devices[] = {
 #endif /* TM2303 */
 #endif /* RMI4_I2C */
 
+#if defined(CONFIG_TOUCHSCREEN_IST30XX)
+
+#define TSP_INT 91
+
+static struct i2c_board_info imagis_i2c_devices[] = {
+	{
+		I2C_BOARD_INFO("sec_touch", 0x50),
+		.irq	= gpio_to_irq(TSP_INT),
+	},
+};
+#endif	
+
 #if defined  (CONFIG_SENSORS_BMC150)
 static struct bosch_sensor_specific bss_bma2x2 = {
 	.name = "bma2x2" ,
@@ -1206,11 +1218,11 @@ static struct i2c_board_info __initdata mpu6050_info[] =
 static unsigned int  rheass_button_adc_values [3][2] = 
 {
 	/* SEND/END Min, Max*/
-        {0,     120},
+        {0,    115},
 	/* Volume Up  Min, Max*/
-        {121,    260},
+        {116,    235},
 	/* Volue Down Min, Max*/
-        {261,   520},
+        {236,   520},
 };
 
 static struct kona_headset_pd headset_data = {
@@ -1947,7 +1959,7 @@ static struct wd_tapper_platform_data wd_tapper_data = {
 * required to pet the PMU watchdog to overcome the problem of reset in
 * suspend*/
   .count = 300,
-  .lowbattcount = 120,
+  .lowbattcount = 60,
   .verylowbattcount = 5,
    .ch_num = 1,
    .name = "aon-timer",
@@ -2095,6 +2107,12 @@ static void __init rhea_ray_add_i2c_devices (void)
 #if defined (CONFIG_RMI4_I2C)
 	i2c_register_board_info(0x3, synaptics_i2c_devices,
 				ARRAY_SIZE(synaptics_i2c_devices)); //PSJ
+#endif
+
+#if defined (CONFIG_TOUCHSCREEN_IST30XX)
+	i2c_register_board_info(0x3, imagis_i2c_devices,
+				ARRAY_SIZE(imagis_i2c_devices)); //PSJ
+
 #endif
 
 	i2c_register_board_info(0x4, rhea_ss_i2cgpio1_board_info,
@@ -2245,6 +2263,7 @@ static int __init uas_notify_init(void)
 {
 	int ret = 0;
 	pr_info("uas_notify_init: STARTED\n");
+#ifndef CONFIG_SEC_MAKE_LCD_TEST
 	nb[0].notifier_call = uas_jig_uart_handler;
 	nb[1].notifier_call = uas_jig_uart_handler;
 	ret = bcmpmu_add_notifier(BCMPMU_JIG_EVENT_UART, &nb[0]);
@@ -2283,6 +2302,7 @@ static int __init uas_notify_init(void)
 #endif
 
 	}
+#endif
 	
 	return 0;
 }
@@ -2420,10 +2440,14 @@ struct spa_temp_tb batt_temp_tb[]=
 struct spa_power_data spa_power_pdata=
 {
 	.charger_name = "bcm59039_charger",
-	.eoc_current=95, // Ivory 0.3 H/W
+	.eoc_current=80, // Ivory 0.3 H/W
 	.recharge_voltage=4140,
 	.charging_cur_usb=450,
 	.charging_cur_wall=650,
+	#if defined(CONFIG_SPA_SUPPLEMENTARY_CHARGING)
+	.backcharging_time = 40, //mins
+	.recharging_eoc = 60, // mA
+	#endif
 	.suspend_temp_hot=600,
 	.recovery_temp_hot=400,
 	.suspend_temp_cold=-50,

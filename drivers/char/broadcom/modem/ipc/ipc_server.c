@@ -360,12 +360,14 @@ void WaitForCpIpc(void *pSmBase)
 
 void ipcs_cp_notifier_register(struct notifier_block *nb)
 {
+	if (nb != NULL) {
 	/* lock serializes against cp_running value changing */
 	spin_lock_bh(&cp_state_notifier_lock);
 	raw_notifier_chain_register(&cp_state_notifier_list, nb);
-	if (cp_running && nb != NULL)
+		if (cp_running)
 		nb->notifier_call(nb, IPC_CPSTATE_RUNNING, NULL);
 	spin_unlock_bh(&cp_state_notifier_lock);
+}
 }
 
 void ipcs_cp_notifier_unregister(struct notifier_block *nb)

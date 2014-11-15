@@ -110,6 +110,21 @@ enum {
 };
 
 
+/*
+ * Any change in this structure should reflect in the definition
+ * in the asm file (arch/arm/mach-rhea/dm_pwr_policy_top.S).
+ */
+struct dormant_gpio_data {
+	s32 enable;
+	u32 gpio_set_p;
+	u32 gpio_set_v;
+	u32 gpio_clr_p;
+	u32 gpio_clr_v;
+	u32 gpio_bit;
+};
+
+extern u32 dormant_start(void);
+
 #ifdef DORMANT_PROFILE
 /* Vars exported by dm_pwr_policy_top.S for dormant profiling */
 extern u32 dormant_profile_on;

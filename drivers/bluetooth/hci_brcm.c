@@ -204,7 +204,7 @@ static int brcm_open(struct hci_uart *hu)
 	if (hw_struct != NULL) {
 		brcm->btwake_gpio = hw_struct->pdata->gpio_bt_wake;
 		brcm->hostwake_gpio = hw_struct->pdata->gpio_host_wake;
-		brcm->lqos_node = &hw_struct->qos_node_bw;
+		brcm->lqos_node = &hw_struct->qos_node;
 		init_timer(&sleep_timer);
 		brcm->is_there_activity = 0;
 		hu->priv = brcm;

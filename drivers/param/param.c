@@ -291,6 +291,7 @@ static int param_write_proc_debug(struct file *file, const char *buffer, unsigne
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 
@@ -413,6 +414,7 @@ static int param_keystr_write_proc_debug(struct file *file, const char *buffer, 
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 
@@ -535,6 +537,7 @@ static int param_rilprop_write_proc_debug(struct file *file, const char *buffer,
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 
@@ -660,6 +663,7 @@ static int param_fsbuild_check_write_proc_debug(struct file *file, const char *b
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );	
 		return	-EFAULT;
 	}
 
@@ -778,6 +782,7 @@ static int param_model_name_write_proc_debug(struct file *file, const char *buff
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 
@@ -898,6 +903,7 @@ static int param_sw_version_write_proc_debug(struct file *file, const char *buff
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 
@@ -1015,6 +1021,7 @@ static int param_MD5_checksum_write_proc_debug(struct file *file, const char *bu
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );	
 		return	-EFAULT;
 	}
 
@@ -1132,6 +1139,7 @@ static int param_recovery_opts_write_proc_debug(struct file *file, const char *b
 	v_ret	= param_device_open();
 	if( v_ret )
 	{
+		kfree( p_buffer );
 		return	-EFAULT;
 	}
 

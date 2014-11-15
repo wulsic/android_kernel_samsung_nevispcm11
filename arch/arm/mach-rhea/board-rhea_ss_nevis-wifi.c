@@ -77,6 +77,7 @@
 #define WLAN_SKB_BUF_NUM	17
 
 static struct sk_buff *wlan_static_skb[WLAN_SKB_BUF_NUM];
+extern bool SDstatusChaning;
 
 struct wlan_mem_prealloc {
 	void *mem_ptr;
@@ -263,7 +264,18 @@ struct fixed_voltage_data {
 
 static int rhea_wifi_power(int on)
 {
+	int retry = 0;
 	printk(KERN_ERR " %s INSIDE rhea_wifi_power\n",__FUNCTION__);
+
+	for (retry=0; retry<10; retry++) {
+		if (SDstatusChaning) {
+			printk(KERN_INFO " %s SD card status is chaning, wait 200ms and retry : %d\n",__FUNCTION__, retry);
+			msleep(200);
+		} else {
+			//printk(KERN_INFO " %s SD card status changed.\n",__FUNCTION__);
+			break;
+		}
+	}
 #if 0
 	if (!clk32kaudio_reg) {
 		clk32kaudio_reg = regulator_get(0, "clk32kaudio");

@@ -607,7 +607,7 @@ static struct platform_device fsa9480_otg_xceiv_platform_device = {
 struct kona_freq_tbl kona_freq_tbl[] = {
 	FTBL_INIT(156000, PI_OPP_ECONOMY),
 	FTBL_INIT(467000, PI_OPP_NORMAL),
-
+        FTBL_INIT(128000, PI_OPP_NORMAL),
 #ifdef CONFIG_RHEALC_2093
 	FTBL_INIT(600000, PI_OPP_TURBO),
         FTBL_INIT(900000, PI_OPP_TURBO1),

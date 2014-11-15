@@ -38,7 +38,7 @@
 #define debug(fmt,arg...)
 #endif
 
-#if defined (CONFIG_MACH_RHEA_SS_NEVISP)
+#if defined (CONFIG_MACH_RHEA_SS_NEVISP) || defined (CONFIG_MACH_RHEA_SS_NEVIS) || defined (CONFIG_MACH_RHEA_SS_NEVISDS)
 
 #define PROX_NONDETECT	0x2F
 #define PROX_DETECT		0x0C

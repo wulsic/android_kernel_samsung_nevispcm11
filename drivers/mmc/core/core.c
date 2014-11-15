@@ -40,6 +40,7 @@
 #include "sdio_ops.h"
 
 static struct workqueue_struct *workqueue;
+bool SDstatusChaning = false;
 
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
@@ -1489,7 +1490,7 @@ EXPORT_SYMBOL(mmc_erase);
 
 int mmc_can_erase(struct mmc_card *card)
 {
-        printk("%s: called\n",__func__);
+	printk("%s: called\n",__func__);
 	if ((card->host->caps & MMC_CAP_ERASE) &&
 	    (card->csd.cmdclass & CCC_ERASE) && card->erase_size)
 		return 1;
@@ -1703,6 +1704,9 @@ void mmc_rescan(struct work_struct *work)
 	bool extend_wakelock = false;
 
 	if (host->rescan_disable) {
+		if (!strcmp(mmc_hostname(host), "mmc1")) {
+			SDstatusChaning = false;
+		}
 		if (mmc_bus_needs_resume(host))
 			wake_unlock(&host->detect_wake_lock);
 		return;
@@ -1755,9 +1759,33 @@ void mmc_rescan(struct work_struct *work)
 		if (freqs[i] <= host->f_min)
 			break;
 	}
+
+	if(!extend_wakelock){
+		printk("%s- failed to rescan %s, maybe shorted SD-->try power off\n"
+							,__func__,mmc_hostname(host));
+		if(host->ops->set_timeout)
+			host->ops->set_timeout(host,1000);//set the power-off timeout as 1 sec. 
+		
+	}
+	else{
+		printk("%s- success to rescan %s, try to set the default timeout\n"
+							,__func__,mmc_hostname(host));
+		
+		if(host->ops->get_timeout){
+			unsigned int default_timeout;
+
+			if(!(host->ops->get_timeout(host,true,&default_timeout)))
+				if(host->ops->set_timeout)
+					host->ops->set_timeout(host,default_timeout);		
+		}		
+	}
+
 	mmc_release_host(host);
 
  out:
+	 if (!strcmp(mmc_hostname(host), "mmc1")) {
+		SDstatusChaning = false;
+	}
 	if (extend_wakelock)
 		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
 	else
@@ -2041,13 +2069,6 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		host->rescan_disable = 0;
 		spin_unlock_irqrestore(&host->lock, flags);
 		if (!host->card_detect_cap) {
-
-#if defined(CONFIG_BCM4334) || defined(CONFIG_BCM4334_MODULE) || defined(CONFIG_BCM4330)
-		if (host->card && host->card->type == MMC_TYPE_SDIO )
-			printk(KERN_INFO"%s(): WLAN SKIP DETECT CHANGE\n",
-					__func__);
-		else{
-#endif
 			mmc_detect_change(host, 0);
 			/* Add a flush here to make sure mmc_detect completes
 			* executing. In absence of this there is a race
@@ -2058,9 +2079,6 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 			* suspend.
 			*/
 			mmc_flush_scheduled_work();
-#if defined(CONFIG_BCM4334) || defined(CONFIG_BCM4334_MODULE) || defined(CONFIG_BCM4330)
-			}
-#endif
 		}
 	}
 

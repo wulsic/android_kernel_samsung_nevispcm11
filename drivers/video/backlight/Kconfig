@@ -316,6 +316,13 @@ config BACKLIGHT_KTD259B
 	help
         backlight driver.
 
+ config BACKLIGHT_KTD_CORSICASS
+	tristate "backlight driver"
+	depends on y
+	default n
+	help
+        backlight driver.
+
  config BACKLIGHT_NEVIS
 	tristate "backlight driver"
 	depends on y

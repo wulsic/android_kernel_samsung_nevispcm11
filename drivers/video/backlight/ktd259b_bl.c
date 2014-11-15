@@ -192,19 +192,52 @@ struct brt_value brt_table_ktd[] = {
    { 154,  20 },
    { 160,  19 }, //default value  
    { 166,  18 },
-   { 172,  17 },
-   { 178,  16 }, 
-   { 184,  15 }, 
-   { 190,  14 }, 
-   { 196,  13 }, 
-   { 203,  12 }, 
-   { 210,  11 }, 
-   { 217,  10 }, 
-   { 224,  9 },
-   { 231,  8 },
-   { 238,  7 },
-   { 245,  6 },
-   { MAX_BRIGHTNESS_VALUE,  5 }, 
+   { 172,  18 },
+   { 178,  17 }, 
+   { 184,  16 }, 
+   { 190,  15 }, 
+   { 196,  14 }, 
+   { 203,  14 }, 
+   { 210,  13 }, 
+   { 217,  12 }, 
+   { 224,  12 },
+   { 231,  11 },
+   { 238,  10 },
+   { 245,  10 },
+   { MAX_BRIGHTNESS_VALUE,  9 }, 
+};
+
+#elif defined(CONFIG_BACKLIGHT_KTD_CORSICASS)
+
+struct brt_value brt_table_ktd[] = {
+   { MIN_BRIGHTNESS_VALUE,  32 }, // Min pulse 32
+   { 32,  31 },
+   { 46,  30 }, 
+   { 60,  29 }, 
+   { 74,  28 }, 
+   { 88,  27 }, 
+   { 102,  26 }, 
+   { 116,  25 }, 
+   { 130,  24 },
+   { 136,  23 },
+   { 142,  22 },
+   { 148,  21 },
+   { 154,  20 },
+   { 160,  19 }, //default value  
+   { 166,  18 },
+   { 172,  18 },
+   { 178,  17 }, 
+   { 184,  16 }, 
+   { 190,  15 }, 
+   { 196,  14 }, 
+   { 203,  14 }, 
+   { 210,  13 }, 
+   { 217,  12 }, 
+   { 224,  12 },
+   { 231,  11 },
+   { 238,  10 },
+   { 245,  10 },
+   { MAX_BRIGHTNESS_VALUE,  9 }, 
 };
 
 #elif defined(CONFIG_BACKLIGHT_NEVIS)
@@ -278,6 +311,10 @@ struct brt_value brt_table_ktd[] = {
 
 extern int lcd_pm_update(PM_CompPowerLevel compPowerLevel, PM_PowerLevel sysPowerLevel);
 
+
+struct mutex ktd259b_mutex;
+DEFINE_MUTEX(ktd259b_mutex);
+
 static void lcd_backlight_control(int num)
 {
     int limit;
@@ -305,7 +342,7 @@ static int ktd259b_backlight_update_status(struct backlight_device *bd)
       int i;
 
         BLDBG("[BACKLIGHT] ktd259b_backlight_update_status ==> user_intensity  : %d\n", user_intensity);
-
+    mutex_lock(&ktd259b_mutex);
       if(backlight_mode==BACKLIGHT_RESUME){
 
     		if(user_intensity > 0) {
@@ -327,6 +364,7 @@ static int ktd259b_backlight_update_status(struct backlight_device *bd)
 
     if (real_level==tune_level)
     {
+        mutex_unlock(&ktd259b_mutex);
         return 0;
 	}
     else
@@ -356,6 +394,7 @@ static int ktd259b_backlight_update_status(struct backlight_device *bd)
     		//pulse = MAX_BRIGHTNESS_IN_BLU -tune_level;
             if (pulse==0)
             {
+                mutex_unlock(&ktd259b_mutex);
                 return 0;
             }
 
@@ -363,10 +402,9 @@ static int ktd259b_backlight_update_status(struct backlight_device *bd)
     }
 
     real_level = tune_level;
-	return 0;
     }
-
 }
+    mutex_unlock(&ktd259b_mutex);	  
        return 0;
 }
 
@@ -389,9 +427,11 @@ static void ktd259b_backlight_earlysuspend(struct early_suspend *desc)
     struct rtc_time tm;
  
     backlight_mode=BACKLIGHT_SUSPEND; 
+     mutex_lock(&ktd259b_mutex);	
        gpio_set_value(backlight_pin,0);
        mdelay(3); 	
 	real_level=0;
+    mutex_unlock(&ktd259b_mutex);	
 	getnstimeofday(&ts);
 	rtc_time_to_tm(ts.tv_sec, &tm);
 

@@ -23,6 +23,10 @@
 #ifdef CONFIG_KONA_PROFILER
 #include <plat/profiler.h>
 #endif
+#include <mach/gpio.h>
+#ifdef CONFIG_MACH_RHEA_SS_COMMON
+#include <plat/chal/chal_aci.h>
+#endif
 
 /*****************************************************************************
  *                        SLEEP STATE DEBUG INTERFACE                        *
@@ -209,8 +213,9 @@ int get_force_sleep_state(void)
 	return force_sleep_state;
 }
 
-#if defined(CONFIG_MACH_RHEA_SS_LUCAS)
 extern void uas_jig_force_sleep(void);
+#if defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
+extern void fsa9480_force_sleep(void);
 #endif
 
 static void cmd_print_pm_log_buf(const char *p)
@@ -220,6 +225,16 @@ static void cmd_print_pm_log_buf(const char *p)
 
 static void cmd_force_sleep(const char *p)
 {
+#if defined(CONFIG_MACH_RHEA_SS_LUCAS) || defined(CONFIG_MACH_RHEA_SS_ZANIN) || defined(CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_IVORYSS) || defined(CONFIG_MACH_RHEA_SS_CORIPLUS) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
+	//LCD backlight control
+	gpio_set_value(95, 0);	
+#endif
+
+#ifdef CONFIG_MACH_RHEA_SS_ZANIN
+	//LED control
+	gpio_set_value(43, 0);
+#endif
+
 	sscanf(p, "%d", &force_sleep_state);
 	if (force_sleep_state < 0 || force_sleep_state > 4) {
 		pr_err("Invalid state: %d\n", force_sleep_state);
@@ -227,8 +242,13 @@ static void cmd_force_sleep(const char *p)
 		return;
 	}
 
-#if defined(CONFIG_MACH_RHEA_SS_LUCAS)
 	uas_jig_force_sleep();
+#if defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
+	fsa9480_force_sleep();
+#endif
+
+#ifdef CONFIG_MACH_RHEA_SS_COMMON
+	chal_aci_block_ctrl(NULL, CHAL_ACI_BLOCK_ACTION_INTERRUPT_DISABLE, CHAL_ACI_BLOCK_COMP);
 #endif
 
 	pr_info("Forcing system to state: %d\n", force_sleep_state);

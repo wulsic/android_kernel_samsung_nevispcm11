@@ -556,8 +556,6 @@ static int unicam_drv_probe(struct platform_device *pdev)
 	struct kona_unicam_platform_data *pdata = pdev->dev.platform_data;
 
 	unicam_info.dev = &pdev->dev;
-	unicam_info.csi0_unicam_gpio = pdata->csi0_gpio;
-	unicam_info.csi1_unicam_gpio = pdata->csi1_gpio;
 
 	dev_dbg(unicam_info.dev, "%s\n", __func__);
 
@@ -567,6 +565,9 @@ static int unicam_drv_probe(struct platform_device *pdev)
 		ret = -EPERM;
 		goto error;
 	}
+
+	unicam_info.csi0_unicam_gpio = pdata->csi0_gpio;
+	unicam_info.csi1_unicam_gpio = pdata->csi1_gpio;
 
 	unicam_info.reg = regulator_get(unicam_info.dev, "vcc");
 	if (IS_ERR_OR_NULL(unicam_info.reg)) {

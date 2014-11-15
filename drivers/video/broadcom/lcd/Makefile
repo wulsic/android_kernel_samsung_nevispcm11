@@ -12,4 +12,4 @@ obj-$(CONFIG_LCD_R61531_SUPPORT)	+= dispdrv_R61531_dsi.o
 obj-$(CONFIG_LCD_ILI9341_SUPPORT)	+= dispdrv_ili9341_smi.o
 obj-$(CONFIG_LCD_ILI9341_I_SUPPORT)	+= dispdrv_ili9341_i_smi.o
 obj-$(CONFIG_LCD_ILI9341_C_SUPPORT)	+= dispdrv_ili9341_c_smi.o
-
+obj-$(CONFIG_LCD_ILI9341_CRSC_SUPPORT)	+= dispdrv_ili9341_crsc_smi.o

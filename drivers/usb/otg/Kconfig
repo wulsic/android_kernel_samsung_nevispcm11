@@ -178,4 +178,8 @@ config MAX3353
 	 This driver can also be built as a module. If so, the module
 	 will be called max3353.
 
+config SEC_MAKE_LCD_TEST
+	tristate "For LCD TEST Binary"
+	default n
+
 endif # USB || OTG

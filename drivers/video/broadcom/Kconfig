@@ -49,6 +49,11 @@ config LCD_ILI9341_C_SUPPORT
         default N
         help
 	  QVGA LCD panel (ILI9341 controller)
+config LCD_ILI9341_CRSC_SUPPORT
+        tristate "LCD Panel- ILI9341 Parralel controller"
+        default N
+        help
+	  QVGA LCD panel (ILI9341 controller)
 config LCD_ILI9486_SMI_SUPPORT
         tristate "LCD Panel- ILI9486 Parralel controller"
         default N

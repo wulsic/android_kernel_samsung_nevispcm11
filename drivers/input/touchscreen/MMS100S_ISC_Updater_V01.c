@@ -10,7 +10,11 @@
 #include "MMS100S_ISC_Updater_Customize.h"
 #include "MMS100S_ISC_Updater.h"
 
+#if defined(CONFIG_MACH_RHEA_SS_NEVISP)
 #include "./Melfas_FW/NEVIS_ME_G1F_10.c"
+#else
+#include "./Melfas_FW/NEVISDS_ME_G1F_14.c"
+#endif
 
 #define MFS_HEADER_		5
 #define MFS_DATA_		20480

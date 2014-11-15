@@ -770,6 +770,7 @@ static void rmi_f1a_remove(struct rmi_function_container *fc)
 	rmi_f1a_free_memory(fc);
 }
 
+extern void synaptics_touchkey_sensitivity_show();
 int rmi_f1a_attention(struct rmi_function_container *fc, u8 *irq_bits)
 {
 	struct rmi_device *rmi_dev = fc->rmi_dev;
@@ -777,6 +778,8 @@ int rmi_f1a_attention(struct rmi_function_container *fc, u8 *irq_bits)
 	u16 data_base_addr = fc->fd.data_base_addr;
 	int error;
 	int button;
+
+	synaptics_touchkey_sensitivity_show(); //temp PSJ
 
 	/* Read the button data. */
 	error = rmi_read_block(rmi_dev, data_base_addr, f1a->button_data_buffer,

@@ -208,7 +208,7 @@ static ssize_t proc_write(struct file *file, const char __user * buffer,
 		memset(kbuf, 0, sizeof(kbuf));
 		if (count > sizeof(kbuf) - 1)
 			count = sizeof(kbuf) - 1;
-		if (copy_from_user((void *)kbuf, buffer, count))
+		if (copy_from_user((void *)kbuf, buffer, count + 1))
 			return -EFAULT;
 
 		switch (*kbuf) {
@@ -290,10 +290,6 @@ static ssize_t proc_write(struct file *file, const char __user * buffer,
 			WriteToLogDev_MODEMLOG();
 			break;
 		default:
-			rc = kstrtoint(strstrip(kbuf), 10, &val);
-			if ((rc == 0) && (val >= MIN_MTT_SD_SIZE)
-			    && (val <= MAX_MTT_SD_SIZE))
-				g_config.file_max = val;
 			break;
 		}
 	}
@@ -597,11 +593,11 @@ void BCMLOG_InitConfig(void *h)
 	}
 
 	strncpy(g_config.file_base, BCMLOG_DEFAULT_FILE_BASE,
-			strlen(BCMLOG_DEFAULT_FILE_BASE));
+			strlen(BCMLOG_DEFAULT_FILE_BASE) + 1);
 	strncpy(g_config.uart_dev, BCMLOG_DEFAULT_UART_DEV,
-			strlen(BCMLOG_DEFAULT_UART_DEV));
+			strlen(BCMLOG_DEFAULT_UART_DEV) + 1);
 	strncpy(g_config.acm_dev, BCMLOG_DEFAULT_ACM_DEV,
-			strlen(BCMLOG_DEFAULT_ACM_DEV));
+			strlen(BCMLOG_DEFAULT_ACM_DEV) + 1);
 
 	value = device_create_file(dev, &dev_attr_log);
 	if (value < 0)

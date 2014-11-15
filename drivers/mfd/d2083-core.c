@@ -768,19 +768,6 @@ int d2083_device_init(struct d2083 *d2083, int irq,
 
 	dlg_info("D2083 Driver version : %s\n", D2083_VERSION);
 
-	///////////////////////////////////
-	d2083_reg_write(d2083, D2083_ADC_CONT_REG, (D2083_ADCCONT_ADC_AUTO_EN 
-												| D2083_ADCCONT_ADC_MODE 
-												| D2083_ADCCONT_AUTO_VBAT_EN));
-	msleep(1);
-	d2083_reg_read(d2083, D2083_VBAT_RES_REG, &res_msb);
-	d2083_reg_read(d2083, D2083_ADC_RES_AUTO1_REG, &res_lsb);
-	read_adc = (((res_msb & 0xFF) << 4) | (res_lsb & 0x0F));
-	d2083->vbat_init_adc[0] = read_adc;
-	pr_info(">>>>>>>>>>>> [L%04d] %s. READ VBAT ADC is %d\n", __LINE__, __func__, d2083->vbat_init_adc[0]);
-	d2083_reg_write(d2083, D2083_ADC_CONT_REG, 0x0);
-	///////////////////////////////////
-
 	d2083->pmic.max_dcdc = 25; //
 	d2083->pdata = pdata;
 
@@ -794,18 +781,19 @@ int d2083_device_init(struct d2083 *d2083, int irq,
 	d2083_clear_bits(d2083, D2083_CONTROLB_REG, D2083_CONTROLB_WRITEMODE | D2083_CONTROLB_I2C_SPEED);
 #endif
 
-#if 0	// TEST ONLY
-	{	// register dump
-		int i=0;
-		u8 reg_val;
-		
-		for(i=0; i<=D2083_BIAS_CTRL_REG; i++)
-		{
-			d2083_reg_read(d2083, i, &reg_val);
-			printk(KERN_ERR "addr[0x%x] = [0x%x]\n", i, reg_val);
-		}
-	}
-#endif
+	d2083_clear_bits(d2083,D2083_POWERCONT_REG,(0x1 << 2)); // Clear PULSED_EN bit
+
+	msleep(1);
+	d2083_reg_write(d2083, D2083_ADC_CONT_REG, (D2083_ADCCONT_ADC_AUTO_EN 
+												| D2083_ADCCONT_ADC_MODE 
+												| D2083_ADCCONT_AUTO_VBAT_EN));
+	msleep(1);
+	d2083_reg_read(d2083, D2083_VBAT_RES_REG, &res_msb);
+	d2083_reg_read(d2083, D2083_ADC_RES_AUTO1_REG, &res_lsb);
+	read_adc = (((res_msb & 0xFF) << 4) | (res_lsb & 0x0F));
+	d2083->vbat_init_adc[0] = read_adc;
+	pr_info(">>>>>>>>>>>> [L%04d] %s. READ VBAT ADC is %d\n", __LINE__, __func__, d2083->vbat_init_adc[0]);
+	d2083_reg_write(d2083, D2083_ADC_CONT_REG, 0x0);
 
 	d2083_reg_write(d2083, D2083_BUCKA_REG,0x9A);
 	d2083_reg_write(d2083, D2083_BUCKB_REG,0x9A);	// BUCK3	: forced PWM

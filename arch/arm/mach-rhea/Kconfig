@@ -155,6 +155,11 @@ config MACH_RHEA_SS_CORSICA
         help
           Support for the Broadcom Rhea SS Corsica board.
 
+config MACH_RHEA_SS_CORSICASS
+        bool "Support Broadcom Rhea SS CorsicaSS board"
+        help
+          Support for the Broadcom Rhea SS CorsicaSS board.
+
 endchoice
 
 config MACH_RHEA_SS_ZANIN_05
@@ -172,13 +177,6 @@ config RHEA_IGNORE_DAP_POWERUP_REQ
 	 continue to be in their state. If this is not set, on attaching JTAG
 	 PI policy will change to 7 always. This feature enables the system to
 	 retain the states as is, even after attaching JTAG.
-
-config SCBS
-        bool "Super Cool Battery Software"
-        select QUICK_WAKEUP
-        help
-           Super Cool Battery Software (c) JonPry
-
 
 config RHEA_DORMANT_MODE
        bool "Enable dormant mode support for Rhea platform"

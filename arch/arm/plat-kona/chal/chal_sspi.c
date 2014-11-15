@@ -3240,20 +3240,22 @@ uint32_t chal_sspi_read_data(CHAL_HANDLE handle,
 			     CHAL_SSPI_PROT_t prot, uint8_t *buf, uint32_t size)
 {
 	CHAL_SSPI_HANDLE_t *pDevice = (CHAL_SSPI_HANDLE_t *) handle;
-	uint32_t tmp = size, val, width = SPI_FIFO_DATA_RWSIZE_RESERVED;
 
-	uint32_t ctlbase = REG_FIFORX_CTL_ADDR(fifo_id,
-					       pDevice->base +
-					       SSPIL_FIFORX_0_CONTROL_OFFSET);
-	uint32_t entbase = REG_FIFO_ENTRYRX_ADDR(fifo_id,
-						 pDevice->base +
-						 SSPIL_FIFO_ENTRY0RX_OFFSET);
+	uint32_t tmp = size, val, width = SPI_FIFO_DATA_RWSIZE_RESERVED;
+	uint32_t ctlbase = 0;
+        uint32_t entbase = 0;
 
 	if (!handle || !buf || (fifo_id > SSPI_FIFO_ID_RX3)) {
 		chal_dprintf(CDBG_ERRO, "invalid argument\n");
 		return 0;
 	}
 
+	ctlbase = REG_FIFORX_CTL_ADDR(fifo_id,
+					       pDevice->base +
+					       SSPIL_FIFORX_0_CONTROL_OFFSET);
+	entbase = REG_FIFO_ENTRYRX_ADDR(fifo_id,
+						 pDevice->base +
+						 SSPIL_FIFO_ENTRY0RX_OFFSET);
 	switch (prot) {
 	case SSPI_PROT_SPI_MODE0:
 	case SSPI_PROT_SPI_MODE1:
@@ -3556,15 +3558,17 @@ CHAL_SSPI_STATUS_t chal_sspi_read_fifo(CHAL_HANDLE handle,
 				       uint32_t *data)
 {
 	CHAL_SSPI_HANDLE_t *pDevice = (CHAL_SSPI_HANDLE_t *) handle;
-
-	uint32_t entbase = REG_FIFO_ENTRYRX_ADDR(fifo_id,
-						 pDevice->base +
-						 SSPIL_FIFO_ENTRY0RX_OFFSET);
+	uint32_t entbase = 0;
 
 	if (!handle || !data || (fifo_id > SSPI_FIFO_ID_RX3)) {
 		chal_dprintf(CDBG_ERRO, "invalid argument\n");
 		return CHAL_SSPI_STATUS_ILLEGAL_PARA;
 	}
+
+	entbase = REG_FIFO_ENTRYRX_ADDR(fifo_id,
+						 pDevice->base +
+						 SSPIL_FIFO_ENTRY0RX_OFFSET);
+
 	*data = CHAL_REG_READ32(entbase);
 	return CHAL_SSPI_STATUS_SUCCESS;
 
@@ -3585,15 +3589,16 @@ CHAL_SSPI_STATUS_t chal_sspi_write_fifo(CHAL_HANDLE handle,
 					uint32_t data)
 {
 	CHAL_SSPI_HANDLE_t *pDevice = (CHAL_SSPI_HANDLE_t *) handle;
-
-	uint32_t entbase = REG_FIFO_ENTRYTX_ADDR(fifo_id,
-						 pDevice->base +
-						 SSPIL_FIFO_ENTRY0TX_OFFSET);
+	uint32_t entbase = 0;
 
 	if (!handle || (fifo_id < SSPI_FIFO_ID_TX0)) {
 		chal_dprintf(CDBG_ERRO, "invalid argument\n");
 		return CHAL_SSPI_STATUS_ILLEGAL_PARA;
 	}
+
+	entbase = REG_FIFO_ENTRYTX_ADDR(fifo_id,
+				 pDevice->base + SSPIL_FIFO_ENTRY0TX_OFFSET);
+
 	CHAL_REG_WRITE32(entbase, data);
 	return CHAL_SSPI_STATUS_SUCCESS;
 

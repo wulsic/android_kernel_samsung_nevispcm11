@@ -902,11 +902,4 @@ source "drivers/misc/btport/Kconfig"
 source "drivers/misc/emmc_rpmb/Kconfig"
 source "drivers/misc/bmc150/Kconfig"
 
-config BLX
-       bool "Support for Battery Life eXtender"
-       default y
-       help
-         Say Y here to enable Battery Life eXtender
-
-
 endif # MISC_DEVICES

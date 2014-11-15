@@ -1,0 +1,12 @@
+--- Documentation/cpu-freq/governors.txt
++++ Documentation/cpu-freq/governors.txt
+@@ -28,6 +28,9 @@
+ 2.3  Userspace
+ 2.4  Ondemand
+ 2.5  Conservative
++2.6  Interactive
++2.7  MinMax
++2.8  SmartassV2
+ 
+ 3.   The Governor Interface in the CPUfreq Core
+ 

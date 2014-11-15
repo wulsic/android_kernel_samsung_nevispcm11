@@ -1026,7 +1026,7 @@ static int check_version(Elf_Shdr *sechdrs,
  	/* HACK: Don't check for proprietary Samsung VoiceSolution */
  	if (strcmp(mod->name, "VoiceSolution") == 0)
  		return 1;
-#endif
+ #endif
 
 	/* Exporting module didn't supply crcs?  OK, we're already tainted. */
 	if (!crc)

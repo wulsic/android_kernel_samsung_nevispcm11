@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_common.c 359280 2012-09-27 07:15:15Z $
+ * $Id: dhd_common.c 383286 2013-02-06 06:41:25Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -2113,7 +2113,7 @@ int dhd_keep_alive_onoff(dhd_pub_t *dhd)
 	strncpy(buf, str, str_len);
 	buf[ str_len ] = '\0';
 	mkeep_alive_pktp = (wl_mkeep_alive_pkt_t *) (buf + str_len + 1);
-	mkeep_alive_pkt.period_msec = KEEP_ALIVE_PERIOD;
+	mkeep_alive_pkt.period_msec = CUSTOM_KEEP_ALIVE_SETTING;
 	buf_len = str_len + 1;
 	mkeep_alive_pkt.version = htod16(WL_MKEEP_ALIVE_VERSION);
 	mkeep_alive_pkt.length = htod16(WL_MKEEP_ALIVE_FIXED_LEN);

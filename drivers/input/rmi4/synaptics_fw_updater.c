@@ -32,8 +32,8 @@ SOFTWARE.
 #include <linux/syscalls.h>
 
 #include "synaptics_fw_updater.h"
-#if defined (CONFIG_RMI4_FW_CORSICA)
-#include "synaptics_fw_E002.h"
+#if defined (CONFIG_RMI4_FW_CORSICA) || defined (CONFIG_RMI4_FW_CORSICASS)
+#include "synaptics_fw_SY001002.h"
 #else
 #include "synaptics_fw_F003.h"
 #endif
@@ -93,6 +93,7 @@ static unsigned short F54_CBCSettings;
 static unsigned short F01_Control_Base;
 static unsigned short F01_Command_Base;
 static unsigned short F01_Data_Base;
+static unsigned short F01_Query_Base;
 static unsigned short F11_Query_Base;
 static unsigned short F11_MaxNumberOfTx_Addr;
 static unsigned short F11_MaxNumberOfRx_Addr;
@@ -616,6 +617,7 @@ static void F54_PDTscan(void)
 
 		switch (buffer[5]) {
 		case 0x01:
+			F01_Query_Base = buffer[0];
 			F01_Command_Base = buffer[1];
 			F01_Control_Base = buffer[2];
 			F01_Data_Base = buffer[3];
@@ -657,6 +659,23 @@ static void SetPage(unsigned char page)
 	/* changing page */
 	writeRMI(0xff, &page, 1);
 }
+
+u8 * get_Product_name(struct i2c_client *ts_client)
+{
+	u8 uData[10];
+	
+	SetPage(0x00);
+	F54_PDTscan(); /* scan for page 0x00 */
+	
+	readRMI(F01_Query_Base+11, &uData, 10);
+
+    printk("[TSP] get_Product_name=%s\n", uData);
+
+	
+	return uData;
+	
+}
+
 
 static void RegSetup(void)
 {

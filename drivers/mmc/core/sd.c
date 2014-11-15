@@ -1026,6 +1026,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	if (err)
 		goto free_card;
 
+/***
+	NANI : Not support UHS mode for SD card on Samsung model yet. CASE#617045
+***/
+#if 0
 	/* Initialization sequence for UHS-I cards */
 	if (rocr & SD_ROCR_S18A) {
 		err = mmc_sd_init_uhs_card(card);
@@ -1042,7 +1046,9 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		if (host->ops->enable_preset_value) {
 			host->ops->enable_preset_value(host, true);
 		}
-	} else {
+	} else
+#endif
+	{
 		/*
 		 * Attempt to change to high-speed (if supported)
 		 */

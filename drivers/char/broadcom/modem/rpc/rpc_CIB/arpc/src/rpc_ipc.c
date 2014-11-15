@@ -773,15 +773,15 @@ void RPC_PACKET_FilterAckReadyForCPReset(UInt8 rpcClientID,
 static void RPC_FlowCntrl(IPC_BufferPool Pool, IPC_FlowCtrlEvent_T Event)
 {
 	IPC_EndpointId_T epId = IPC_PoolSourceEndpointId(Pool);
-	Int8 type = GetInterfaceType(epId);
+	PACKET_InterfaceType_t type = GetInterfaceType(epId);
 	Int8 pool_index;
 
 	if (type != -1) {
 		pool_index =
 		    rpcGetPoolIndex((PACKET_InterfaceType_t) type, Pool);
 
-		if (ipcInfoList[(int)type].flowControlCb != NULL)
-			ipcInfoList[(int)type].
+		if (ipcInfoList[type].flowControlCb != NULL)
+			ipcInfoList[type].
 			    flowControlCb((Event ==
 					   IPC_FLOW_START) ? RPC_FLOW_START :
 					  RPC_FLOW_STOP,
@@ -802,17 +802,17 @@ static int rpcKthreadFn(MsgQueueHandle_t *mHandle, void *data)
 	RPC_Result_t result = RPC_RESULT_ERROR;
 	UInt8 *pCid = (UInt8 *) IPC_BufferHeaderPointer(bufHandle);
 	IPC_EndpointId_T destId = IPC_BufferDestinationEndpointId(bufHandle);
-	Int8 type = GetInterfaceType(destId);
+	PACKET_InterfaceType_t type = GetInterfaceType(destId);
 
 /*	_DBG_(RPC_TRACE
 	      ("RPC_BufferDelivery PROCESS mHandle=%x event=%d\n", (int)mHandle,
 	       (int)data));*/
 
-	if (ipcInfoList[(int)type].filterPktIndCb != NULL) {
+	if (ipcInfoList[type].filterPktIndCb != NULL) {
 		RpcDbgUpdatePktState((int)bufHandle, PKT_STATE_RPC_PROCESS);
 
 		result =
-		    ipcInfoList[(int)type].
+		    ipcInfoList[type].
 		    filterPktIndCb((PACKET_InterfaceType_t)
 				   type, (UInt8) pCid[0], (PACKET_BufHandle_t)
 				   bufHandle);
@@ -881,17 +881,17 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 	RPC_Result_t result = RPC_RESULT_ERROR;
 	UInt8 *pCid = (UInt8 *) IPC_BufferHeaderPointer(bufHandle);
 	IPC_EndpointId_T destId = IPC_BufferDestinationEndpointId(bufHandle);
-	int type = GetInterfaceType(destId);
+	PACKET_InterfaceType_t type = GetInterfaceType(destId);
 	PACKET_BufHandle_t  pktBufHandle = (PACKET_BufHandle_t)bufHandle;
 
 	if (type == -1 || pCid == NULL) {
 		IPC_FreeBuffer(bufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery FAIL pkt=%d t=%d cid=%d",
-				pktBufHandle, type, pCid));
+				pktBufHandle, (int)type, pCid));
 		return;
 	}
 	pInfo = &ipcInfoList[type];
-	ifType = (PACKET_InterfaceType_t)type;
+	ifType = type;
 	if (pInfo->pktIndCb == NULL && pInfo->filterPktIndCb == NULL) {
 		IPC_FreeBuffer(bufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery FAIL No Cbk pkt=%d\r\n",
@@ -921,7 +921,7 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 	}
 
 	if (pInfo->pktIndCb != NULL && isReservedPkt == 0)
-		result = pInfo->pktIndCb((PACKET_InterfaceType_t)type,
+		result = pInfo->pktIndCb(type,
 					(UInt8) pCid[0], pktBufHandle);
 
 	if (result == RPC_RESULT_PENDING)
@@ -929,14 +929,14 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 
 	if (pInfo->filterPktIndCb == NULL) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
+		rpcLogFreePacket(type, pktBufHandle);
 		return;	/* net or vt interface pkt come here */
 	}
 #ifdef USE_KTHREAD_HANDOVER
 	if (isReservedPkt &&
 		MsgQueueCount(&rpcMQhandle) >= CFG_RPC_CMD_MAX_PACKETS) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
+		rpcLogFreePacket(type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery(rz) RpcQ FULL h=%d c=%d\n",
 		       (int)bufHandle, MsgQueueCount(&rpcMQhandle)));
 		return;
@@ -947,7 +947,7 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 
 	if (ret != 0) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
+		rpcLogFreePacket(type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery Queue FAIL h=%d r=%d\n",
 					       (int)bufHandle, ret));
 		return;
@@ -959,23 +959,21 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 #else
 	/* If using workerqueue instead of tasklet,
 	filterPktIndCb can be called directly */
-	result = pInfo->filterPktIndCb((PACKET_InterfaceType_t)type,
+	result = pInfo->filterPktIndCb(type,
 					(UInt8) pCid[0],
 					(PACKET_BufHandle_t)
 					bufHandle);
-#endif
 
 	/* If Packet not consumed by secondary client then return */
 
 	if (result != RPC_RESULT_PENDING) {
-		/* Packet was never consumed */
-		/* coverity [dead_error_line] */
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
+		rpcLogFreePacket(type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery filterCb FAIL h=%d r=%d\n",
 		       (int)bufHandle, ret));
 		return;
 	}
+#endif
 
 	_DBG_(RPC_TRACE("RPC_BufferDelivery filterCb OK h=%d\n",
 			(int)bufHandle));

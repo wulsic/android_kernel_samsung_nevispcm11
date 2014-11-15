@@ -40,9 +40,7 @@
 #include <linux/debugfs.h>
 #endif
 #include <linux/nfc/bcm2079x.h>
-#ifdef CONFIG_HAS_WAKELOCK
 #include <linux/wakelock.h>
-#endif
 
 #define TRUE		1
 #define FALSE		0
@@ -84,9 +82,7 @@ struct bcm2079x_dev {
 	unsigned int original_address;
 };
 
-#ifdef CONFIG_HAS_WAKELOCK
 struct wake_lock nfc_wake_lock;
-#endif
 
 static void bcm2079x_init_stat(struct bcm2079x_dev *bcm2079x_dev)
 {
@@ -181,9 +177,7 @@ static irqreturn_t bcm2079x_dev_irq_handler(int irq, void *dev_id)
 	spin_unlock_irqrestore(&bcm2079x_dev->irq_enabled_lock, flags);
 	wake_up(&bcm2079x_dev->read_wq);
 
-#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock(&nfc_wake_lock);
-#endif
 
 	return IRQ_HANDLED;
 }
@@ -218,6 +212,9 @@ static ssize_t bcm2079x_dev_read(struct file *filp, char __user *buf,
 	total = 0;
 	len = 0;
 
+	/* Once IRQ is occured, NFCC doesn't send IRQ 'till reading of the first
+	 * packet is finished. Hence it's safe to access count_irq in this context
+	 * without locking mechanism. */
 	if (bcm2079x_dev->count_irq > 0)
 		bcm2079x_dev->count_irq--;
 
@@ -345,6 +342,7 @@ static long bcm2079x_dev_unlocked_ioctl(struct file *filp,
 					 unsigned int cmd, unsigned long arg)
 {
 	struct bcm2079x_dev *bcm2079x_dev = filp->private_data;
+	unsigned long flags;
 
 	switch (cmd) {
 	case BCMNFC_READ_FULL_PACKET:
@@ -379,36 +377,54 @@ static long bcm2079x_dev_unlocked_ioctl(struct file *filp,
 			if (bcm2079x_dev->irq_enabled == true) {
 				bcm2079x_dev->irq_enabled = FALSE;
 				disable_irq_nosync(bcm2079x_dev->client->irq);
-				if (bcm2079x_dev->count_irq > 0)
-					wake_unlock(&nfc_wake_lock);
-				}
+				/* Currently, NFCC sends spurious IRQ for response of
+				 * Access App (LOW POWER) command. This IRQ leads unwanted
+				 * postponing of NFC_WAKE de-assert. Make sure NFC_WAKE and
+				 * nfc_wake_lock handles properly. */
+				gpio_set_value(bcm2079x_dev->wake_gpio, 1);
+				wake_unlock(&nfc_wake_lock);
+				DBG(dev_info(&bcm2079x_dev->client->dev,
+						"%s: NFC_WAKE deasserted & wake lock released",
+						__func__));
+			}
 			gpio_set_value(bcm2079x_dev->en_gpio, 0);
 			set_client_addr(bcm2079x_dev,
 				bcm2079x_dev->original_address);
 		}
 		break;
 	case BCMNFC_WAKE_CTL:
+		/* NFC_WAKE control should be done in synchronized way. It shouldn't be
+		 * interrupted by IRQ. Otherwise, NFC_WAKE can be delayed non-deterministic
+		 * time and it leads unwanted control while reading data. */
+		spin_lock_irqsave(&bcm2079x_dev->irq_enabled_lock, flags);
 		DBG(dev_info(&bcm2079x_dev->client->dev,
 			 "%s, BCMNFC_WAKE_CTL (%x, %lx):\n", __func__, cmd,
-			 arg));
-
-#ifdef CONFIG_HAS_WAKELOCK
+			     arg));
+        
 		if (arg == 0) {
 			wake_lock(&nfc_wake_lock);
 			DBG(dev_info(&bcm2079x_dev->client->dev, "%s: got wake lock", __func__));
+			gpio_set_value(bcm2079x_dev->wake_gpio, arg);
+			DBG(dev_info(&bcm2079x_dev->client->dev, "%s: NFC_WAKE asserted", __func__));
+		} else if (arg == 1) {
+			/* NFC_WAKE control is done in userland NCI stack. For de-asserting, stack
+			 * runs timer (typically 100 msec) after each read/write. If timer expires,
+			 * stack sends de-assert IOCTL. Due to origin of this approach, de-asserting
+			 * can be happend right after IRQ occured. In this time slot, NFC_WAKE deassert
+			 * should be postponed 'till subsequent reading finished. Driver won't handle
+			 * delayed de-asserting itself. After subsequent reading finished, userland stack
+			 * will send de-assert again. */
+			if (bcm2079x_dev->count_irq == 0) {
+				gpio_set_value(bcm2079x_dev->wake_gpio, arg);
+				DBG(dev_info(&bcm2079x_dev->client->dev, "%s: NFC_WAKE de-asserted", __func__));
+				wake_unlock(&nfc_wake_lock);
+				DBG(dev_info(&bcm2079x_dev->client->dev, "%s: released wake lock", __func__));
+			} else
+				dev_info(&bcm2079x_dev->client->dev, "%s: NFC_WAKE de-assert postponed", __func__);
 		}
-#endif
-
-		gpio_set_value(bcm2079x_dev->wake_gpio, arg);
-
-#ifdef CONFIG_HAS_WAKELOCK
-		if (arg == 1) {
-			wake_unlock(&nfc_wake_lock);
-			DBG(dev_info(&bcm2079x_dev->client->dev, "%s: release wake lock, count_irq = %d",
-						__func__, bcm2079x_dev->count_irq));
-		}
-#endif
+		spin_unlock_irqrestore(&bcm2079x_dev->irq_enabled_lock, flags);
 		break;
+
 	default:
 		dev_err(&bcm2079x_dev->client->dev,
 			"%s, unknown cmd (%x, %lx)\n", __func__, cmd, arg);
@@ -503,9 +519,7 @@ static int bcm2079x_probe(struct i2c_client *client,
 
 	bcm2079x_dev->original_address = client->addr;
 
-#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_init(&nfc_wake_lock, WAKE_LOCK_SUSPEND, "NFCWAKE");
-#endif
 	i2c_set_clientdata(client, bcm2079x_dev);
 
 	/* request irq.  the irq is set whenever the chip has data available

@@ -72,7 +72,11 @@
 #define AUTO_FIRMWARE_UPDATE   1
 #define TS_READ_REGS_LEN		66
 #define MELFAS_MAX_TOUCH		5
+#if defined(CONFIG_MACH_RHEA_SS_NEVISP)
 #define G1F_FW_VERSION		0x10
+#else
+#define G1F_FW_VERSION		0x14
+#endif
 #define G1F_HW_VERSION		0x34
 #define DEBUG_PRINT			1
 #define PRESS_KEY					1
@@ -1460,6 +1464,7 @@ static ssize_t firmware_panel_show(struct device *dev,
 	else
 		return sprintf(buf, "ME%x00%x", hw_read_buffer, fw_read_buffer);			
 }
+
 static ssize_t firmware_phone_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -3134,7 +3139,7 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	printk("[TSP] HW_VERSION : [%x]\n", hw_read_buffer);
 	
 #if AUTO_FIRMWARE_UPDATE
-	if((hw_read_buffer==G1F_HW_VERSION) && (read_buffer<G1F_FW_VERSION)){
+	if((hw_read_buffer==G1F_HW_VERSION) && (read_buffer!=G1F_FW_VERSION)){
 		printk( "[TSP] START firmware store\n");
 		ts_power_enable(0);
 		msleep(500);

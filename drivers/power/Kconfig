@@ -303,5 +303,13 @@ config SEC_CHARGING_FEATURE
 	default n
 	help
 	 Say Y to add SPA charging module.
+	 
+
+config SPA_SUPPLEMENTARY_CHARGING
+	tristate "Samsung Charging driver, SPA supplementary charging"
+	depends on POWER_SUPPLY
+	default n
+	help
+	 Say Y to add SPA supplementary charging feature.
 
 endif # POWER_SUPPLY

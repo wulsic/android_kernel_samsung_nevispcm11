@@ -1267,14 +1267,18 @@ for multicast, need to find the other mode and reconcile on mixer gains.
 	}
 
 	// setExternAudioGain(mode, app);
+#ifdef CONFIG_ENABLE_SSMULTICAST
 	if (forcedExternalAmpGain || ssmulticastmode)
+#else
+	if (forcedExternalAmpGain)
+#endif
 	{
 		if (mode == AUDIO_MODE_HEADSET || mode == AUDIO_MODE_TTY)
 			setExternAudioGain(AUDIO_MODE_RESERVE, app);
 		else
 			setExternAudioGain(mode, app);
 	} else {
-	setExternAudioGain(mode, app);
+		setExternAudioGain(mode, app);
 	}
 
 	if (!bClk)
@@ -1367,14 +1371,18 @@ void AUDCTRL_SetAudioMode_ForFM(AudioMode_t mode,
 	}
 
 	// setExternAudioGain(mode, app);
+#ifdef CONFIG_ENABLE_SSMULTICAST
 	if (forcedExternalAmpGain || ssmulticastmode)
+#else
+	if (forcedExternalAmpGain)
+#endif
 	{
 		if (mode == AUDIO_MODE_HEADSET || mode == AUDIO_MODE_TTY)
 			setExternAudioGain(AUDIO_MODE_RESERVE, app);
 		else
 			setExternAudioGain(mode, app);
 	} else {
-	setExternAudioGain(mode, app);
+		setExternAudioGain(mode, app);
 	}
 
 	if (!bClk)
@@ -1811,7 +1819,7 @@ void AUDCTRL_EnablePlay(AUDIO_SOURCE_Enum_t source,
 				powerOnExternalAmp(second_dev_info.sink, AudioUse,
 					TRUE, FALSE);
 				wait_hspmu_on = DELAY_HSPMU_ON;
-		}
+			}
 		}
 	}
 
@@ -2556,6 +2564,7 @@ void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 	if (speaker != CSL_CAPH_DEV_NONE) {
 		/*Enable the PMU for HS/IHF. */
 		if ((sink == AUDIO_SINK_LOUDSPK) || (sink == AUDIO_SINK_HEADSET)) {
+			forcedExternalAmpGain = TRUE;
 #if defined(CONFIG_STEREO_SPEAKER)
 			// expecting AddPlaySpk, suspend powering AMP on.
 			if (!suspendedPowerOnAMP && isStIHF &&
@@ -2564,9 +2573,9 @@ void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 				suspendedAmpUse = AudioUse;
 				suspendedAmpSink = sink;
 			} else {
-			powerOnExternalAmp(sink, AudioUse,
+				powerOnExternalAmp(sink, AudioUse,
 					TRUE, FALSE);
-		}
+			}
 #else
 			powerOnExternalAmp(sink, AudioUse,
 					TRUE, FALSE);
@@ -2590,11 +2599,11 @@ void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 
 			AUDCTRL_SetAudioMode_ForFM(AUDIO_MODE_SPEAKERPHONE, pathID, FALSE);
 		else {
+			forcedExternalAmpGain = TRUE;
 #ifndef CONFIG_ENABLE_SSMULTICAST
 			AUDCTRL_SetAudioMode_ForFM(
 				GetAudioModeBySink(sink), pathID, FALSE);
 #else
-			forcedExternalAmpGain = TRUE;
 			AUDCTRL_SetAudioMode_ForFM_Multicast(
 				GetAudioModeBySink(sink), pathID, FALSE);
 #endif
@@ -2604,19 +2613,20 @@ void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 			((currAudioMode_playback == AUDIO_MODE_SPEAKERPHONE &&
 			sink == AUDIO_SINK_HANDSET) || (currAudioMode_playback == AUDIO_MODE_HANDSET &&
 			sink == AUDIO_SINK_LOUDSPK)))
+		{
 				AUDCTRL_SetAudioMode_ForMusicPlayback(
 				AUDIO_MODE_SPEAKERPHONE, pathID, FALSE);
-		else {
+		} else {
+			forcedExternalAmpGain = TRUE;
 #ifndef CONFIG_ENABLE_SSMULTICAST
-				AUDCTRL_SetAudioMode_ForMusicPlayback(
+			AUDCTRL_SetAudioMode_ForMusicPlayback(
 				GetAudioModeBySink(sink), pathID, FALSE);
 #else
-				forcedExternalAmpGain = TRUE;
-				/*Revisit for stIHF case*/
-				AUDCTRL_SetAudioMode_ForMusicMulticast(
+			/*Revisit for stIHF case*/
+			AUDCTRL_SetAudioMode_ForMusicMulticast(
 				GetAudioModeBySink(sink), pathID);
 #endif
-	}
+		}
 	}
 
 #if defined(CONFIG_STEREO_SPEAKER)
@@ -2717,7 +2727,9 @@ void AUDCTRL_RemovePlaySpk(AUDIO_SOURCE_Enum_t source,
 					AUDCTRL_GetAudioApp());
 				currAudioMode_playback = AUDIO_MODE_HEADSET;
 			}		
+#ifdef CONFIG_ENABLE_SSMULTICAST
 			ssmulticastmode = FALSE;
+#endif
 			AUDCTRL_SaveAudioMode(AUDIO_MODE_HEADSET);
 
 			if (!AUDCTRL_InVoiceCall()) {
@@ -2760,7 +2772,9 @@ void AUDCTRL_RemovePlaySpk(AUDIO_SOURCE_Enum_t source,
 				setExternAudioGain(AUDIO_MODE_SPEAKERPHONE,
 						AUDCTRL_GetAudioApp());
 			}		
+#ifdef CONFIG_ENABLE_SSMULTICAST
 			ssmulticastmode = FALSE;
+#endif
 			AUDCTRL_SaveAudioMode(AUDIO_MODE_SPEAKERPHONE);
 
 			if (!AUDCTRL_InVoiceCall()) {
@@ -2802,15 +2816,16 @@ void AUDCTRL_AddPlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
 	if (speaker != CSL_CAPH_DEV_NONE) { 
 		/*Enable the PMU for HS/IHF. */ 
 		if (sink == AUDIO_SINK_LOUDSPK) { 
- 			aTrace(LOG_AUDIO_CNTLR, "HS -> HS+IHF:Multicast" 
-				"Indication\n"); 
-			multicastToSpkr(DLG_ADD_IHF); 
+ 			aTrace(LOG_AUDIO_CNTLR, "HS -> HS + IHF : Multicast\n"); 
+			multicastToSpkr(DLG_ADD_IHF);
+			forcedExternalAmpGain = TRUE;
 			powerOnExternalAmp(sink, AudioUse, TRUE, FALSE);
 
 		} else if (sink == AUDIO_SINK_HEADSET) { 
  
- 			aTrace(LOG_AUDIO_CNTLR, "IFH -> IHF + HS : Multicast \n"); 
+ 			aTrace(LOG_AUDIO_CNTLR, "IHF -> IHF + HS : Multicast\n"); 
 			multicastToSpkr(DLG_ADD_HS); 
+			forcedExternalAmpGain = TRUE;
 			powerOnExternalAmp(sink, AudioUse, TRUE, FALSE);
  		}
 
@@ -2840,19 +2855,20 @@ void AUDCTRL_AddPlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
 #endif
 	} 
  
-	if (AUDIO_APP_FM == AUDCTRL_GetAudioApp()) { 
+	// if (AUDIO_APP_FM == AUDCTRL_GetAudioApp()) {
+	if (source == AUDIO_SOURCE_I2S && AUDCTRL_InVoiceCall() == FALSE) {
 		if (isStIHF && 
 			((currAudioMode_fm == AUDIO_MODE_SPEAKERPHONE &&
 			sink == AUDIO_SINK_HANDSET) || (currAudioMode_fm == AUDIO_MODE_HANDSET &&
 			sink == AUDIO_SINK_LOUDSPK)))
-
+		{
 			AUDCTRL_SetAudioMode_ForFM(AUDIO_MODE_SPEAKERPHONE, pathID, FALSE); 
-		else { 
+		} else { 
+			forcedExternalAmpGain = TRUE;
 #ifndef CONFIG_ENABLE_SSMULTICAST 
 			AUDCTRL_SetAudioMode_ForFM( 
 				GetAudioModeBySink(sink), pathID, FALSE); 
 #else 
-			forcedExternalAmpGain = TRUE;
 			AUDCTRL_SetAudioMode_ForFM_Multicast( 
 				GetAudioModeBySink(sink), pathID, FALSE); 
 #endif 
@@ -2862,16 +2878,17 @@ void AUDCTRL_AddPlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
 			((currAudioMode_playback == AUDIO_MODE_SPEAKERPHONE &&
 			sink == AUDIO_SINK_HANDSET) || (currAudioMode_playback == AUDIO_MODE_HANDSET &&
 			sink == AUDIO_SINK_LOUDSPK)))
-				AUDCTRL_SetAudioMode_ForMusicPlayback( 
-				AUDIO_MODE_SPEAKERPHONE, pathID, FALSE); 
-		else {
+		{
+			AUDCTRL_SetAudioMode_ForMusicPlayback( 
+			AUDIO_MODE_SPEAKERPHONE, pathID, FALSE); 
+		} else {
+			forcedExternalAmpGain = TRUE;
 #ifndef CONFIG_ENABLE_SSMULTICAST 
-				AUDCTRL_SetAudioMode_ForMusicPlayback( 
+			AUDCTRL_SetAudioMode_ForMusicPlayback( 
 				GetAudioModeBySink(sink), pathID, FALSE); 
 #else 
-				forcedExternalAmpGain = TRUE;
-				/*Revisit for stIHF case*/ 
-				AUDCTRL_SetAudioMode_ForMusicMulticast( 
+			/*Revisit for stIHF case*/ 
+			AUDCTRL_SetAudioMode_ForMusicMulticast( 
 				GetAudioModeBySink(sink), pathID); 
 #endif
 		}
@@ -2908,13 +2925,14 @@ void AUDCTRL_RemovePlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
 	speaker = getDeviceFromSink(sink); 
 	if (speaker != CSL_CAPH_DEV_NONE) { 
 		if (sink == AUDIO_SINK_LOUDSPK) { 
- 			aTrace(LOG_AUDIO_CNTLR, "Remove IHF - Stop MC \n"); 
-				multicastToSpkr(DLG_REMOVE_IHF); 
-				powerOnExternalAmp(sink, AudioUse, FALSE, FALSE);
+ 			aTrace(LOG_AUDIO_CNTLR, "Remove IHF - Stop MC\n"); 
+			multicastToSpkr(DLG_REMOVE_IHF); 
+			forcedExternalAmpGain = FALSE;
+			powerOnExternalAmp(sink, AudioUse, FALSE, FALSE);
 		} else if (sink == AUDIO_SINK_HEADSET) { 
- 			aTrace(LOG_AUDIO_CNTLR, "Remove HS - Stop MC" 
-				"and Switch\n"); 
+ 			aTrace(LOG_AUDIO_CNTLR, "Remove HS - Stop MC\n"); 
 			multicastToSpkr(DLG_REMOVE_HS); 
+			forcedExternalAmpGain = FALSE;
 			powerOnExternalAmp(sink, AudioUse, FALSE, FALSE);
  		} 
 
@@ -4526,15 +4544,20 @@ static void powerOnExternalAmp(AUDIO_SINK_Enum_t speaker,
 			}
 			if (HS_IsOn == TRUE) {
 				extern_hs_on();
-				if (forcedExternalAmpGain || ssmulticastmode) {
+#ifdef CONFIG_ENABLE_SSMULTICAST
+				if (forcedExternalAmpGain || ssmulticastmode)
+#else
+				if (forcedExternalAmpGain)
+#endif
+				{
 					setExternAudioGain(
 						AUDIO_MODE_RESERVE,
 						AUDCTRL_GetAudioApp());
 				} else {
-				setExternAudioGain(
-					GetAudioModeBySink(AUDIO_SINK_HEADSET),
-					AUDCTRL_GetAudioApp());
-			}
+					setExternAudioGain(
+						GetAudioModeBySink(AUDIO_SINK_HEADSET),
+						AUDCTRL_GetAudioApp());
+				}
 			}
 			ampControl = TRUE;
 		}
@@ -4545,71 +4568,69 @@ static void powerOnExternalAmp(AUDIO_SINK_Enum_t speaker,
 
 
 	switch (speaker) {
-	case AUDIO_SINK_HEADSET:
-	case AUDIO_SINK_TTY:
-		switch (usage_flag) {
-		case TelephonyUse:
-			callUseHS = use;
-			if (use)
-				/*only one output channel
-				for voice call */
-				callUseIHF = FALSE;
+		case AUDIO_SINK_HEADSET:
+		case AUDIO_SINK_TTY:
+			switch (usage_flag) {
+				case TelephonyUse:
+					callUseHS = use;
+					/*only one output channel for voice call */
+					if (use)
+						callUseIHF = FALSE;
+					break;
+
+				case AudioUse:
+					audioUseHS = use;
+					break;
+
+				case FmUse:
+					fmUseHS = use;
+					break;
+
+				default:
+					break;
+			}
 			break;
 
-		case AudioUse:
-			audioUseHS = use;
+		case AUDIO_SINK_LOUDSPK:
+			switch (usage_flag) {
+				case TelephonyUse:
+					callUseIHF = use;
+					/*only one output channel for voice call */
+					if (use)
+						callUseHS = FALSE;
+					break;
+
+				case AudioUse:
+					audioUseIHF = use;
+					break;
+
+				case FmUse:
+					fmUseIHF = use;
+					break;
+
+				default:
+					break;
+			}
 			break;
 
-		case FmUse:
-			fmUseHS = use;
-			break;
+		case AUDIO_SINK_HANDSET:
+#if defined(CONFIG_STEREO_SPEAKER)
+			extern_stereo_speaker_off(); // to reset stereo output if RCV is selected.
+#endif
+			return;
 
 		default:
-			break;
-	}
-	break;
-
-	case AUDIO_SINK_LOUDSPK:
-		switch (usage_flag) {
-		case TelephonyUse:
-			callUseIHF = use;
-			/*only one output channel for voice call */
-			if (use)
-				callUseHS = FALSE;
-
-			break;
-
-		case AudioUse:
-			audioUseIHF = use;
-			break;
-
-		case FmUse:
-			fmUseIHF = use;
-			break;
-
-		default:
-			break;
-		}
-		break;
-
-	case AUDIO_SINK_HANDSET:
 #if defined(CONFIG_STEREO_SPEAKER)
-		extern_stereo_speaker_off(); // to reset stereo output if RCV is selected.
+			switch (GetAudioModeBySink(speaker)) // AUDIO_SINK_DSP
+			{
+				case AUDIO_MODE_HANDSET:
+					extern_stereo_speaker_off(); // to reset stereo output if RCV is selected.
+					break;
+				default:
+					break;
+			}
 #endif
-		return;
-
-	default:
-#if defined(CONFIG_STEREO_SPEAKER)
-		switch (GetAudioModeBySink(speaker)) // AUDIO_SINK_DSP
-		{
-			case AUDIO_MODE_HANDSET:
-				extern_stereo_speaker_off(); // to reset stereo output if RCV is selected.
-				break;
-	default:
-				break;
-		}
-#endif
-		return;
+			return;
 	}
 
 	aTrace(LOG_AUDIO_CNTLR, "fmUseIHF %d, audioUseIHF %d,"
@@ -4647,12 +4668,20 @@ static void powerOnExternalAmp(AUDIO_SINK_Enum_t speaker,
 				wait_hspmu_on+2000);
 		}
 
-		if (forcedExternalAmpGain || ssmulticastmode) {
-			setExternAudioGain(AUDIO_MODE_RESERVE,
-				AUDCTRL_GetAudioApp());
-		} else {
-		setExternAudioGain(GetAudioModeBySink(speaker),
-			AUDCTRL_GetAudioApp());
+		if (speaker == AUDIO_SINK_HEADSET || speaker == AUDIO_SINK_TTY)
+		{
+#ifdef CONFIG_ENABLE_SSMULTICAST
+			if (forcedExternalAmpGain || ssmulticastmode)
+#else
+			if (forcedExternalAmpGain)
+#endif
+			{
+				setExternAudioGain(AUDIO_MODE_RESERVE,
+					AUDCTRL_GetAudioApp());
+			} else {
+				setExternAudioGain(GetAudioModeBySink(speaker),
+					AUDCTRL_GetAudioApp());
+			}
 		}
 
 		HS_IsOn = TRUE;
@@ -4687,8 +4716,11 @@ static void powerOnExternalAmp(AUDIO_SINK_Enum_t speaker,
 				wait_ihfpmu_on+2000);
 		}
 
-		setExternAudioGain(GetAudioModeBySink(speaker),
-		AUDCTRL_GetAudioApp());
+		if (speaker == AUDIO_SINK_LOUDSPK)
+		{
+			setExternAudioGain(GetAudioModeBySink(speaker),
+				AUDCTRL_GetAudioApp());
+		}
 
 		IHF_IsOn = TRUE;
 	}

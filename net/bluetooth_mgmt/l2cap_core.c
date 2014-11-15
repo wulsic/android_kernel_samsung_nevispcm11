@@ -1383,6 +1383,8 @@ static void l2cap_retransmit_one_frame(struct l2cap_chan *chan, u8 tx_seq)
 	}
 
 	tx_skb = skb_clone(skb, GFP_ATOMIC);
+	if (tx_skb == 0)
+		return;
 	bt_cb(skb)->retries++;
 	control = get_unaligned_le16(tx_skb->data + L2CAP_HDR_SIZE);
 	control &= L2CAP_CTRL_SAR;
@@ -1421,6 +1423,8 @@ int l2cap_ertm_send(struct l2cap_chan *chan)
 		}
 
 		tx_skb = skb_clone(skb, GFP_ATOMIC);
+		if (tx_skb == 0)
+			return -EFAULT;
 
 		bt_cb(skb)->retries++;
 

@@ -43,8 +43,7 @@ struct bcm_bzhw_data {
 struct bcmbzhw_struct {
 	struct bcm_bzhw_platform_data *pdata;
 	struct bcm_bzhw_data bzhw_data;
-	struct pi_mgr_qos_node qos_node_bw;
-	struct pi_mgr_qos_node qos_node_hw;
+	struct pi_mgr_qos_node qos_node;
 	struct uart_port *uport;
 	struct tty_struct *bcmtty;
 	spinlock_t bzhw_lock;

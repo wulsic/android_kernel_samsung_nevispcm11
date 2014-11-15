@@ -688,9 +688,11 @@ struct camdrv_ss_sensor_cap {
 /* EXTERN */
 /************************/
 extern bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor);
-#if defined(CONFIG_SOC_SUB_CAMERA) ||defined (CONFIG_MACH_RHEA_SS_CORSICA)
+#if defined(CONFIG_SOC_SUB_CAMERA)
 extern bool camdrv_ss_sensor_init_sub(bool bOn, struct camdrv_ss_sensor_cap *sensor);
 extern void camdrv_ss_sensor_sub_name(struct camdrv_ss_sensor_cap * sensror);//Nikhil
+#endif
+#if defined(CONFIG_SOC_CAMERA)
 extern void camdrv_ss_sensor_main_name(struct camdrv_ss_sensor_cap * sensror);//Nikhil
 #endif
 

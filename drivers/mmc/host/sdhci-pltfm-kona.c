@@ -72,6 +72,8 @@
 
 #define KONA_SDMMC_DISABLE_DELAY	(100)
 #define KONA_SDMMC_OFF_TIMEOUT		(180000) /* (8000) */
+unsigned int sdmmc_off_timeout=KONA_SDMMC_OFF_TIMEOUT;
+
 
 enum {ENABLED = 0, DISABLED, OFF};
 
@@ -145,6 +147,39 @@ static unsigned int sdhci_get_timeout_clock(struct sdhci_host *host)
 	return sdhci_get_max_clk(host);
 }
 
+int	sdhci_pltfm_set_timeout(struct sdhci_host *host, unsigned int timeout)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+
+
+	if(dev->devtype ==SDIO_DEV_TYPE_SDMMC ){
+		sdmmc_off_timeout = timeout;
+		return 0;
+	}
+	else{
+		printk("%s - No SD Card Type, Can Not Set Timeout\n",__func__);
+		return -EPERM;
+	}
+
+}
+int	sdhci_pltfm_get_timeout(struct sdhci_host *host,bool def_val,unsigned int *timeout)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+
+	if(dev->devtype ==SDIO_DEV_TYPE_SDMMC ){
+		if(def_val)
+			*timeout = KONA_SDMMC_OFF_TIMEOUT;
+		else
+			*timeout = sdmmc_off_timeout;
+		return 0;
+	}
+	else{
+		printk("%s - No SD Card Type, Can Not Set Timeout\n",__func__);
+		return -EPERM;
+	}
+}
+
+
 static struct sdhci_ops sdhci_pltfm_ops = {
 	.get_max_clk = sdhci_get_max_clk,
 	.get_timeout_clock = sdhci_get_timeout_clock,
@@ -152,6 +187,8 @@ static struct sdhci_ops sdhci_pltfm_ops = {
 	.set_signalling = sdhci_pltfm_set_signalling,
 	.platform_set = sdhci_pltfm_set,
 	.platform_send_init_74_clocks = sdhci_pltfm_init_74_clocks,
+	.platform_set_timeout = sdhci_pltfm_set_timeout,
+	.platform_get_timeout = sdhci_pltfm_get_timeout,
 };
 
 void sdhci_pltfm_send_init_74_clocks (struct sdhci_host *host,u8 power_mode)
@@ -978,6 +1015,13 @@ static int sdhci_pltfm_suspend(struct platform_device *pdev, pm_message_t state)
 	struct sdio_dev *dev = platform_get_drvdata(pdev);
 	struct sdhci_host *host = dev->host;
 
+	if (dev->devtype == SDIO_DEV_TYPE_WIFI) {
+		host->mmc->pm_flags |= host->mmc->pm_caps;
+		printk(KERN_DEBUG "%s: pm_flags=0x%08x\n",
+			__FUNCTION__, host->mmc->pm_flags);
+		sdhci_suspend_host(host, state);
+	}
+
 	flush_work_sync(&host->wait_erase_work);
 	/*
 	 *   Move Dynamic Power Management State machine to OFF state to
@@ -1009,7 +1053,6 @@ static int sdhci_pltfm_suspend(struct platform_device *pdev, pm_message_t state)
 
 	if(dev->devtype == SDIO_DEV_TYPE_SDMMC)
 	{
-		printk(KERN_ERR "mmc regulator off.. delay 50ms added\n");
 		mdelay(50);// this is Samsung internal specification.		
 	}
 
@@ -1020,8 +1063,14 @@ static int sdhci_pltfm_suspend(struct platform_device *pdev, pm_message_t state)
 static int sdhci_pltfm_resume(struct platform_device *pdev)
 {
 	struct sdio_dev *dev = platform_get_drvdata(pdev);
+	struct sdhci_host *host = dev->host;
 
 	dev->suspended = 0;
+
+	if (dev->devtype == SDIO_DEV_TYPE_WIFI) {
+		printk(KERN_DEBUG "%s: WiFi resume\n", __FUNCTION__);
+		sdhci_resume_host(host);
+	}
 	return 0;
 }
 #else
@@ -1169,7 +1218,7 @@ static int sdhci_pltfm_regulator_sdxc_init(struct sdio_dev *dev, char *reg_name)
 				   reg_name);
 			ret = -1;
 		} else {
-			pr_debug("%s: set to 3.0V\n",
+			printk("%s: set to 3.0V\n",
 				reg_name);
 			ret = 0;
 		}
@@ -1199,7 +1248,7 @@ static int sdhci_pltfm_regulator_init(struct sdio_dev *dev, char *reg_name)
 				   reg_name);
 			ret = -1;
 		} else {
-			pr_debug("%s: set to 3.0V\n",
+			printk("%s: set to 3.0V\n",
 				reg_name);
 			ret = 0;
 		}
@@ -1420,7 +1469,7 @@ static int sdhci_kona_enabled_to_disabled(struct sdio_dev *dev)
 		return 0;
 #endif
 
-	return KONA_SDMMC_OFF_TIMEOUT;
+	return sdmmc_off_timeout;
 
 }
 

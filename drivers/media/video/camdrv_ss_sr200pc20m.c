@@ -60,7 +60,7 @@
 #endif
 
 static DEFINE_MUTEX(af_cancel_op);
-extern inline struct camdrv_ss_state *to_state(struct v4l2_subdev *sd);
+extern  struct camdrv_ss_state *to_state(struct v4l2_subdev *sd);
 
 
 extern  int camdrv_ss_i2c_set_config_register(struct i2c_client *client, 
@@ -610,7 +610,7 @@ static int camdrv_ss_sr200pc20m_set_white_balance(struct v4l2_subdev *sd, int mo
 	switch (mode) {
 	case WHITE_BALANCE_AUTO:
 	{
-		if (sr200pc20m_wb_auto_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_wb_auto_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : wb_auto_regs not supported !!!\n", __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_wb_auto_regs, ARRAY_SIZE(sr200pc20m_wb_auto_regs), "wb_auto_regs");
@@ -621,7 +621,7 @@ static int camdrv_ss_sr200pc20m_set_white_balance(struct v4l2_subdev *sd, int mo
 	
 	case WHITE_BALANCE_CLOUDY:
 	{
-		if (sr200pc20m_wb_cloudy_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_wb_cloudy_regs) == 0)
 			CAM_ERROR_PRINTK( "%s : wb_cloudy_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_wb_cloudy_regs, ARRAY_SIZE(sr200pc20m_wb_cloudy_regs), "wb_cloudy_regs");
@@ -632,7 +632,7 @@ static int camdrv_ss_sr200pc20m_set_white_balance(struct v4l2_subdev *sd, int mo
 
 	case WHITE_BALANCE_FLUORESCENT:
 	{
-		if (sr200pc20m_wb_fluorescent_regs== 0)
+		if (ARRAY_SIZE(sr200pc20m_wb_fluorescent_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : wb_fluorescent_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client,  sr200pc20m_wb_fluorescent_regs, ARRAY_SIZE(sr200pc20m_wb_fluorescent_regs), "wb_fluorescent_regs");
@@ -643,7 +643,7 @@ static int camdrv_ss_sr200pc20m_set_white_balance(struct v4l2_subdev *sd, int mo
 	
 	case WHITE_BALANCE_DAYLIGHT:
 	{
-		if (sr200pc20m_wb_daylight_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_wb_daylight_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : wb_daylight_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_wb_daylight_regs, ARRAY_SIZE(sr200pc20m_wb_daylight_regs), "wb_daylight_regs");
@@ -652,7 +652,7 @@ static int camdrv_ss_sr200pc20m_set_white_balance(struct v4l2_subdev *sd, int mo
 	}
 	case WHITE_BALANCE_INCANDESCENT:
 	{
-		if (sr200pc20m_wb_incandescent_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_wb_incandescent_regs) == 0)
 			CAM_ERROR_PRINTK( "%s : wb_incandescent_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_wb_incandescent_regs, ARRAY_SIZE(sr200pc20m_wb_incandescent_regs), "wb_incandescent_regs");
@@ -682,7 +682,7 @@ static int camdrv_ss_sr200pc20m_set_iso(struct v4l2_subdev *sd, int mode)
 	switch (mode) {
 	case ISO_AUTO:
 	{
-		if (sr200pc20m_iso_auto_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_iso_auto_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : iso_auto_regs not supported !!!\n", __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_iso_auto_regs, ARRAY_SIZE(sr200pc20m_iso_auto_regs), "iso_auto_regs");
@@ -691,7 +691,7 @@ static int camdrv_ss_sr200pc20m_set_iso(struct v4l2_subdev *sd, int mode)
 	}
 	case ISO_50:
 	{
-		if (sr200pc20m_iso_50_regs== 0)
+		if (ARRAY_SIZE(sr200pc20m_iso_50_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : iso_50_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_iso_50_regs, ARRAY_SIZE(sr200pc20m_iso_50_regs), "iso_50_regs");
@@ -701,7 +701,7 @@ static int camdrv_ss_sr200pc20m_set_iso(struct v4l2_subdev *sd, int mode)
 
 	case ISO_100:
 	{
-		if (sr200pc20m_iso_100_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_iso_100_regs) == 0)
 			CAM_ERROR_PRINTK( " %s : iso_100_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_iso_100_regs, ARRAY_SIZE(sr200pc20m_iso_100_regs), "iso_100_regs");
@@ -710,7 +710,7 @@ static int camdrv_ss_sr200pc20m_set_iso(struct v4l2_subdev *sd, int mode)
 	}
 	case ISO_200:
 	{
-		if (sr200pc20m_iso_200_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_iso_200_regs) == 0)
 			CAM_ERROR_PRINTK( "%s  : iso_200_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client,sr200pc20m_iso_200_regs, ARRAY_SIZE(sr200pc20m_iso_200_regs), "iso_200_regs");
@@ -719,7 +719,7 @@ static int camdrv_ss_sr200pc20m_set_iso(struct v4l2_subdev *sd, int mode)
 	}
 	case ISO_400:
 	{
-		if (sr200pc20m_iso_400_regs == 0)
+		if (ARRAY_SIZE(sr200pc20m_iso_400_regs) == 0)
 			CAM_ERROR_PRINTK( "%s  : iso_400_regs not supported !!!\n",  __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sr200pc20m_iso_400_regs,ARRAY_SIZE(sr200pc20m_iso_400_regs), "iso_400_regs");
@@ -852,8 +852,9 @@ static int camdrv_ss_sr200pc20m_get_iso_speed_rate(struct v4l2_subdev *sd)
 {
 #if 1
     struct i2c_client *client = v4l2_get_subdevdata(sd);
+   
     unsigned short read_value = 0;
-    int GainValue = 0;
+    float GainValue = 0.0;
     int isospeedrating = 100;
 	int rows_num_=0;
 
@@ -863,8 +864,9 @@ static int camdrv_ss_sr200pc20m_get_iso_speed_rate(struct v4l2_subdev *sd)
     camdrv_ss_i2c_read_2_bytes(client, 0x0F12, &read_value);*/
     camdrv_ss_i2c_write_2_bytes(client, 0x03, 0x20);
     camdrv_ss_i2c_read_1_byte(client, 0xb0, &read_value);
+CAM_INFO_PRINTK("%s, read_value =%x \n",__func__,read_value);
 
-    GainValue = ((read_value / 32) + 0.5);
+    GainValue = ((read_value / 32.0) + 0.5);
 
     if(GainValue < 1.14)
     {
@@ -887,9 +889,9 @@ static int camdrv_ss_sr200pc20m_get_iso_speed_rate(struct v4l2_subdev *sd)
         isospeedrating = 800;
     }
 
-    CAM_ERROR_PRINTK("camdrv_ss_sr200pc20m_get_iso_speed_rate, GainValue =%d, isospeedrating =%d\n", GainValue, isospeedrating );		
-    
-	   return isospeedrating;
+    CAM_ERROR_PRINTK("camdrv_ss_sr200pc20m_get_iso_speed_rate, GainValue =%d\n", GainValue);		
+    CAM_ERROR_PRINTK("camdrv_ss_sr200pc20m_get_iso_speed_rate, isospeedrating =%d\n", isospeedrating );		
+	return isospeedrating;
 #endif
 	/* no implementation yet */
 //	return -1;
@@ -1540,7 +1542,7 @@ static struct regulator *VCAM_CORE_1_8_V;   //ASR_SW
 //main cam 
 #if defined(CONFIG_MACH_RHEA_SS_CORIPLUS)
 #define CAM_RST    92
-#elif defined(CONFIG_MACH_RHEA_SS_CORSICA)
+#elif defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
 #define CAM_RST    33
 #else
 #define CAM_RST    13
@@ -1687,16 +1689,26 @@ static int camdrv_ss_sr200pc20m_sensor_power(int on)
 
 		CAM_INFO_PRINTK("power on the sensor's power supply\n"); //@HW
 
-	
-#ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group	
-		regulator_enable(VCAM_CORE_1_8_V);
-#else
-		gpio_set_value(CAM_IO_EN,1); 
-#endif		 
+	#if defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
+     	regulator_enable(VCAM_C_1_8_V);
+    	regulator_enable(VCAM_A_2_8_V);
+		#ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group	
+		 regulator_enable(VCAM_CORE_1_8_V);
+         #else
+		  gpio_set_value(CAM_IO_EN,1); 
+        #endif		
+
+	#else
+       #ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group	
+		 regulator_enable(VCAM_CORE_1_8_V);
+       #else
+		 gpio_set_value(CAM_IO_EN,1); 
+       #endif		 
 
 		regulator_enable(VCAM_A_2_8_V);
 		
 		regulator_enable(VCAM_C_1_8_V);
+	#endif
 	
 		msleep(5);
 	
@@ -1747,15 +1759,25 @@ static int camdrv_ss_sr200pc20m_sensor_power(int on)
 	//	gpio_set_value(CAM_AF_EN,0); 
 	//	msleep(1);
 
+    #if defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
+        #ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group		
+		  regulator_disable(VCAM_CORE_1_8_V);
+         #else
+		  gpio_set_value(CAM_IO_EN, 0);
+        #endif
+		regulator_disable(VCAM_A_2_8_V);
+		regulator_disable(VCAM_C_1_8_V);
+		
+	#else
 		regulator_disable(VCAM_C_1_8_V);
 		regulator_disable(VCAM_A_2_8_V);
 
-		
-#ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group		
-		regulator_disable(VCAM_CORE_1_8_V);
-#else
-		gpio_set_value(CAM_IO_EN, 0);
-#endif
+		#ifdef CONFIG_SOC_CAMERA_POWER_USE_ASR   //VE Group		
+		  regulator_disable(VCAM_CORE_1_8_V);
+         #else
+		  gpio_set_value(CAM_IO_EN, 0);
+        #endif
+	#endif
 
 
 		if (pi_mgr_dfs_request_update(&unicam_dfs_node,
@@ -1772,7 +1794,7 @@ static int camdrv_ss_sr200pc20m_sensor_power(int on)
 			CAM_ERROR_PRINTK("%s: Fail - the table num is %d \n", __func__, ret);
 			return -1;
 		}
-		//camdrv_ss_sr200pc20m_copy_files_for_60hz();
+		camdrv_ss_sr200pc20m_copy_files_for_60hz();
 	}
 
 	return 0;

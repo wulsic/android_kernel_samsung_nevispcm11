@@ -76,3 +76,4 @@ obj-$(CONFIG_TOUCHSCREEN_BT403_ZANIN)	+= zinitix_touch.o
 obj-$(CONFIG_TOUCHSCREEN_S2200)	+= s2200_ts.o
 obj-$(CONFIG_TOUCHSCREEN_TMA140_CORIPLUS)	+= tma140_coriplus.o tma140_download_coriplus.o
 obj-$(CONFIG_TOUCHSCREEN_MMS134S)	+= melfas_ts.o MMS100S_ISC_Updater_V01.o MMS100S_ISC_Updater_Customize.o
+obj-$(CONFIG_TOUCHSCREEN_IST30XX)    += imagis/

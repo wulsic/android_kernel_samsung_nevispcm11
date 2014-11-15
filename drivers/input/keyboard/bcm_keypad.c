@@ -671,14 +671,12 @@ static int __devinit bcm_keypad_probe(struct platform_device *pdev)
 	if (ret < 0) {
 		pr_err("%s(%s:%u)::request_irq failed IRQ %d\n",
 		       __FUNCTION__, __FILE__, __LINE__, bcm_kb->irq);
-		kfree(bcm_kb); // added for fixing SM defect.		
 		goto free_irq;
 	}
 	ret = input_register_device(bcm_kb->input_dev);
 	if (ret < 0) {
 		pr_err("%s(%s:%u)::Unable to register GPIO-keypad input device\n",
 		       __FUNCTION__, __FILE__, __LINE__);
-		kfree(bcm_kb); // added for fixing SM defect.		
 		goto free_dev;
 	}
 
@@ -709,6 +707,7 @@ static int __devinit bcm_keypad_probe(struct platform_device *pdev)
 
       free_irq:
 	free_irq(bcm_kb->irq, (void *)bcm_kb);
+	kfree(bcm_kb); // added for fixing SM defect.	
 
 	return -EINVAL;
 }

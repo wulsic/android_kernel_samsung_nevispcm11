@@ -32,9 +32,9 @@
 
 struct wd_tapper_platform_data {
 	unsigned int count;
-   unsigned int lowbattcount;
+	unsigned int lowbattcount;
 	unsigned int verylowbattcount;
 	unsigned int ch_num;
-	char name[255];
+	char *name;
 };
 #endif

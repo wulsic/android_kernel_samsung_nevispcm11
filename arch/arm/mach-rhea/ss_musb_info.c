@@ -60,11 +60,14 @@ int musb_info_handler(struct notifier_block *nb, unsigned long event, void *para
 			ss_musb_info_pdata.jig_conn = (unsigned int)para;
 			break;
 	}
+
+	return 0;
 }
 EXPORT_SYMBOL(musb_info_handler);
 
 static ssize_t ss_musb_info_attrs_store(struct device *pdev, struct device_attribute *attr, char *buf, size_t count)
 {
+	return 0;
 }
 
 static int __init ss_musb_info_init(void)
