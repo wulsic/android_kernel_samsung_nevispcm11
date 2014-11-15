@@ -34,7 +34,10 @@
 *****************************************************************************/
 #ifndef __AUDIO_CONTROLLER_H__
 #define __AUDIO_CONTROLLER_H__
-
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+#include <linux/workqueue.h>
+#include <linux/mutex.h>
+#endif
 /**
  * @addtogroup Audio_Controller
  * @{
@@ -61,14 +64,15 @@ enum __AUDCTRL_HW_ACCESS_TYPE_en_t {
 	AUDCTRL_HW_CFG_CLK,
 	AUDCTRL_HW_CFG_WAIT,
 	AUDCTRL_HW_CFG_DSPMUTE,
-    AUDCTRL_HW_CFG_EXTRA_VOLUME,
 	/* below are for internal purposes */
 	AUDCTRL_HW_READ_GAIN = 20,
 	AUDCTRL_HW_WRITE_GAIN,
 	AUDCTRL_HW_READ_REG,
 	AUDCTRL_HW_WRITE_REG,
 	AUDCTRL_HW_PRINT_PATH,
-	AUDCTRL_HW_CFG_HSMULTICAST,
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+	AUDCTRL_HW_TEMPGAINCOMP,
+#endif
 	AUDCTRL_HW_ACCESS_TYPE_TOTAL
 };
 #define AUDCTRL_HW_ACCESS_TYPE_en_t enum __AUDCTRL_HW_ACCESS_TYPE_en_t
@@ -124,6 +128,32 @@ struct _second_dev {
 };
 
 #define BRCM_AUDIO_Param_Second_Dev_t struct _second_dev
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+enum __AUDCTRL_TEMP_STATE_e {
+	AUDCTRL_NORMAL_TEMP,
+	AUDCTRL_HIGH_TEMP,
+	AUDCTRL_VERYHIGH_TEMP,
+	AUDCTRL_AMP_OFF,
+};
+#define AUDCTRL_TEMP_STATE_e enum __AUDCTRL_TEMP_STATE_e
+
+struct _BrcmPmuTempGainComp {
+	struct delayed_work temp_gain_comp;
+	u16 firstFlag;
+	u16 intiComplete;
+	AUDCTRL_TEMP_STATE_e tempGainState;
+	int hs_orig_gain_L;
+	int hs_orig_gain_R;
+	int hs_curr_gain_L;
+	int hs_curr_gain_R;
+	int hs_adj_gain;
+	int currTemp;
+	int prevTemp;
+};
+#define	BrcmPmuTempGainComp struct _BrcmPmuTempGainComp
+#endif
+
 
 /**
 *  @brief  This function is the Init entry point for Audio Controller
@@ -196,16 +226,14 @@ void AUDCTRL_Telephony_RequestRateChange(UInt8 codecID);
 *
 ****************************************************************************/
 void AUDCTRL_SetTelephonyMicSpkr(AUDIO_SOURCE_Enum_t source,
-				 AUDIO_SINK_Enum_t sink,
-				 bool force);
+				 AUDIO_SINK_Enum_t sink);
 
 /**
 *  @brief  Set telephony speaker (downlink) volume
 *
 *  @param  speaker	(in)  downlink sink, speaker selection
 *  @param  volume	(in)  downlink volume
-*  @param  force	(bool) force to re-establish the phone call
-			e.g. need to select a different app
+*  @param  gain_format	 (in)  gain format
 *
 *  @return none
 *
@@ -351,8 +379,15 @@ void AUDCTRL_SetAudioMode_ForFM(AudioMode_t mode,
 					   Boolean inHWlpbk);
 
 #ifdef CONFIG_ENABLE_SSMULTICAST
+/*********************************************************************
+*	Set audio mode for FM radio multicast playback
+*	@param          mode            audio mode
+*	@return         none
+*
+**********************************************************************/
 void AUDCTRL_SetAudioMode_ForFM_Multicast(AudioMode_t mode,
 				   unsigned int arg_pathID, Boolean inHWlpbk);
+
 /**
 *   Set audio mode for music multicast. (no DSP voice)
 *
@@ -362,6 +397,7 @@ void AUDCTRL_SetAudioMode_ForFM_Multicast(AudioMode_t mode,
 ****************************************************************************/
 void AUDCTRL_SetAudioMode_ForMusicMulticast(AudioMode_t mode,
 					unsigned int arg_pathID);
+
 #endif
 
 /**
@@ -509,9 +545,8 @@ void AUDCTRL_SwitchPlaySpk_forTuning(AudioMode_t mode);
 void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 			AUDIO_SINK_Enum_t sink, unsigned int pathID);
 
-
 /********************************************************************
-*  @brief  Remove a speaker to a playback path
+*  @brief  Add a speaker to a playback path by indicating to PMU
 *
 *  @param   source  Source
 *  @param   sink	(in)  playback sink
@@ -520,25 +555,12 @@ void AUDCTRL_AddPlaySpk(AUDIO_SOURCE_Enum_t source,
 *  @return none
 *
 ****************************************************************************/
-void AUDCTRL_RemovePlaySpk(AUDIO_SOURCE_Enum_t source,
-			AUDIO_SINK_Enum_t sink, unsigned int pathID);
-
-#if defined(CONFIG_D2083_AUDIO)
-/********************************************************************
-*  @brief  Add a speaker to a playback path by indicating to PMU
-*
-*  @param   source  Source
-*  @param  sink	(in)  playback sink
-*  @param pathID (in) the pathID returned by CSL HW controller.
-*
-*  @return none
-*
-****************************************************************************/
 void AUDCTRL_AddPlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
-			   AUDIO_SINK_Enum_t sink, unsigned int pathID);
+			      AUDIO_SINK_Enum_t sink, unsigned int pathID);
+
 
 /********************************************************************
-*  @brief  Remove a speaker to a playback path by indicating to PMU
+*  @brief  Remove a speaker to a playback path
 *
 *  @param   source  Source
 *  @param  sink	(in)  playback sink
@@ -547,9 +569,22 @@ void AUDCTRL_AddPlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
 *  @return none
 *
 ****************************************************************************/
-void AUDCTRL_RemovePlaySpk_InPMU(AUDIO_SOURCE_Enum_t source, 
+void AUDCTRL_RemovePlaySpk(AUDIO_SOURCE_Enum_t source,
 			   AUDIO_SINK_Enum_t sink, unsigned int pathID);
-#endif
+
+/********************************************************************
+*  @brief  Remove a speaker to a playback path by indicating to the PMU
+*
+*  @param   source  Source
+*  @param  sink	(in)  playback sink
+*  @param pathID (in) the pathID returned by CSL HW controller.
+*
+*  @return none
+*
+****************************************************************************/
+
+void AUDCTRL_RemovePlaySpk_InPMU(AUDIO_SOURCE_Enum_t source,
+				AUDIO_SINK_Enum_t sink, unsigned int pathID);
 
 /********************************************************************
 *  @brief  enable a record path
@@ -768,16 +803,6 @@ void AUDCTRL_SetBTMTypeWB(Boolean isWB);
 void AUDCTRL_SetIHFmode(Boolean stIHF);
 
 /********************************************************************
-*  @brief  Restore IHF mode
-*
-*  @param  none
-*
-*  @return  none
-*
-****************************************************************************/
-void AUDCTRL_RestoreIHFmode(void);
-
-/********************************************************************
 *  @brief  Set BT mode
 *
 *  @param  BT mode status for BT production test.
@@ -843,7 +868,6 @@ CSL_CAPH_DEVICE_e getDeviceFromSink(AUDIO_SINK_Enum_t sink);
 AudioMode_t GetAudioModeBySink(AUDIO_SINK_Enum_t sink);
 void AUDCTRL_EC(Boolean enable, UInt32 arg);
 void AUDCTRL_NS(Boolean enable);
-void AUDCTRL_ECreset_NLPoff(Boolean ECenable);
 void AUDCTRL_EnableAmp(Int32 ampCtl);
 
 /********************************************************************
@@ -921,18 +945,61 @@ void AUDCTRL_SetCallMode(Int32 callMode);
 ****************************************************************************/
 void AUDCTRL_ConnectDL(void);
 
-#if defined(CONFIG_D2083_AUDIO)
 /********************************************************************
-*  @brief  Indicate PMU to add or remove IHF. 
-* 
-*  @param 
-* 
-*  @return none 
-* 
-****************************************************************************/ 
-void multicastToSpkr(Boolean flag);
-#endif
+*  @brief  Update user volume setting, used when playback is not on.
+*
+*  @param
+*
+*  @return none
+*
+****************************************************************************/
+void AUDCTRL_UpdateUserVolSetting(
+	AUDIO_SINK_Enum_t sink,
+	int vol_left,
+	int vol_right,
+	AudioApp_t app);
+
+/********************************************************************
+*  @brief  Update tuning parameter for dialog pmu.
+*
+*  @param
+*
+*  @return none
+*
+****************************************************************************/
+
 void setExternalParameter(Int16 param_id, Int16 param_value, int channel);
 
+/********************************************************************
+*  @brief  Indicate PMU to add or remove IHF.
+*
+*  @param
+*
+*  @return none
+*
+****************************************************************************/
+
+void multicastToSpkr(Boolean flag);
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+
+/********************************************************************
+*  @brief  Check if all the paths are disabled.
+*
+*  @param
+*
+*  @return Boolean (TURE if there are no paths)
+*
+****************************************************************************/
+
+Boolean AUDCTRL_AllPathsDisabled(void);
+
+int AUDCTRL_TempGainComp(BrcmPmuTempGainComp *paudio);
+
+unsigned int AUDCTRL_TempGainComp_ComputeThresh(int deltaT, int gain_mB);
+void AUDCTRL_TempGainCompInit(BrcmPmuTempGainComp *paudio);
+void AUDCTRL_TempGainCompDeInit(BrcmPmuTempGainComp *paudio);
+Boolean AUDCTRL_TempGainCompStatus(void);
+#endif
 
 #endif /* #define __AUDIO_CONTROLLER_H__ */

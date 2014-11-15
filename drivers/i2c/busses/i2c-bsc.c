@@ -29,8 +29,14 @@
 #include <linux/io.h>
 #include <linux/clk.h>
 #include <linux/i2c-kona.h>
+#include <linux/of_i2c.h>
 #include <mach/chip_pinmux.h>
 #include <mach/pinmux.h>
+
+#ifdef CONFIG_DEBUG_FS
+#include <linux/seq_file.h>
+#include <linux/debugfs.h>
+#endif /*CONFIG_DEBUG_FS*/
 
 #ifdef CONFIG_KONA_PMU_BSC_USE_PMGR_HW_SEM
 #include <plat/pwr_mgr.h>
@@ -39,7 +45,7 @@
 /*  #include <linux/broadcom/timer.h> */
 
 #include <linux/timer.h>
-#include <plat/cpu.h>
+#include <mach/cpu.h>
 #include "i2c-bsc.h"
 
 #define DEFAULT_I2C_BUS_SPEED    BSC_BUS_SPEED_50K
@@ -67,6 +73,25 @@
 
 #define MAX_RETRY_NUMBER        (3-1)
 
+#ifdef CONFIG_DEBUG_FS
+static struct dentry *bsc_dentry, *bsc_speed;
+static int bsc_clk_open(struct inode *inode, struct file *file);
+static ssize_t set_i2c_bus_speed(struct file *file, char const __user *buf,
+			size_t size, loff_t *offset);
+static const struct file_operations default_file_operations = {
+	.open = bsc_clk_open,
+	.read = seq_read,
+	.write = set_i2c_bus_speed,
+};
+#endif /*CONFIG_DEBUG_FS*/
+
+#ifdef CONFIG_LOCKDEP
+#define MAX_BSC_INTF_LOCKCLASS		8
+/* As lock names(dev_lock) are same, we have to declare lock_class
+ * for each i2c_dev to avoid lock_dep warnings */
+static struct lock_class_key
+		bsc_dev_lock_class[MAX_BSC_INTF_LOCKCLASS];
+#endif
 
 struct procfs {
 	char name[MAX_PROC_NAME_SIZE];
@@ -769,7 +794,8 @@ static int bsc_xfer_try_address(struct i2c_adapter *adapter,
 		dev_err(dev->device,
 			"tried %u times to contact slave device at 0x%02x "
 			"but no luck success=%d rc=%d\n", i + 1, addr >> 1,
-			success, rc);		
+			success, rc);
+
 		rc = -EREMOTEIO;
 	}
 
@@ -845,7 +871,13 @@ static int __bsc_i2c_get_client(struct device *dev, void *addrp)
 
 static struct device *bsc_i2c_get_client(struct i2c_adapter *adapter, int addr)
 {
-	return device_find_child(&adapter->dev, &addr, __bsc_i2c_get_client);
+	struct device *child;
+
+	child = device_find_child(&adapter->dev, &addr, __bsc_i2c_get_client);
+	/*Decrement back the kref count*/
+	if (child)
+		put_device(child);
+	return child;
 }
 
 static int start_high_speed_mode(struct i2c_adapter *adapter)
@@ -1577,20 +1609,21 @@ static int bsc_get_clk(struct bsc_i2c_dev *dev, struct bsc_adap_cfg *cfg)
 
 	if (cfg->bsc_apb_clk) {
 		dev->bsc_apb_clk = clk_get(dev->device, cfg->bsc_apb_clk);
-		/* AON domain clocks may be enabled by default, need to
-		 * disable */
 		if (!dev->bsc_apb_clk)
 			return -EINVAL;
-		clk_disable(dev->bsc_apb_clk);
 
+		/* AON domain clocks may be enabled by default, need to
+		 * disable */
+		clk_disable(dev->bsc_apb_clk);
 	}
 
 	if (cfg->bsc_clk) {
 		dev->bsc_clk = clk_get(dev->device, cfg->bsc_clk);
-		/* AON domain clocks may be enabled by default, need to
-		 * disable */
 		if (!dev->bsc_clk)
 			return -EINVAL;
+
+		/* AON domain clocks may be enabled by default, need to
+		 * disable */
 		clk_disable(dev->bsc_clk);
 	}
 
@@ -1685,7 +1718,7 @@ static void pin_set_slew(enum PIN_NAME name, unsigned char slewed)
 
 static void i2c_pin_cfg(int id, unsigned char slewed)
 {
-	if (id > 2) {
+	if (id > 5) {
 		pr_err("Invalid I2C adaptor id %d\n", id);
 		return;
 	}
@@ -1699,7 +1732,7 @@ static void i2c_pin_cfg(int id, unsigned char slewed)
 		pin_set_slew(BSC2CLK_PAD_NAME, slewed);
 		pin_set_slew(BSC2DAT_PAD_NAME, slewed);
 		break;
-	case 2:
+	case 4:
 		pin_set_slew(PMBBSCCLK_PAD_NAME, slewed);
 		pin_set_slew(PMBBSCDAT_PAD_NAME, slewed);
 		break;
@@ -1709,6 +1742,7 @@ static void i2c_pin_cfg(int id, unsigned char slewed)
 static int __devinit bsc_probe(struct platform_device *pdev)
 {
 	int rc = 0, irq;
+	char dir_name[12];
 	struct bsc_adap_cfg *hw_cfg = 0;
 	struct bsc_i2c_dev *dev;
 	struct i2c_adapter *adap;
@@ -1781,12 +1815,102 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 		rc = bsc_enable_clk(dev);
 		if (rc)
 			goto err_free_clk;
+	} else if (pdev->dev.of_node) {
+		const char *prop;
+		u32 val;
+
+		hw_cfg = kzalloc(sizeof(struct bsc_adap_cfg), GFP_KERNEL);
+		if (!hw_cfg) {
+			dev_err(&pdev->dev,
+				"unable to allocate mem for private data\n");
+			rc = -ENOMEM;
+			goto err_free_dev_mem;
+		}
+
+		pdev->dev.platform_data = hw_cfg;
+
+		/* Id value */
+		if (of_property_read_u32(pdev->dev.of_node, "cell-index", &val))
+			goto err_free_priv_data_mem;
+
+		pdev->id = val;
+
+		/* Speed */
+		if (of_property_read_u32(pdev->dev.of_node, "speed", &val))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->speed = dev->speed = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "dynamic-speed",
+			&val))
+			goto err_free_priv_data_mem;
+
+		dev->dynamic_speed = hw_cfg->dynamic_speed = val;
+
+		if (of_property_read_string(pdev->dev.of_node,
+			"bsc-clk", &prop))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->bsc_clk = (char *)prop;
+
+		if (of_property_read_string(pdev->dev.of_node, "bsc-apb-clk",
+			&prop))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->retries = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "is-pmu-i2c", &val))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->is_pmu_i2c = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "fs-ref-frequency",
+			&val))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->fs_ref = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "hs-ref-frequency",
+			&val))
+			goto err_free_priv_data_mem;
+
+		hw_cfg->hs_ref = val;
+
+		rc = bsc_get_clk(dev, hw_cfg);
+		if (rc)
+			goto err_free_dev_mem;
+
+		/* validate the speed parameter */
+		if (dev->speed >= BSC_BUS_SPEED_MAX) {
+			dev_err(&pdev->dev, "invalid bus speed parameter\n");
+			rc = -EFAULT;
+			goto err_free_clk;
+		}
+
+		/* high speed - For any speed defined between BSC_BUS_SPEED_HS
+		 *  * & BSC_BUS_SPEED_HS_FPGA */
+		if (dev->speed >= BSC_BUS_SPEED_HS
+				&& dev->speed <= BSC_BUS_SPEED_HS_FPGA)
+			dev->high_speed_mode = 1;
+		else
+			dev->high_speed_mode = 0;
+
+		/* Depending on the mode - HS or FS/SS, set the clock rate */
+		if (dev->high_speed_mode)
+			clk_set_rate(dev->bsc_clk, hw_cfg->hs_ref);
+		else
+			clk_set_rate(dev->bsc_clk, hw_cfg->fs_ref);
+
+		/* Enable the bsc clocks */
+		rc = bsc_enable_clk(dev);
+		if (rc)
+			goto err_free_clk;
 	} else {
-		/* Currently BSC i2c does not support if
-		 * platform data is NULL */
-		 pr_err("BSC: Platform data is NULL\n");
-		 rc = -EINVAL;
-		 goto err_free_dev_mem;
+		/* use default speed */
+		dev->speed = DEFAULT_I2C_BUS_SPEED;
+		dev->high_speed_mode = 0;
+		dev->bsc_clk = NULL;
+		dev->bsc_apb_clk = NULL;
 	}
 
 	/* Initialize the error flag */
@@ -1829,6 +1953,7 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	 * If the platform data is not present set it to default speed using
 	 * the 13MHz reference
 	 */
+	if (hw_cfg) {
 		if (dev->high_speed_mode)
 			bsc_set_bus_speed((uint32_t)dev->virt_base,
 				  gBusSpeedTable[dev->speed],
@@ -1837,6 +1962,10 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 			bsc_set_bus_speed((uint32_t)dev->virt_base,
 				  gBusSpeedTable[dev->speed],
 				  hw_cfg->fs_ref);
+	} else
+		bsc_set_bus_speed((uint32_t)dev->virt_base,
+				  gBusSpeedTable[dev->speed],
+				  BSC_BUS_REF_13MHZ);
 
 	/* curent speed configured */
 	dev->current_speed = dev->speed;
@@ -1865,7 +1994,15 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	/* T-high in SS/FS mode varies when the clock gets stretched in the B0
 	 * Variant. The same was fixed in the B1 variant where a bit in the CRC
 	 * main register needs to be set. */
-	if (!hw_cfg->is_pmu_i2c && (get_chip_rev_id() >= RHEA_CHIP_REV_B1))
+	if (hw_cfg && !hw_cfg->is_pmu_i2c &&
+#if defined(CONFIG_ARCH_RHEA)
+		get_chip_id() >= RHEA_CHIP_ID(RHEA_CHIP_REV_B1)
+#elif defined(CONFIG_ARCH_HAWAII)
+		get_chip_id() >= HAWAII_CHIP_ID(HAWAII_CHIP_REV_A0)
+#else
+#error "unsupported platform"
+#endif
+	)
 		bsc_enable_thigh_ctrl((uint32_t)dev->virt_base, true);
 	else
 		bsc_enable_thigh_ctrl((uint32_t)dev->virt_base, false);
@@ -1892,11 +2029,20 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	i2c_set_adapdata(adap, dev);
 	adap->owner = THIS_MODULE;
 	adap->class = UINT_MAX;	/* can be used by any I2C device */
-	snprintf(adap->name, sizeof(adap->name), "bsc-i2c%d", pdev->id);
+	strlcpy(adap->name, "Kona BSC I2C adapter", sizeof(adap->name));
 	adap->algo = &bsc_algo;
 	adap->dev.parent = &pdev->dev;
 	adap->nr = pdev->id;
-	adap->retries = hw_cfg->retries;
+	adap->dev.of_node = pdev->dev.of_node;
+	adap->retries = hw_cfg ? hw_cfg->retries : 0;
+
+#ifdef CONFIG_LOCKDEP
+	/* As lock names(dev_lock) are same, we have to declare lock_class
+	 * for each i2c_dev to avoid lock_dep warnings */
+	if (adap->nr < MAX_BSC_INTF_LOCKCLASS)
+		lockdep_set_class(&dev->dev_lock,
+			&bsc_dev_lock_class[adap->nr]);
+#endif
 
 	/* Initialize the proc entry */
 	rc = proc_init(pdev);
@@ -1922,7 +2068,7 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	 * reboot
 	 *
 	 */
-	if (dev->high_speed_mode && hw_cfg->is_pmu_i2c) {
+	if (dev->high_speed_mode && hw_cfg && hw_cfg->is_pmu_i2c) {
 #ifdef CONFIG_KONA_PMU_BSC_USE_PMGR_HW_SEM
 		rc = pwr_mgr_pm_i2c_sem_lock();
 		if (rc) {
@@ -1959,6 +2105,25 @@ static int __devinit bsc_probe(struct platform_device *pdev)
 	/* Disable the BSC clocks before returning */
 	bsc_disable_clk(dev);
 
+	if (pdev->dev.of_node)
+		of_i2c_register_devices(adap);
+	dev_info(dev->device, "bus %d at speed %d\n", adap->nr, dev->speed);
+
+#ifdef CONFIG_DEBUG_FS
+	/*create debugfs interface for the device*/
+	snprintf(dir_name, sizeof(dir_name), "bsc-i2c%d", pdev->id);
+	bsc_dentry = debugfs_create_dir(dir_name, NULL);
+	if (!bsc_dentry && IS_ERR(bsc_dentry)) {
+		printk(KERN_ERR "Failed to create debugfs directory\n");
+	return PTR_ERR(bsc_dentry);
+	}
+	bsc_speed = debugfs_create_file("speed", 0444, bsc_dentry, adap,
+			&default_file_operations);
+	if (!bsc_speed && IS_ERR(bsc_speed)) {
+		printk(KERN_ERR "Failed to create debugfs file\n");
+		return PTR_ERR(bsc_speed);
+	}
+#endif /*CONFIG_DEBUG_FS*/
 	return 0;
 
  err_hw_sem:
@@ -1989,13 +2154,19 @@ static int __devinit bsc_probe(struct platform_device *pdev)
  err_free_clk:
 	bsc_put_clk(dev);
 
+err_free_priv_data_mem:
+	if (pdev->dev.of_node) {
+		kfree(hw_cfg);
+		pdev->dev.platform_data = NULL;
+	}
+
  err_free_dev_mem:
 	kfree(dev);
 
  err_release_mem_region:
 	release_mem_region(iomem->start, resource_size(iomem));
-	if(dev)
-	dev_err(dev->device, "I2C bus %d probe failed\n", pdev->id);
+	dev_err(&pdev->dev, "I2C bus %d probe failed\n", pdev->id);
+
 	return rc;
 }
 
@@ -2004,12 +2175,19 @@ static int bsc_remove(struct platform_device *pdev)
 	struct bsc_i2c_dev *dev = platform_get_drvdata(pdev);
 	struct resource *iomem;
 	struct bsc_adap_cfg *hw_cfg = NULL;
+	if (pdev->dev.platform_data)
+		hw_cfg = pdev->dev.platform_data;
 
 	/* If Adapter in HS(PMU BSC) Switch to f/s speed and send STOP */
-	if (dev->high_speed_mode /*&& hw_cfg*/)
+	if (dev->high_speed_mode && hw_cfg)
 		shutdown_high_speed_mode_adap(dev);
 
 	i2c_del_adapter(&dev->adapter);
+
+	if (pdev->dev.of_node) {
+		kfree(hw_cfg);
+		pdev->dev.platform_data = NULL;
+	}
 
 	proc_term(pdev);
 
@@ -2032,6 +2210,10 @@ static int bsc_remove(struct platform_device *pdev)
 	iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(iomem->start, resource_size(iomem));
 
+#ifdef CONFIG_DEBUG_FS
+	debugfs_remove(bsc_speed);
+	debugfs_remove(bsc_dentry);
+#endif /*CONFIG_DEBUG_FS*/
 	return 0;
 }
 
@@ -2067,10 +2249,18 @@ static int bsc_resume(struct platform_device *pdev)
 #define bsc_resume     NULL
 #endif
 
+static const struct of_device_id bsc_i2c_of_match[] = {
+	{ .compatible = "bcm,bsc-i2c", },
+	{},
+}
+
+MODULE_DEVICE_TABLE(of, bsc_i2c_of_match);
+
 static struct platform_driver bsc_driver = {
 	.driver = {
 		   .name = "bsc-i2c",
 		   .owner = THIS_MODULE,
+		   .of_match_table = bsc_i2c_of_match,
 		   },
 	.probe = bsc_probe,
 	.remove = __devexit_p(bsc_remove),
@@ -2106,6 +2296,105 @@ static void __exit bsc_exit(void)
 
 arch_initcall(bsc_init);
 module_exit(bsc_exit);
+
+#ifdef CONFIG_DEBUG_FS
+static int show_i2c_bus_speed(struct seq_file *m, void *v)
+{
+	struct bsc_i2c_dev *dev;
+	struct i2c_adapter *adap;
+
+	adap = (struct i2c_adapter *)m->private;
+	if (!adap)
+		return -ENODEV;
+
+	dev = i2c_get_adapdata(adap);
+	switch (dev->speed) {
+	case BSC_SPD_400K:
+		seq_printf(m, "400K\n");
+		break;
+	case BSC_SPD_100K:
+		seq_printf(m, "100K\n");
+		break;
+	case BSC_SPD_50K:
+		seq_printf(m, "50K\n");
+		break;
+	default:
+		seq_printf(m, "%d\n", dev->speed);
+		break;
+	}
+	return 0;
+}
+
+/*sysfs interface to change bsc speed - used by hwtest*/
+static ssize_t set_i2c_bus_speed(struct file *file,
+				char const __user *buf, size_t size,
+					loff_t *offset)
+{
+	struct bsc_i2c_dev *dev;
+	struct device *d;
+	struct i2c_adapter *adap;
+	struct bsc_adap_cfg *hw_cfg = NULL;
+	int speed = 0, buf_size;
+	unsigned int addr;
+	char data[64];
+
+	buf_size = min_t(int, size, 64);
+	if (strncpy_from_user(data, buf, buf_size) < 0)
+		return -EFAULT;
+	data[buf_size] = 0;
+
+	adap = (struct i2c_adapter *)
+		((struct seq_file *)file->private_data)->private;
+	if (!adap)
+		return -ENODEV;
+
+	dev = i2c_get_adapdata(adap);
+
+	if (!dev) {
+		printk(KERN_ERR "Cannot find i2c device\n");
+		return -ENODEV;
+	}
+
+	sscanf(data, "%d 0x%x", &speed, &addr);
+	if (speed == 400)
+		speed = BSC_SPD_400K;
+	else if (speed == 100)
+		speed = BSC_SPD_100K;
+	else
+		speed = BSC_SPD_50K;	/* Default speed */
+
+	dev->speed = speed;
+
+	d = bsc_i2c_get_client(adap, addr);
+	if (d) {
+		struct i2c_client *client = NULL;
+		struct i2c_slave_platform_data *pd = NULL;
+		client = i2c_verify_client(d);
+		pd = (struct i2c_slave_platform_data *)client->dev.
+		    platform_data;
+		if (pd)
+			pd->i2c_speed = speed;
+	} else
+		/*Not an error- as client address is optional parameter */
+		printk(KERN_ERR "Cannot find client at 0x%x\n", addr);
+
+	hw_cfg = (struct bsc_adap_cfg *)dev->device->platform_data;
+	if (hw_cfg->is_pmu_i2c)
+		bsc_set_bus_speed((uint32_t)dev->virt_base,
+					gBusSpeedTable[speed], true);
+	else
+		bsc_set_bus_speed((uint32_t)dev->virt_base,
+					gBusSpeedTable[speed], false);
+	dev->current_speed = speed;
+
+	return size;
+}
+
+static int bsc_clk_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, show_i2c_bus_speed, inode->i_private);
+}
+#endif/*CONFIG_DEBUG_FS*/
 
 MODULE_AUTHOR("Broadcom");
 MODULE_DESCRIPTION("Broadcom I2C Driver");

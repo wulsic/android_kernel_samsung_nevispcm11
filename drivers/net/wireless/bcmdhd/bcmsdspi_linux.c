@@ -223,7 +223,7 @@ spi_osinit(sdioh_info_t *sd)
 #ifndef BCMSPI_ANDROID
 	init_waitqueue_head(&sdos->intr_wait_queue);
 #endif /* !BCMSPI_ANDROID */
-	return BCME_OK;
+return BCME_OK;
 }
 
 void

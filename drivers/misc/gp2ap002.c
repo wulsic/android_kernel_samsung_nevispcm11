@@ -38,35 +38,32 @@
 #define debug(fmt,arg...)
 #endif
 
-#if defined (CONFIG_MACH_RHEA_SS_NEVISP) || defined (CONFIG_MACH_RHEA_SS_NEVIS) || defined (CONFIG_MACH_RHEA_SS_NEVISDS)
+#if defined(CONFIG_MACH_HAWAII_SS_LOGAN) || defined(CONFIG_MACH_HAWAII_SS_LOGANDS)\
+|| defined(CONFIG_MACH_HAWAII_SS_CS02) || defined(CONFIG_MACH_HAWAII_SS_JBTLP)
 
 #define PROX_NONDETECT	0x2F
 #define PROX_DETECT		0x0C
-
-#define PROX_NONDETECT_MODE1	0x43
-#define PROX_DETECT_MODE1		0x28
-
-#define PROX_NONDETECT_MODE2	0x48
-#define PROX_DETECT_MODE2		0x42
 
 #else
 
 #define PROX_NONDETECT	0x40
 #define PROX_DETECT		0x20
 
+#endif
+
 #define PROX_NONDETECT_MODE1	0x43
 #define PROX_DETECT_MODE1		0x28
 
 #define PROX_NONDETECT_MODE2	0x48
 #define PROX_DETECT_MODE2		0x42
 
-#endif
-
 #define OFFSET_FILE_PATH	"/efs/prox_cal"
 #define CHIP_NAME	"GP2AP002"
 
 /*Driver data */
 struct gp2a_prox_data {
+	void (*power_on) (bool);
+	void (*led_on) (bool);
 	unsigned int irq_gpio;
 	int    irq;
 	struct i2c_client* gp2a_prox_i2c_client;
@@ -196,6 +193,10 @@ static int gp2a_prox_mode(int enable)
     
 	if(1==enable)
 	{
+        	if (gp2a_data->led_on){
+                    gp2a_data->led_on(1);
+        	}
+        
 		reg_value = 0x18;
 		if((ret=gp2a_i2c_write(GP2A_REG_CON,&reg_value))<0)
 			error("gp2a_i2c_write 1 failed");
@@ -221,6 +222,10 @@ static int gp2a_prox_mode(int enable)
 		reg_value = 0x02;
 		if((ret=gp2a_i2c_write(GP2A_REG_OPMOD,&reg_value))<0)
 			error("gp2a_i2c_write 3 failed");
+		
+        	if (gp2a_data->led_on){
+                    gp2a_data->led_on(0);
+        	}
 		
 		proximity_enable=0;
                 proximity_value = 0;
@@ -622,6 +627,17 @@ static int gp2a_prox_probe(struct i2c_client *client,const struct i2c_device_id 
 	} 
 	
     	platform_data = client->dev.platform_data;
+
+	if (platform_data->power_on){
+		gp2a_data->power_on = platform_data->power_on;
+                gp2a_data->power_on(1);
+	}
+
+    	if (platform_data->led_on){
+		gp2a_data->led_on = platform_data->led_on;            
+		gp2a_data->led_on(1);
+    	}
+        
 	gp2a_data->gp2a_prox_i2c_client = client;
 	i2c_set_clientdata(client, gp2a_data);
 	
@@ -635,7 +651,10 @@ static int gp2a_prox_probe(struct i2c_client *client,const struct i2c_device_id 
 	gp2a_data->irq_gpio = platform_data->irq_gpio;		
 	/*Initialisation of GPIO_PS_OUT of proximity sensor*/
 	if (gpio_request(gp2a_data->irq_gpio, "Proximity Out")) {
-		printk(KERN_ERR "Proximity Request GPIO_%d failed!\n", gp2a_data->irq_gpio);
+		printk(KERN_ERR "[GP2A] Proximity Request GPIO_%d failed!\n", gp2a_data->irq_gpio);
+	} 
+        else {
+    		printk(KERN_ERR "[GP2A] Proximity Request GPIO_%d Sucess!\n", gp2a_data->irq_gpio);
 	}
 	
 	gpio_direction_input(gp2a_data->irq_gpio);
@@ -696,8 +715,9 @@ static int gp2a_prox_probe(struct i2c_client *client,const struct i2c_device_id 
 		error("GP2A request_irq failed IRQ_NO:%d", gp2a_data->irq);
 		goto DESTROY_WORK_QUEUE;
 	} 
-	else
+	else {
 		printk(KERN_INFO "[GP2A] request_irq success IRQ_NO:%d", gp2a_data->irq);
+	}
 	
 	/*Device Initialisation with recommended register values from datasheet*/
 	
@@ -722,7 +742,7 @@ static int gp2a_prox_probe(struct i2c_client *client,const struct i2c_device_id 
         detect = PROX_DETECT;
     
 	/*Pulling the GPIO_PS_OUT Pin High*/
-	printk(KERN_INFO "[GP2A] gpio_get_value of GPIO_PS_OUT is %d\n",gpio_get_value(gp2a_data->irq_gpio));
+	printk(KERN_INFO "[GP2A] gpio_get_value of %d is %d\n",gp2a_data->irq_gpio,gpio_get_value(gp2a_data->irq_gpio));
 
 	/*Setting the device into shutdown mode*/
 	gp2a_prox_mode(0);
@@ -804,7 +824,10 @@ static struct i2c_driver gp2a_prox_i2c_driver = {
 
 static int __init gp2a_prox_init(void)
 {
+#if defined(CONFIG_SENSORS_CORE)
 	struct device *dev_t;    
+#endif
+    
 	debug("%s called",__func__); 
 	
 	gp2a_chip_init();

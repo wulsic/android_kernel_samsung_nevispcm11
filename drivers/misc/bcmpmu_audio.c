@@ -456,9 +456,9 @@ static void bcmpmu_ihf_manual_power(bool on)
 				  bcmpmu->regmap[PMU_REG_IHFPWRDRV_PUP].mask,
 				  bcmpmu->regmap[PMU_REG_IHFPWRDRV_PUP].mask);
 		/* Enable IHF Noise Gate pup */
-		// bcmpmu->write_dev(bcmpmu, PMU_REG_IHFNG_PUP,
-		// 		  bcmpmu->regmap[PMU_REG_IHFNG_PUP].mask,
-		// 		  bcmpmu->regmap[PMU_REG_IHFNG_PUP].mask);
+		bcmpmu->write_dev(bcmpmu, PMU_REG_IHFNG_PUP,
+				bcmpmu->regmap[PMU_REG_IHFNG_PUP].mask,
+				bcmpmu->regmap[PMU_REG_IHFNG_PUP].mask);
 		/* Enable  IHF POP */
 		bcmpmu->write_dev(bcmpmu, PMU_REG_IHFPOP_EN,
 				  bcmpmu->regmap[PMU_REG_IHFPOP_EN].mask,
@@ -581,11 +581,6 @@ void bcmpmu_ihf_power(bool on)
 		bcmpmu_audio->IHF_On = true;
 
 		/* Enable auto sequence for IHF power up and power down */
-		bcmpmu->read_dev(bcmpmu_audio->bcmpmu, PMU_REG_IHFPOP_PUP,
-				&reg.val, PMU_BITMASK_ALL);
-		reg.val |= BCMPMU_IHFPOP_AUTOSEQ;  /*IHFPOP*/
-		bcmpmu->write_dev(bcmpmu_audio->bcmpmu, PMU_REG_IHFPOP_PUP,
-				reg.val, PMU_BITMASK_ALL);
 		bcmpmu->write_dev(bcmpmu, PMU_REG_IHFAUTO_SEQ,
 				  bcmpmu->regmap[PMU_REG_IHFAUTO_SEQ].mask,
 				  bcmpmu->regmap[PMU_REG_IHFAUTO_SEQ].mask);

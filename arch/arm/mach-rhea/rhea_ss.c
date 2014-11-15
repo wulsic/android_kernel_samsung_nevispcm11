@@ -1338,15 +1338,7 @@ static struct platform_device r61581_smi8_display_device = {
 #if (defined(CONFIG_BCM_RFKILL) || defined(CONFIG_BCM_RFKILL_MODULE))
 
 #define BCMBT_VREG_GPIO       (100)
-
-#ifdef CONFIG_MACH_RHEA_SS
 #define BCMBT_N_RESET_GPIO    (90)
-#elif CONFIG_MACH_RHEA_AMAZING_SS
-#define BCMBT_N_RESET_GPIO    (40)
-#elif CONFIG_MACH_RHEA_LUCAS_SS
-#define BCMBT_N_RESET_GPIO    (40)
-#endif
-
 #define BCMBT_AUX0_GPIO        (-1)   /* clk32 */
 #define BCMBT_AUX1_GPIO        (-1)    /* UARTB_SEL */
 
@@ -1368,17 +1360,8 @@ static struct platform_device board_bcmbt_rfkill_device = {
 #endif
 
 #ifdef CONFIG_BCM_BT_LPM
-
-#ifdef CONFIG_MACH_RHEA_SS
 #define GPIO_BT_WAKE   92 
 #define GPIO_HOST_WAKE 91
-#elif CONFIG_MACH_RHEA_AMAZING_SS
-#define GPIO_BT_WAKE   39 
-#define GPIO_HOST_WAKE 47
-#elif CONFIG_MACH_RHEA_LUCAS_SS
-#define GPIO_BT_WAKE   39 
-#define GPIO_HOST_WAKE 47
-#endif
 
 static struct bcm_bt_lpm_platform_data brcm_bt_lpm_data = {
         .gpio_bt_wake = GPIO_BT_WAKE,
@@ -1830,13 +1813,6 @@ i2c_register_board_info(0x3, rhea_ss_i2cgpio0_board_info,
 
 static int __init rhea_ray_add_lateInit_devices (void)
 {
-#ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
-
-	printk(KERN_ERR "Calling WLAN_INIT!\n");
-
-	rhea_wlan_init();
- 	printk(KERN_ERR "DONE WLAN_INIT!\n");
-#endif	
 	board_add_sdio_devices();
 	return 0;
 }

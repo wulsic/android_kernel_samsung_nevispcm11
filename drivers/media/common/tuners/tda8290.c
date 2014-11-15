@@ -195,9 +195,8 @@ static void tda8290_set_params(struct dvb_frontend *fe,
 	unsigned char addr_adc_sat  = 0x1a;
 	unsigned char addr_agc_stat = 0x1d;
 	unsigned char addr_pll_stat = 0x1b;
-	unsigned char adc_sat = 0;
-	unsigned char agc_stat = 0;
-	unsigned char pll_stat = 0;
+	unsigned char adc_sat, agc_stat,
+		      pll_stat;
 	int i;
 
 	set_audio(fe, params);
@@ -465,16 +464,11 @@ static void tda8290_standby(struct dvb_frontend *fe)
 	unsigned char tda8290_standby[] = { 0x00, 0x02 };
 	unsigned char tda8290_agc_tri[] = { 0x02, 0x20 };
 	struct i2c_msg msg = {.addr = priv->tda827x_addr, .flags=0, .buf=cb1, .len = 2};
-	int ret;
 
 	tda8290_i2c_bridge(fe, 1);
 	if (priv->ver & TDA8275A)
 		cb1[1] = 0x90;
-	ret = i2c_transfer(priv->i2c_props.adap, &msg, 1);
-	if(ret < 0)
-	{
-		tuner_dbg("i2c_transfer is FAIL\n");
-	}
+	i2c_transfer(priv->i2c_props.adap, &msg, 1);
 	tda8290_i2c_bridge(fe, 0);
 	tuner_i2c_xfer_send(&priv->i2c_props, tda8290_agc_tri, 2);
 	tuner_i2c_xfer_send(&priv->i2c_props, tda8290_standby, 2);
@@ -538,19 +532,13 @@ static void tda8290_init_tuner(struct dvb_frontend *fe)
 					  0x3F, 0x2A, 0x04, 0xFF, 0x00, 0x00, 0x40 };
 	unsigned char tda8275a_init[] = { 0x00, 0x00, 0x00, 0x00, 0xdC, 0x05, 0x8b,
 					  0x0c, 0x04, 0x20, 0xFF, 0x00, 0x00, 0x4b };
-	int ret;
 	struct i2c_msg msg = {.addr = priv->tda827x_addr, .flags=0,
 			      .buf=tda8275_init, .len = 14};
 	if (priv->ver & TDA8275A)
 		msg.buf = tda8275a_init;
 
 	tda8290_i2c_bridge(fe, 1);
-	ret = i2c_transfer(priv->i2c_props.adap, &msg, 1);
-	if(ret<0)
-	{
-		tuner_dbg("i2c_transfer is FAIL\n");
-	}
-
+	i2c_transfer(priv->i2c_props.adap, &msg, 1);
 	tda8290_i2c_bridge(fe, 0);
 }
 

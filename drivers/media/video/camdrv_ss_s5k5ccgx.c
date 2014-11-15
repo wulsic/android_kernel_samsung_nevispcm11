@@ -335,7 +335,7 @@ static const struct v4l2_queryctrl s5k5ccgx_controls[] = {
 		.id			= V4L2_CID_CAMERA_VT_MODE,
 		.type		= V4L2_CTRL_TYPE_INTEGER,
 		.name		= "Vtmode",
-		.minimum	      = CAM_VT_MODE_NONE,
+		.minimum	      = CAM_VT_MODE_3G,
 		.maximum	= CAM_VT_MODE_VOIP,
 		.step		= 1,
 		.default_value	= CAM_VT_MODE_3G,
@@ -1563,7 +1563,7 @@ bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor)
 	sensor->get_ae_stable_status      =  camdrv_ss_s5k5ccgx_get_ae_stable_status;
 	sensor->get_auto_focus_status     = camdrv_ss_s5k5ccgx_get_auto_focus_status;
 //	sensor->set_touch_auto_focus      = camdrv_ss_s5k5ccgx_set_touch_auto_focus;
-//	sensor->AAT_flash_control    	   = camdrv_ss_s5k5ccgx_AAT_flash_control;
+//	sensor->flash_control    	   = camdrv_ss_s5k5ccgx_AAT_flash_control;
 	sensor->i2c_set_data_burst   	   = camdrv_ss_s5k5ccgx_i2c_set_data_burst;
 	sensor->check_flash_needed   	   = camdrv_ss_s5k5ccgx_check_flash_needed;
 //	sensor->get_light_condition   = camdrv_ss_s5k5ccgx_get_light_condition;
@@ -1983,10 +1983,8 @@ bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor)
 
 
 
-		
 	sensor->ae_unlock_regs			  = s5k5ccgx_ae_unlock_regs;
 	sensor->rows_num_ae_unlock_regs	  = ARRAY_SIZE(s5k5ccgx_ae_unlock_regs);
-
 
 
 
@@ -1997,7 +1995,6 @@ bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor)
 
 
 
-		
 	sensor->awb_unlock_regs			  = s5k5ccgx_awb_unlock_regs;
 	sensor->rows_num_awb_unlock_regs	  = ARRAY_SIZE(s5k5ccgx_awb_unlock_regs);
 
@@ -2005,6 +2002,4 @@ bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor)
 
 	
 
-
 };
-

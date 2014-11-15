@@ -2040,7 +2040,6 @@ const regs_t sr200pc20m_scene_none_regs[] =
 
 /* Saturation 0, EV 0 */
 	0x0310,
-0x4000,		
 0x4100,
 0x6061,
 0x617a, /* 77 */
@@ -2177,7 +2176,6 @@ const regs_t sr200pc20m_scene_backlight_regs[] =
 
 //Saturation 0, EV 0
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 0x617a, /* 77 */
@@ -2300,7 +2298,6 @@ const regs_t sr200pc20m_scene_landscape_regs[] =
 
 //Saturation +1, EV 0
 	0x0310,
-	0x4000,	
 0x4100,
 0x6061,
 	0x618a, /* +10 */
@@ -2432,7 +2429,6 @@ const regs_t sr200pc20m_scene_party_indoor_regs[] =
 
 /* Saturation +1, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 0x618a,
@@ -2509,7 +2505,6 @@ const regs_t sr200pc20m_scene_party_indoor_regs[] =
 0x8a70, 
 
 /* ISO_200 */
-0x0320,
 0xb037,
 0xb137,
 0xb240,
@@ -2566,7 +2561,6 @@ const regs_t sr200pc20m_scene_sunset_regs[] =
 
 /* Saturation 0, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x617a,
@@ -2689,7 +2683,6 @@ const regs_t sr200pc20m_scene_duskdawn_regs[] =
 
 /* Saturation 0, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x617a, /* 77 */
@@ -2812,7 +2805,6 @@ const regs_t sr200pc20m_scene_fall_color_regs[] =
 
 /* Saturation +2, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x619a, /* +20 */
@@ -2915,7 +2907,7 @@ const regs_t sr200pc20m_scene_fall_color_regs[] =
 	0xff14, /* 200ms DELAY */
 };
 
-const regs_t sr200pc20m_scene_nightshot_Normal[] = {
+static const u16 sr200pc20m_scene_nightshot_Normal[] = {
 
 //WB Auto
 	0x0322,
@@ -2932,7 +2924,6 @@ const regs_t sr200pc20m_scene_nightshot_Normal[] = {
 
 //Saturation 0, EV 0
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a, // 77 //
@@ -3035,7 +3026,7 @@ const regs_t sr200pc20m_scene_nightshot_Normal[] = {
 0xff14, // 200ms DELAY
 };
 
-const regs_t sr200pc20m_scene_nightshot_Dark[] = {
+static const u16 sr200pc20m_scene_nightshot_Dark[] = {
 
 //WB Auto
 	0x0322,
@@ -3052,7 +3043,6 @@ const regs_t sr200pc20m_scene_nightshot_Dark[] = {
 
 //Saturation 0, EV 0
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a, // 77 //
@@ -3187,7 +3177,6 @@ const regs_t sr200pc20m_scene_candle_light_regs[] =
 
 /* Saturation 0, EV 0 */
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a,
@@ -5196,7 +5185,6 @@ const regs_t sr200pc20m_scene_none_regs_60hz[] =
 
 /* Saturation 0, EV 0 */
 	0x0310,
-0x4000,
 0x4100,
 0x6061,
 0x617a, /* 77 */
@@ -5319,7 +5307,6 @@ const regs_t sr200pc20m_scene_backlight_regs_60hz[] =
 
 //Saturation 0, EV 0
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 0x617a, /* 77 */
@@ -5442,7 +5429,6 @@ const regs_t sr200pc20m_scene_landscape_regs_60hz[] =
 
 //Saturation +1, EV 0
 	0x0310,
-	0x4000,	
 0x4100,
 0x6061,
 	0x618a, /* +10 */
@@ -5565,7 +5551,6 @@ const regs_t sr200pc20m_scene_party_indoor_regs_60hz[] =
 
 /* Saturation +1, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 0x618a,
@@ -5642,7 +5627,6 @@ const regs_t sr200pc20m_scene_party_indoor_regs_60hz[] =
 	0x8a08,
 
 /* ISO_200 */
-0x0320,
 0xb037,
 0xb137,
 0xb240,
@@ -5690,7 +5674,6 @@ const regs_t sr200pc20m_scene_sunset_regs_60hz[] =
 
 /* Saturation 0, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x617a,
@@ -5813,7 +5796,6 @@ const regs_t sr200pc20m_scene_duskdawn_regs_60hz[] =
 
 /* Saturation 0, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x617a, /* 77 */
@@ -5936,7 +5918,6 @@ const regs_t sr200pc20m_scene_fall_color_regs_60hz[] =
 
 /* Saturation +2, EV 0 */
 0x0310,
-0x4000,	
 0x4100,
 0x6061,
 	0x619a, /* +20 */
@@ -6039,7 +6020,7 @@ const regs_t sr200pc20m_scene_fall_color_regs_60hz[] =
 	0xff14, /* 200ms DELAY */
 };
 
-const regs_t sr200pc20m_scene_nightshot_Normal_60hz[] = {
+static const u16 sr200pc20m_scene_nightshot_Normal_60hz[] = {
 
 //WB Auto
 	0x0322,
@@ -6056,7 +6037,6 @@ const regs_t sr200pc20m_scene_nightshot_Normal_60hz[] = {
 
 //Saturation 0, EV 0
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a, // 77 //
@@ -6159,7 +6139,7 @@ const regs_t sr200pc20m_scene_nightshot_Normal_60hz[] = {
 0xff14, // 200ms DELAY
 };
 
-const regs_t sr200pc20m_scene_nightshot_Dark_60hz[] = {
+static const u16 sr200pc20m_scene_nightshot_Dark_60hz[] = {
 
 //WB Auto
 	0x0322,
@@ -6176,7 +6156,6 @@ const regs_t sr200pc20m_scene_nightshot_Dark_60hz[] = {
 
 //Saturation 0, EV 0
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a, // 77 //
@@ -6303,7 +6282,6 @@ const regs_t sr200pc20m_scene_candle_light_regs_60hz[] =
 
 /* Saturation 0, EV 0 */
 	0x0310,
-	0x4000,	
 	0x4100,
 	0x6061,
 	0x617a,

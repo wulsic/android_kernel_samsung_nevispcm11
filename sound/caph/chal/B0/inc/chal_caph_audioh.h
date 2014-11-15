@@ -1776,19 +1776,6 @@ extern cVoid chal_audio_earpath_set_slowramp_ctrl(CHAL_HANDLE handle,
 *****************************************************************************/
 extern cVoid chal_audio_earpath_clear_slowramp_ctrl(CHAL_HANDLE handle,
 						    cUInt16 sr_ctrl);
-
-/**
-*
-*  @brief  Set AudioTx Earpiece Ramp Controls
-*
-*  @parm   handle - audio chal handle.
-*  @parm   ramp_ctrl - Earpiece Ramp controls.
-* Should be one of the combinations of CHAL_AUDIO_AUDIOTX_EP_DRV_XXXX
-*
-*  @return none
-*****************************************************************************/
-cVoid chal_audio_earpath_ramp_ctrl(CHAL_HANDLE handle, cUInt16 ramp_ctrl);
-
 /**
 *
 *  @brief  Set the AUDIOTX Isolation controls
@@ -2963,5 +2950,23 @@ cVoid chal_audio_adcpath_fifo_global_clear(CHAL_HANDLE handle, Boolean clear);
 
 cVoid chal_audio_hspath_turn_on_pmu_signal(cVoid);
 
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+/**
+*
+* Function Name: cVoid chal_audio_hspath_hs_supply_get_indicator
+* (CHAL_HANDLE handle, cUInt16 *hs_ds_indicator)
+*
+* Description:  Get the headset driver supply indicator
+*
+* Parameters:  handle - audio chal handle.
+*              hs_ds_indicator (out) - Headset Driver Supply Indicator,
+*
+* Return:       None.
+*
+*****************************************************************************/
 
+cVoid chal_audio_hspath_hs_supply_get_indicator(CHAL_HANDLE handle,
+				cUInt16 *hs_ds_indicator);
+
+#endif
 #endif /* _CHAL_CAPH_AUDIOH_ */

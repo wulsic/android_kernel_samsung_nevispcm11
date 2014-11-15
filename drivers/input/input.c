@@ -180,7 +180,7 @@ static int input_handle_abs_event(struct input_dev *dev,
 		return INPUT_IGNORE_EVENT;
 	}
 
-	is_mt_event = code >= ABS_MT_FIRST && code <= ABS_MT_LAST;
+	is_mt_event = input_is_mt_value(code);
 
 	if (!is_mt_event) {
 		pold = &dev->absinfo[code].value;
@@ -344,15 +344,17 @@ static void input_handle_event(struct input_dev *dev,
  * to 'seed' initial state of a switch or initial position of absolute
  * axis, etc.
  */
-extern void sec_debug_check_crash_key(unsigned int code, int value);
+#if defined (CONFIG_SEC_DEBUG)
+	extern void sec_debug_check_crash_key(unsigned int code, int value);
+#endif
 
 void input_event(struct input_dev *dev,
 		 unsigned int type, unsigned int code, int value)
 {
 	unsigned long flags;
-
+#if defined (CONFIG_SEC_DEBUG)
 	sec_debug_check_crash_key(code ,value);
-
+#endif
 	if (is_event_supported(type, dev->evbit, EV_MAX)) {
 
 		spin_lock_irqsave(&dev->event_lock, flags);
@@ -587,7 +589,6 @@ void input_close_device(struct input_handle *handle)
 }
 EXPORT_SYMBOL(input_close_device);
 
-extern int last_key_code;
 /*
  * Simulate keyup events for all keys that are marked as pressed.
  * The function must be called with dev->event_lock held.
@@ -595,7 +596,7 @@ extern int last_key_code;
 static void input_dev_release_keys(struct input_dev *dev)
 {
 	int code;
-    if(last_key_code!=KEY_PLAY){
+
 	if (is_event_supported(EV_KEY, dev->evbit, EV_MAX)) {
 		for (code = 0; code <= KEY_MAX; code++) {
 			if (is_event_supported(code, dev->keybit, KEY_MAX) &&
@@ -605,7 +606,6 @@ static void input_dev_release_keys(struct input_dev *dev)
 		}
 		input_pass_event(dev, EV_SYN, SYN_REPORT, 1);
 	}
-     }
 }
 
 /*
@@ -1580,9 +1580,11 @@ void input_reset_device(struct input_dev *dev)
 		 * Keys that have been pressed at suspend time are unlikely
 		 * to be still pressed when we resume.
 		 */
-		spin_lock_irq(&dev->event_lock);
-		input_dev_release_keys(dev);
-		spin_unlock_irq(&dev->event_lock);
+		/*		 
+		* spin_lock_irq(&dev->event_lock);
+		* input_dev_release_keys(dev);
+		* spin_unlock_irq(&dev->event_lock);
+		 */		
 	}
 
 	mutex_unlock(&dev->mutex);
@@ -1630,7 +1632,7 @@ static struct device_type input_dev_type = {
 #endif
 };
 
-static char *input_devnode(struct device *dev, mode_t *mode)
+static char *input_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "input/%s", dev_name(dev));
 }

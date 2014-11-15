@@ -25,19 +25,21 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/serial_8250.h>
-#include <linux/serial_reg.h>
 #include <linux/irq.h>
 #include <linux/dma-contiguous.h>
 #include <linux/dma-mapping.h>
 #include <linux/android_pmem.h>
+#ifdef CONFIG_ION
+#include <linux/ion.h>
+#include <linux/broadcom/kona_ion.h>
+#endif
 #include <linux/kernel_stat.h>
 #include <linux/memblock.h>
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
-#include <linux/gpio.h>
+//#include <linux/gpio.h>
 #include <mach/hardware.h>
 #include <linux/i2c.h>
 #include <linux/i2c-kona.h>
@@ -54,8 +56,8 @@
 #include <plat/spi_kona.h>
 #include <plat/chal/chal_trace.h>
 #include <trace/stm.h>
-#ifdef CONFIG_KONA_AVS
-#include <plat/kona_avs.h>
+#ifdef CONFIG_RHEA_AVS
+#include <mach/rhea_avs.h>
 #include "pm_params.h"
 #endif
 
@@ -84,8 +86,8 @@
 #include <linux/mfd/bcmpmu.h>
 #endif
 #endif
-
 #include <linux/usb/bcm_hsotgctrl.h>
+
 /* dynamic ETM support */
 unsigned int etm_on;
 EXPORT_SYMBOL(etm_on);
@@ -100,37 +102,36 @@ EXPORT_SYMBOL(etm_on);
 #define KONA_UART1_PA	UARTB2_BASE_ADDR
 #define KONA_UART2_PA	UARTB3_BASE_ADDR
 
-#define KONA_UART_FCR_UART0	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_11)
-#define KONA_UART_FCR_UART1	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
-#define KONA_UART_FCR_UART2	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
-
-#define KONA_8250PORT(name, clk)				\
+#define KONA_8250PORT(name, clk, freq, uart_name)\
 {								\
 	.membase    = (void __iomem *)(KONA_##name##_VA),	\
 	.mapbase    = (resource_size_t)(KONA_##name##_PA),	\
 	.irq	    = BCM_INT_ID_##name,			\
-	.uartclk    = 26000000,					\
-	.regshift   = 2,				\
-	.iotype	    = UPIO_DWAPB,			\
-	.type	    = PORT_16550A,			\
-	.flags	    = UPF_BOOT_AUTOCONF | UPF_FIXED_TYPE | UPF_SKIP_TEST, \
+	.uartclk    = freq,					\
+	.regshift   = 2,					\
+	.iotype     = UPIO_MEM32,                       	\
+	.type	    = PORT_16550A,				\
+	.flags	    = UPF_BOOT_AUTOCONF | UPF_BUG_THRE | UPF_FIXED_TYPE | \
+							UPF_SKIP_TEST, \
 	.private_data = (void __iomem *)((KONA_##name##_VA) + \
 						UARTB_USR_OFFSET), \
-	.clk_name = clk,	\
-	.fcr = KONA_UART_FCR_##name, \
+	.clk_name = clk,					\
+	.port_name = uart_name,					\
 }
 
 static struct plat_serial8250_port uart_data[] = {
-	KONA_8250PORT(UART0, "uartb_clk"),
-	KONA_8250PORT(UART1, "uartb2_clk"),
-	KONA_8250PORT(UART2, "uartb3_clk"),
+	KONA_8250PORT(UART0, "uartb_clk", 26000000, "console"),
+	/* Do not change the "bluetooth". This is used in 8250_dw.c to identify
+	 * that this is a Bluetooth Uart. */
+	KONA_8250PORT(UART1, "uartb2_clk", 48000000, "bluetooth"),
+	KONA_8250PORT(UART2, "uartb3_clk", 26000000, NULL),
 	{
 	 .flags = 0,
 	 },
 };
 
-struct platform_device board_serial_device = {
-	.name = "serial8250",
+static struct platform_device board_serial_device = {
+	.name = "serial8250_dw",
 	.id = PLAT8250_DEV_PLATFORM,
 	.dev = {
 		.platform_data = uart_data,
@@ -177,27 +178,27 @@ static struct resource board_pmu_bsc_resource[] = {
 };
 
 static struct bsc_adap_cfg bsc_i2c_cfg[] = {
-	{ /* for BSC0 */
-		.speed = BSC_BUS_SPEED_400K,
-		.dynamic_speed = 1,
-		.bsc_clk = "bsc1_clk",
-		.bsc_apb_clk = "bsc1_apb_clk",
-		.retries = 1,
-		.is_pmu_i2c=false,
+	{			/* for BSC0 */
+	 .speed = BSC_BUS_SPEED_400K,
+	 .dynamic_speed = 1,
+	 .bsc_clk = "bsc1_clk",
+	 .bsc_apb_clk = "bsc1_apb_clk",
+	 .retries = 1,
+	 .is_pmu_i2c = false,
 	 .fs_ref = BSC_BUS_REF_13MHZ,
 	 .hs_ref = BSC_BUS_REF_104MHZ,
-	},
-	{ /* for BSC1*/
-		.speed = BSC_BUS_SPEED_400K,
-		.dynamic_speed = 1,
-		.bsc_clk = "bsc2_clk",
-		.bsc_apb_clk = "bsc2_apb_clk",
-		.retries = 3,
-		.is_pmu_i2c=false,
+	 },
+	{			/* for BSC1 */
+	 .speed = BSC_BUS_SPEED_400K,
+	 .dynamic_speed = 1,
+	 .bsc_clk = "bsc2_clk",
+	 .bsc_apb_clk = "bsc2_apb_clk",
+	 .retries = 3,
+	 .is_pmu_i2c = false,
 	 .fs_ref = BSC_BUS_REF_13MHZ,
 	 .hs_ref = BSC_BUS_REF_104MHZ,
-	},
-	{ /* for PMU */
+	 },
+	{			/* for PMU */
 #if defined(CONFIG_KONA_PMU_BSC_HS_MODE)
 	 .speed = BSC_BUS_SPEED_HS,
 	 /* No dynamic speed in HS mode */
@@ -220,13 +221,8 @@ static struct bsc_adap_cfg bsc_i2c_cfg[] = {
 	 .dynamic_speed = 0,
 	 .retries = 5,
 #else
-#ifdef CONFIG_MFD_D2083
-	 .speed = BSC_BUS_SPEED_400K,
-	 .dynamic_speed = 0,
-#else
 	 .speed = BSC_BUS_SPEED_50K,
 	 .dynamic_speed = 1,
-#endif
 	 .retries = 3,
 #endif
 	 .bsc_clk = "pmu_bsc_clk",
@@ -532,7 +528,7 @@ static struct platform_device rng_device = {
 };
 #endif
 
-#ifdef CONFIG_USB_DWC_OTG
+#if defined(CONFIG_USB_DWC_OTG) || defined (CONFIG_USB_DWC_OTG_MODULE)
 static struct resource kona_hsotgctrl_platform_resource[] = {
 	[0] = {
 	       .start = HSOTG_CTRL_BASE_ADDR,
@@ -550,8 +546,8 @@ static struct resource kona_hsotgctrl_platform_resource[] = {
 	       .flags = IORESOURCE_MEM,
 	       },
 	[3] = {
-	       .start = BCM_INT_ID_RESERVED128,
-	       .end = BCM_INT_ID_RESERVED128,
+	       .start = BCM_INT_ID_HSOTG_WAKEUP,
+	       .end = BCM_INT_ID_HSOTG_WAKEUP,
 	       .flags = IORESOURCE_IRQ,
 	       },
 };
@@ -559,7 +555,7 @@ static struct resource kona_hsotgctrl_platform_resource[] = {
 static struct bcm_hsotgctrl_platform_data hsotgctrl_plat_data = {
 	.hsotgctrl_virtual_mem_base = KONA_USB_HSOTG_CTRL_VA,
 	.chipreg_virtual_mem_base = KONA_CHIPREG_VA,
-	.irq = BCM_INT_ID_RESERVED128,
+	.irq = BCM_INT_ID_HSOTG_WAKEUP,
 	.usb_ahb_clk_name = USB_OTG_AHB_BUS_CLK_NAME_STR,
 	.mdio_mstr_clk_name = MDIOMASTER_PERI_CLK_NAME_STR,
 };
@@ -596,50 +592,17 @@ static struct platform_device board_kona_otg_platform_device = {
 };
 #endif
 
-#ifdef CONFIG_MFD_D2083
-static struct platform_device fsa9480_otg_xceiv_platform_device = {
-	.name = "fsa9480_otg_xceiv",
-	.id = -1,
-};
-#endif
-
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
 struct kona_freq_tbl kona_freq_tbl[] = {
 	FTBL_INIT(156000, PI_OPP_ECONOMY),
 	FTBL_INIT(467000, PI_OPP_NORMAL),
-        FTBL_INIT(128000, PI_OPP_NORMAL),
+
 #ifdef CONFIG_RHEALC_2093
 	FTBL_INIT(600000, PI_OPP_TURBO),
-        FTBL_INIT(900000, PI_OPP_TURBO1),
-        FTBL_INIT(1000000, PI_OPP_TURBO0),
 #else
-        FTBL_INIT(128000, PI_OPP_NORMAL),
-        FTBL_INIT(256000, PI_OPP_NORMAL),
-        FTBL_INIT(384000, PI_OPP_NORMAL),
-        FTBL_INIT(628000, PI_OPP_NORMAL),
-	FTBL_INIT(700000, PI_OPP_NORMAL),
-        FTBL_INIT(900000, PI_OPP_TURBO),
-        FTBL_INIT(950000, PI_OPP_TURBO),
-        FTBL_INIT(1000000, PI_OPP_TURBO),
-        FTBL_INIT(1100000, PI_OPP_TURBO),
-        FTBL_INIT(1200000, PI_OPP_TURBO),
+	FTBL_INIT(700000, PI_OPP_TURBO),
 #endif
 };
-
-unsigned int get_cpufreq_from_opp(int opp)
-{
-	int i, num_of_opp;
-	if (opp < 0)
-	  return 0;
-	num_of_opp = ARRAY_SIZE(kona_freq_tbl);
-	for (i = 0; i < num_of_opp; i++) {
-	  if (kona_freq_tbl[i].opp == opp)
-	    return kona_freq_tbl[i].cpu_freq;
-	}
-	pr_debug("%s: Invalid OPP as argument\n", __func__);
-	return -EINVAL;
-}
-EXPORT_SYMBOL(get_cpufreq_from_opp);
 
 void rhea_cpufreq_init(void)
 {
@@ -678,13 +641,13 @@ static struct platform_device kona_cpufreq_device = {
 };
 #endif /*CONFIG_KONA_CPU_FREQ_DRV */
 
-#ifdef CONFIG_KONA_AVS
+#ifdef CONFIG_RHEA_AVS
 
-void avs_silicon_type_notify(u32 *silicon_type, int *freq_id)
+void avs_silicon_type_notify(u32 silicon_type, int freq_id)
 {
 	pr_info("%s : silicon type = %d freq = %d\n", __func__,
-			*silicon_type,
-			*freq_id);
+			silicon_type,
+			freq_id);
 	pm_init_pmu_sr_vlt_map_table(silicon_type, freq_id);
 }
 
@@ -705,14 +668,7 @@ static u32 vm_bin_B1_lut[4][VM_BIN_LUT_SIZE] = {
 	{97, 126, 161, UINT_MAX},
 	{159, 183, 249, UINT_MAX},
 	{96, 121, 151, UINT_MAX},
-	{133, 151, 200, UINT_MAX}
-};
-
-static u32 vm_bin_smic_lut[4][VM_BIN_LUT_SIZE] = {
-	{111, 135, 157, UINT_MAX},
-	{160, 191, 221, UINT_MAX},
-	{98, 127, 140, UINT_MAX},
-	{137, 161, 177, UINT_MAX}
+	{133, 151, 200, UINT_MAX},
 };
 
 u32 silicon_type_lut[VM_BIN_LUT_SIZE] = {
@@ -720,7 +676,7 @@ u32 silicon_type_lut[VM_BIN_LUT_SIZE] = {
 };
 
 /* index = ATE_AVS_BIN[3:0]*/
-static struct kona_ate_lut_entry ate_lut[] = {
+static struct rhea_ate_lut_entry ate_lut[] = {
 	{ATE_FIELD_RESERVED , ATE_FIELD_RESERVED}, /* 0 */
 	{A9_FREQ_850_MHZ, SILICON_TYPE_FAST},	/* 1 */
 	{A9_FREQ_850_MHZ, SILICON_TYPE_TYPICAL},/* 2 */
@@ -739,7 +695,7 @@ static struct kona_ate_lut_entry ate_lut[] = {
 	{A9_FREQ_850_MHZ, SILICON_TYPE_TYPICAL},/* 15 */
 };
 
-static struct kona_avs_pdata avs_pdata = {
+static struct rhea_avs_pdata avs_pdata = {
 	.flags = AVS_TYPE_OPEN | AVS_READ_FROM_MEM | AVS_ATE_FEATURE_ENABLE,
 
 	/* Mem addr where perfomance monitor value is copied by ABI */
@@ -753,14 +709,14 @@ static struct kona_avs_pdata avs_pdata = {
 	.vm_bin_B0_lut = vm_bin_B0_lut,
 	.vm_bin_B1_lut = vm_bin_B1_lut,
 	.silicon_type_lut = silicon_type_lut,
-	.vm_bin_smic_lut = vm_bin_smic_lut,
+
 	.ate_lut = ate_lut,
 
 	.silicon_type_notify = avs_silicon_type_notify,
 };
 
-struct platform_device kona_avs_device = {
-	.name = "kona-avs",
+struct platform_device rhea_avs_device = {
+	.name = "rhea-avs",
 	.id = -1,
 	.dev = {
 		.platform_data = &avs_pdata,
@@ -828,6 +784,71 @@ static struct platform_device board_unicam_device = {
 };
 #endif
 
+#ifdef CONFIG_ION
+
+static struct ion_platform_data ion_carveout_data = {
+	.nr = 2,
+	.heaps = {
+		[0] = {
+			.id = 0,
+			.type = ION_HEAP_TYPE_CARVEOUT,
+			.name = "ion-carveout-0",
+			.base = 0x90000000,
+			.limit = 0xa0000000,
+			.size = (16 * SZ_1M),
+		},
+		[1] = {
+			.id = 1,
+			.type = ION_HEAP_TYPE_CARVEOUT,
+			.name = "ion-carveout-1",
+			.base = 0,
+			.limit = 0,
+			.size = (0 * SZ_1M),
+		},
+	},
+};
+
+static struct platform_device ion_carveout_device = {
+	.name = "ion-kona",
+	.id = 0,
+	.dev = {
+		.platform_data = &ion_carveout_data,
+	},
+	.num_resources = 0,
+};
+
+#ifdef CONFIG_CMA
+
+static u64 ion_dmamask = DMA_BIT_MASK(32);
+static struct ion_platform_data ion_cma_data = {
+	.nr = 1,
+	.heaps = {
+		[0] = {
+			.id = 2,
+			.type = ION_HEAP_TYPE_DMA,
+			.name = "ion-cma-0",
+			.base = 0x90000000,
+			.limit = 0xa0000000,
+			.size = (0 * SZ_1M),
+		},
+	},
+};
+
+static struct platform_device ion_cma_device = {
+	.name = "ion-kona",
+	.id = 1,
+	.dev = {
+		.dma_mask = &ion_dmamask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
+		.platform_data = &ion_cma_data,
+	},
+	.num_resources = 0,
+};
+
+#endif
+
+#endif
+
 /* Allocate the top 16M of the DRAM for the pmem. */
 static struct android_pmem_platform_data android_pmem_data = {
 	.name = "pmem",
@@ -849,8 +870,8 @@ static u64 unicam_camera_dma_mask = DMA_BIT_MASK(32);
 
 static struct resource board_unicam_resource[] = {
 	[0] = {
-	       .start = BCM_INT_ID_RESERVED156,
-	       .end = BCM_INT_ID_RESERVED156,
+	       .start = BCM_INT_ID_CSI,
+	       .end = BCM_INT_ID_CSI,
 	       .flags = IORESOURCE_IRQ,
 	       },
 };
@@ -901,13 +922,13 @@ static struct platform_device *board_common_plat_devices[] __initdata = {
 	&rng_device,
 #endif
 
-#ifdef CONFIG_USB_DWC_OTG
+#if defined (CONFIG_USB_DWC_OTG) || defined (CONFIG_USB_DWC_OTG_MODULE)
 	&board_kona_hsotgctrl_platform_device,
 	&board_kona_otg_platform_device,
 #endif
 
-#ifdef CONFIG_KONA_AVS
-	&kona_avs_device,
+#ifdef CONFIG_RHEA_AVS
+	&rhea_avs_device,
 #endif
 
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
@@ -934,10 +955,6 @@ static struct platform_device *board_common_plat_devices[] __initdata = {
 	&caph_i2s_device,
 	&caph_pcm_device,
 #endif
-#ifdef CONFIG_MFD_D2083
-	&fsa9480_otg_xceiv_platform_device,
-#endif
-
 };
 
 static int __init setup_etm(char *p)
@@ -946,6 +963,82 @@ static int __init setup_etm(char *p)
 	return 1;
 }
 early_param("etm_on", setup_etm);
+
+#ifdef CONFIG_ION
+/* Change carveout region size for ION */
+static int __init setup_ion_carveout0_pages(char *str)
+{
+	char *endp = NULL;
+	if (str)
+		ion_carveout_data.heaps[0].size = memparse((const char *)str,
+				&endp);
+	return 0;
+}
+early_param("carveout0", setup_ion_carveout0_pages);
+
+static int __init setup_ion_carveout1_pages(char *str)
+{
+	char *endp = NULL;
+	if (str)
+		ion_carveout_data.heaps[1].size = memparse((const char *)str,
+				&endp);
+	return 0;
+}
+early_param("carveout1", setup_ion_carveout1_pages);
+
+/* Carveout memory regions for ION */
+static void __init ion_carveout_memory(void)
+{
+	phys_addr_t carveout_size, carveout_base;
+	int i;
+
+	for (i = 0; i < ion_carveout_data.nr; i++) {
+		carveout_size = ion_carveout_data.heaps[i].size;
+		if (carveout_size) {
+			carveout_base = memblock_alloc_from_range(
+					carveout_size, SZ_1M,
+					ion_carveout_data.heaps[i].base,
+					ion_carveout_data.heaps[i].limit);
+			memblock_free(carveout_base, carveout_size);
+			memblock_remove(carveout_base, carveout_size);
+			pr_info("ion: carveout(%d) of (%d)MB from (%08x-%08x)\n",
+					i, (carveout_size>>20), carveout_base,
+					carveout_base + carveout_size);
+			ion_carveout_data.heaps[i].base = carveout_base;
+		} else {
+			ion_carveout_data.heaps[i].id = ION_INVALID_HEAP_ID;
+		}
+	}
+}
+
+#ifdef CONFIG_CMA
+/* Change cma region size for ION */
+static int __init setup_ion_cma0_pages(char *str)
+{
+	char *endp = NULL;
+	if (str)
+		ion_cma_data.heaps[0].size = memparse((const char *)str, &endp);
+	return 0;
+}
+early_param("cma0", setup_ion_cma0_pages);
+
+/* Reserve cma regions for ION */
+static void __init ion_cma_reserve(void)
+{
+	int i;
+	for (i = 0; i < ion_cma_data.nr; i++)
+		if (ion_cma_data.heaps[i].size)
+			dma_declare_contiguous(&ion_cma_device.dev,
+					ion_cma_data.heaps[i].size,
+					ion_cma_data.heaps[i].base,
+					ion_cma_data.heaps[i].limit);
+		else
+			ion_cma_data.heaps[i].id = ION_INVALID_HEAP_ID;
+}
+#endif
+
+#endif
+
 
 static int __init setup_pmem_pages(char *str)
 {
@@ -995,6 +1088,12 @@ void __init board_common_reserve(void)
 	phys_addr_t carveout_size, carveout_base;
 	unsigned long cmasize;
 
+#ifdef CONFIG_ION
+	ion_carveout_memory();
+#ifdef CONFIG_CMA
+	ion_cma_reserve();
+#endif
+#endif
 	carveout_size = android_pmem_data.carveout_size;
 	cmasize = android_pmem_data.cmasize;
 
@@ -1026,15 +1125,13 @@ void __init board_add_common_devices(void)
 			     ARRAY_SIZE(board_common_plat_devices));
 
 	platform_device_register(&android_pmem);
+#ifdef CONFIG_ION
+	platform_device_register(&ion_carveout_device);
+#ifdef CONFIG_CMA
+	platform_device_register(&ion_cma_device);
+#endif
+#endif
 	printk(KERN_EMERG"PMEM : CMA size (0x%08lx, %lu pages)\n",
 				pmem_size, (pmem_size >> PAGE_SHIFT));
 }
 
-/* Return the Rhea chip revision ID */
-int notrace get_chip_rev_id(void)
-{
-	return (readl(KONA_CHIPREG_VA + CHIPREG_CHIPID_REVID_OFFSET) &
-	CHIPREG_CHIPID_REVID_REVID_MASK) >>
-	CHIPREG_CHIPID_REVID_REVID_SHIFT;
-}
-EXPORT_SYMBOL(get_chip_rev_id);

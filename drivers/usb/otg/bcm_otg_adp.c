@@ -15,10 +15,16 @@
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/mfd/bcmpmu.h>
 #include <linux/usb/otg.h>
+#ifdef CONFIG_MFD_BCM_PMU59xxx
+#include "bcmpmu59xxx_otg_xceiv.h"
+#include <linux/mfd/bcmpmu59xxx.h>
+#else
+#include <linux/mfd/bcmpmu.h>
 #include "bcmpmu_otg_xceiv.h"
+#endif
 #include "bcm_otg_adp.h"
+
 
 static void bcmpmu_otg_xceiv_adp_cprb_done_handler(struct work_struct *work)
 {
@@ -37,12 +43,12 @@ static void bcmpmu_otg_xceiv_adp_change_handler(struct work_struct *work)
 
 	/* Need to turn on Vbus within 200ms */
 	if (bcmpmu_otg_xceiv_check_id_gnd(xceiv_data)) {
-		if (xceiv_data->otg_xceiver.xceiver.set_vbus)
-			xceiv_data->otg_xceiver.xceiver.set_vbus(&xceiv_data->
+		if (xceiv_data->otg_xceiver.phy.otg->set_vbus)
+			xceiv_data->otg_xceiver.phy.otg->set_vbus(&xceiv_data->
 								 otg_xceiver.
-								 xceiver, true);
+								 otg, true);
 
-		atomic_notifier_call_chain(&xceiv_data->otg_xceiver.xceiver.
+		atomic_notifier_call_chain(&xceiv_data->otg_xceiver.phy.
 					   notifier, USB_EVENT_VBUS, NULL);
 	} else
 		bcmpmu_otg_xceiv_do_srp(xceiv_data);	/* Do SRP */
@@ -82,9 +88,6 @@ static int bcmpmu_otg_xceiv_adp_change_notif_handler(struct notifier_block *nb,
 	    container_of(nb, struct bcmpmu_otg_xceiv_data,
 			 bcm_otg_adp_change_done_notifier);
 
-	if (!xceiv_data)
-		return -EINVAL;
-
 	queue_work(xceiv_data->bcm_otg_work_queue,
 		   &xceiv_data->bcm_otg_adp_change_work);
 
@@ -98,9 +101,6 @@ static int bcmpmu_otg_xceiv_adp_sns_end_notif_handler(struct notifier_block *nb,
 	struct bcmpmu_otg_xceiv_data *xceiv_data =
 	    container_of(nb, struct bcmpmu_otg_xceiv_data,
 			 bcm_otg_adp_sns_end_notifier);
-
-	if (!xceiv_data)
-		return -EINVAL;
 
 	queue_work(xceiv_data->bcm_otg_work_queue,
 		   &xceiv_data->bcm_otg_sens_end_work);

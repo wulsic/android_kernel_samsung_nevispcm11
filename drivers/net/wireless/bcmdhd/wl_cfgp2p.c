@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 391383 2013-03-18 03:32:38Z $
+ * $Id: wl_cfgp2p.c 408253 2013-06-18 06:25:11Z $
  *
  */
 #include <typedefs.h>
@@ -1066,6 +1066,12 @@ wl_cfgp2p_set_management_ie(struct wl_priv *wl, struct net_device *ndev, s32 bss
 	memset(g_mgmt_ie_buf, 0, sizeof(g_mgmt_ie_buf));
 	curr_ie_buf = g_mgmt_ie_buf;
 	CFGP2P_DBG((" bssidx %d, pktflag : 0x%02X\n", bssidx, pktflag));
+	ASSERT(wl);
+	if(!wl)
+	{
+	    CFGP2P_ERR(("wl handle is Null..\n"));
+	    return -1;
+	}
 	if (wl->p2p != NULL) {
 		switch (pktflag) {
 			case VNDR_IE_PRBREQ_FLAG :
@@ -1917,8 +1923,13 @@ wl_cfgp2p_supported(struct wl_priv *wl, struct net_device *ndev)
 	ret = wldev_iovar_getint(ndev, "p2p",
 	               &p2p_supported);
 	if (ret < 0) {
-		CFGP2P_ERR(("wl p2p error %d\n", ret));
-		return 0;
+		if (ret == BCME_UNSUPPORTED) {
+			CFGP2P_INFO(("p2p is unsupported\n"));
+			return 0;
+		} else {
+			CFGP2P_ERR(("wl p2p error %d\n", ret));
+			return BCME_NOTUP;
+	}
 	}
 	if (p2p_supported == 1) {
 		CFGP2P_INFO(("p2p is supported\n"));
@@ -2160,20 +2171,47 @@ wl_cfgp2p_retreive_p2pattrib(void *buf, u8 element_id)
 }
 
 #define P2P_GROUP_CAPAB_GO_BIT	0x01
+
+u8*
+wl_cfgp2p_find_attrib_in_all_p2p_Ies(u8 *parse, u32 len, u32 attrib)
+{
+	bcm_tlv_t *ie;
+	u8* pAttrib;
+
+	CFGP2P_INFO(("Starting parsing parse %p attrib %d remaining len %d ", parse, attrib, len));
+	while ((ie = bcm_parse_tlvs(parse, (int)len, DOT11_MNG_VS_ID))) {
+		if (wl_cfgp2p_is_p2p_ie((uint8*)ie, &parse, &len) == TRUE) {
+			/* Have the P2p ie. Now check for attribute */
+			if ((pAttrib = wl_cfgp2p_retreive_p2pattrib(parse, attrib)) != NULL) {
+				CFGP2P_INFO(("P2P attribute %d was found at parse %p",
+					attrib, parse));
+				return pAttrib;
+			}
+			else {
+				parse += (ie->len + TLV_HDR_LEN);
+				len -= (ie->len + TLV_HDR_LEN);
+				CFGP2P_INFO(("P2P Attribute %d not found Moving parse"
+					" to %p len to %d", attrib, parse, len));
+			}
+		}
+		else {
+			/* It was not p2p IE. parse will get updated automatically to next TLV */
+			CFGP2P_INFO(("IT was NOT P2P IE parse %p len %d", parse, len));
+		}
+	}
+	CFGP2P_ERR(("P2P attribute %d was NOT found", attrib));
+	return NULL;
+}
+
 u8 *
 wl_cfgp2p_retreive_p2p_dev_addr(wl_bss_info_t *bi, u32 bi_length)
 {
-	wifi_p2p_ie_t * p2p_ie = NULL;
 	u8 *capability = NULL;
 	bool p2p_go	= 0;
 	u8 *ptr = NULL;
 
-	if (!(p2p_ie = wl_cfgp2p_find_p2pie(((u8 *) bi) + bi->ie_offset, bi->ie_length))) {
-		WL_ERR(("P2P IE not found"));
-		return NULL;
-	}
-
-	if (!(capability = wl_cfgp2p_retreive_p2pattrib(p2p_ie, P2P_SEID_P2P_INFO))) {
+	if ((capability = wl_cfgp2p_find_attrib_in_all_p2p_Ies(((u8 *) bi) + bi->ie_offset,
+	bi->ie_length, P2P_SEID_P2P_INFO)) == NULL) {
 		WL_ERR(("P2P Capability attribute not found"));
 		return NULL;
 	}
@@ -2185,11 +2223,13 @@ wl_cfgp2p_retreive_p2p_dev_addr(wl_bss_info_t *bi, u32 bi_length)
 	}
 
 	/* In probe responses, DEVICE INFO attribute will be present */
-	if (!(ptr = wl_cfgp2p_retreive_p2pattrib(p2p_ie, P2P_SEID_DEV_INFO))) {
+	if (!(ptr = wl_cfgp2p_find_attrib_in_all_p2p_Ies(((u8 *) bi) + bi->ie_offset,
+	bi->ie_length,  P2P_SEID_DEV_INFO))) {
 		/* If DEVICE_INFO is not found, this might be a beacon frame.
 		 * check for DEVICE_ID in the beacon frame.
 		 */
-		ptr = wl_cfgp2p_retreive_p2pattrib(p2p_ie, P2P_SEID_DEV_ID);
+		ptr = wl_cfgp2p_find_attrib_in_all_p2p_Ies(((u8 *) bi) + bi->ie_offset,
+		bi->ie_length,  P2P_SEID_DEV_ID);
 	}
 
 	if (!ptr)
@@ -2339,6 +2379,10 @@ static int wl_cfgp2p_do_ioctl(struct net_device *net, struct ifreq *ifr, int cmd
 	return ret;
 }
 
+#if defined(CUSTOMER_HW4) && defined(PLATFORM_SLP)
+bool wfd_if_flag = 0;
+#endif /* CUSTOMER_HW4 && PLATFORM_SLP */
+
 static int wl_cfgp2p_if_open(struct net_device *net)
 {
 	extern struct wl_priv *wlcfg_drv_priv;
@@ -2357,6 +2401,10 @@ static int wl_cfgp2p_if_open(struct net_device *net)
 	wdev->wiphy->interface_modes |= (BIT(NL80211_IFTYPE_P2P_CLIENT)
 		| BIT(NL80211_IFTYPE_P2P_GO));
 	wl_cfg80211_do_driver_init(net);
+
+#if defined(CUSTOMER_HW4) && defined(PLATFORM_SLP)
+	wfd_if_flag = 1;
+#endif /* CUSTOMER_HW4 && PLATFORM_SLP */
 
 	return 0;
 }
@@ -2387,6 +2435,9 @@ static int wl_cfgp2p_if_stop(struct net_device *net)
 	wdev->wiphy->interface_modes = (wdev->wiphy->interface_modes)
 					& (~(BIT(NL80211_IFTYPE_P2P_CLIENT)|
 					BIT(NL80211_IFTYPE_P2P_GO)));
+#if defined(CUSTOMER_HW4) && defined(PLATFORM_SLP)
+	wfd_if_flag = 0;
+#endif /* CUSTOMER_HW4 && PLATFORM_SLP */
 	return 0;
 }
 

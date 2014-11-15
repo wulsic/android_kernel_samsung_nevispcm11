@@ -68,7 +68,7 @@ void kona_mic_bias_on(void)
 {
 	unsigned long val = 0;
 	mutex_lock(&mic_bias_lock);
-	pr_info("%s === mic_bias_user_count %d \r\n", __func__, mic_bias_user_count);
+	pr_debug(" === mic_bias_user_count %d \r\n", mic_bias_user_count);
 	if (mic_bias_user_count++ == 0) {
 		pr_debug("Actually Turning ON the MIC BIAS \r\n");
 		val = readl(KONA_ACI_VA + ACI_SLEEP_CTRL_OFFSET);
@@ -120,7 +120,7 @@ void kona_mic_bias_off(void)
 	 * ACI_CTRL ACI_BIAS_PWRDN=0x1
 	 */
 	mutex_lock(&mic_bias_lock);
-	pr_info("%s === mic_bias_user_count %d \r\n", __func__, mic_bias_user_count);
+	pr_debug(" === mic_bias_user_count %d \r\n", mic_bias_user_count);
 	if (mic_bias_user_count > 0)
 		--mic_bias_user_count;
 

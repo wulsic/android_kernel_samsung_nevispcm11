@@ -127,8 +127,10 @@ extern "C" {
 #define     CHAL_DSI_STAT_RX2_PKT                   (0x00000080)	/*07 */
 #define     CHAL_DSI_STAT_RX1_PKT                   (0x00000040)	/*06 */
 
+#define     CHAL_DSI_STAT_TXPKT2_BUSY               (0x00000020)
 #define     CHAL_DSI_STAT_TXPKT2_DONE               (0x00000010)	/*04 HERA only */
 #define     CHAL_DSI_STAT_TXPKT2_END                (0x00000008)	/*03 HERA only */
+#define     CHAL_DSI_STAT_TXPKT1_BUSY               (0x00000004)
 #define     CHAL_DSI_STAT_TXPKT1_DONE               (0x00000002)	/*01 */
 #define     CHAL_DSI_STAT_TXPKT1_END                (0x00000001)	/*00 */
 
@@ -154,6 +156,27 @@ extern "C" {
 		DE1_CM_LE = 2,	/*/< out -> B0,B1,B2,B3 */
 		DE1_CM_BE = 3,	/*/< out -> B3,B2,B1,B0 */
 	} CHAL_DSI_DE1_COL_MOD_t;
+/**
+*
+*  Display Engine 0 Color Modes
+*
+*****************************************************************************/
+	typedef enum {
+		DE0_CM_565P = 0,
+		DE0_CM_666P_VID = 1,
+		DE0_CM_666 = 2,
+		DE0_CM_888U = 3,
+	} CHAL_DSI_DE0_COL_MOD_t;
+/**
+*
+*  Display Engine 0 Modes
+*
+*****************************************************************************/
+	typedef enum {
+		DE0_MODE_VID = 0,
+		DE0_MODE_CMD = 1,
+	} CHAL_DSI_DE0_MODE_t;
+
 
 /**
 *
@@ -183,6 +206,7 @@ extern "C" {
 		cBool start; /*/< start transmission */
 		cUInt32 repeat; /*/< packet repeat count */
 		cBool endWithBta; /*/< end with BTA, USE ONLY WHEN REPEAT==1 */
+		cUInt32 dispEngine; /*/< Display Engine: source of pixel data */
 	} CHAL_DSI_TX_CFG_t, *pCHAL_DSI_TX_CFG;
 
 /**
@@ -339,6 +363,9 @@ extern "C" {
 *****************************************************************************/
 	cVoid chal_dsi_ena_int(CHAL_HANDLE handle, cUInt32 intMask);
 
+	/* To get the interrupts that have been enabled */
+	cUInt32 chal_dsi_get_ena_int(CHAL_HANDLE handle);
+
 /**
 *
 *  @brief    Get Current DSI Interrupt Status
@@ -493,6 +520,60 @@ extern "C" {
 *  @note
 *****************************************************************************/
 	cVoid chal_dsi_de1_enable(CHAL_HANDLE handle, cBool ena);
+
+/**
+*
+*  @brief    Set Display Engine 0 Color Mode
+*
+*  @param	 handle  (in)  DSI cHAL handle
+*  @param	 cm      (in)  DE0 Color Mode Configuration
+*
+*  @return	 void
+*
+*  @note
+*****************************************************************************/
+	cVoid chal_dsi_de0_set_cm(CHAL_HANDLE handle,
+				  CHAL_DSI_DE0_COL_MOD_t cm);
+
+/**
+*
+*  @brief    Set pixel clock divider
+*
+*  @param	 handle  (in)  DSI cHAL handle
+*  @param	 div     (in)  divider value
+*
+*  @return	 void
+*
+*  @note
+*****************************************************************************/
+	cVoid chal_dsi_de0_set_pix_clk_div(CHAL_HANDLE handle, cUInt32 div);
+
+/**
+*
+*  @brief    Enable/Disable Display Engine 0
+*
+*  @param	 handle  (in)  DSI cHAL handle
+*  @param	 ena     (in)  TRUE=enable FALSE=disable
+*
+*  @return	 void
+*
+*  @note
+*****************************************************************************/
+	cVoid chal_dsi_de0_enable(CHAL_HANDLE handle, cBool ena);
+
+/**
+*
+*  @brief    Set Display Engine 0 Mode
+*
+*  @param	 handle  (in)  DSI cHAL handle
+*  @param	 ena     (in)  TRUE=enable FALSE=disable
+*
+*  @return	 void
+*
+*  @note
+*****************************************************************************/
+	cVoid chal_dsi_de0_set_mode(CHAL_HANDLE handle,
+				CHAL_DSI_DE0_MODE_t mode);
 
 /**
 *
@@ -652,7 +733,7 @@ extern "C" {
 *  @brief    Configure DSI Timing
 *
 *  @param	 handle         (in)  DSI cHAL handle
-*  @param	 DPHY_SpecRev   (in)  DSI D-PHY Spec Rev
+*  @param	 phy_timing(in)  DSI protocol timing parameters
 *  @param	 coreClkSel     (in)  DSI Core Clock
 *  @param	 escClk_MHz     (in)  System Setting For ESC_CLK
 *  @param	 hsBitRate_Mbps (in)  Target HS Bit Rate
@@ -663,7 +744,7 @@ extern "C" {
 *  @note
 *****************************************************************************/
 	cBool chal_dsi_set_timing(CHAL_HANDLE handle,
-				  cUInt32 DPHY_SpecRev,
+				  void *phy_timing,
 				  CHAL_DSI_CLK_SEL_t coreClkSel,
 				  cUInt32 escClk_MHz,
 				  cUInt32 hsBitRate_Mbps,
@@ -683,6 +764,11 @@ extern "C" {
 	CHAL_HANDLE chal_dsi_init(cUInt32 baseAddress, pCHAL_DSI_INIT dsiInit);
 
 /** @} */
+
+/**
+* EXTERN
+**/
+	extern int g_display_enabled;
 
 #ifdef __cplusplus
 }

@@ -17,13 +17,22 @@ config ARCH_RHEA
 	help
 	  Support for the Broadcom Rhea SoC platform.
 
+config ARCH_HAWAII
+	bool "Broadcom Hawaii Soc"
+	select HAVE_SMP
+	select HAVE_PWM
+    select ARM_ERRATA_751472 if SMP
+    select ARM_ERRATA_754322
+    select ARM_ERRATA_764369 if SMP
+	select ARM_ERRATA_782773
+    select KONA_WFI_WORKAROUND if SMP
+	select MIGHT_HAVE_CACHE_L2X0
+	help
+	  Support for the Broadcom Hawaii Soc platform.
+
 endchoice
 
-config KONA_POWER
-       bool "Enable support for kona power management"
-       depends on ARCH_RHEA || ARCH_ISLAND
-       help
-       	Say Y if you want to enable the support for kona power management
+source "arch/arm/plat-kona/Kconfig.common"
 
 config GP_TIMER_CLOCK_OFF_FIX
 	bool "Enable the fix for general purpose timer clock off issue."
@@ -33,7 +42,7 @@ config GP_TIMER_CLOCK_OFF_FIX
 
 config GP_TIMER_COMPARATOR_LOAD_DELAY
         bool "Enable the delay after loading general purpose timer compare register"
-        depends on ARCH_RHEA || ARCH_ISLAND
+        depends on ARCH_RHEA || ARCH_ISLAND || ARCH_HAWAII
         default y
 
 config KONA_DCACHE_INVALIDATION
@@ -62,7 +71,7 @@ config BCM_STM
 
 config DMAC_PL330
 	bool "PL330 DMAC driver support for Kona architecture"
-	depends on ARCH_RHEA
+	depends on ARCH_RHEA || ARCH_HAWAII
 	select PL330
 	select ARM_PL330_FIX_ERRATA_716336
 	help
@@ -125,14 +134,6 @@ config KONA_PM_NO_CLK_DISABLE
 	help
 		Say Y to disable clk disable.
 
-config	PM_LOG_TO_UNCACHED_MEM
-	bool "Enable uncached logging facility for PM"
-	default n
-	help
-		Say Y to enable uncached logging facility for PM.
-		used to log PM specific events. This will help in
-		enhancing ramdump analysis as the ctritical PM events
-		and traces can be seen in ramdump.
 
 config KONA_CPU_FREQ_DRV
        bool "Enable CPU frequency scaling for kona chips"
@@ -143,12 +144,19 @@ config KONA_CPU_FREQ_DRV
 config KONA_CPU_FREQ_LIMITS
        bool "Enable sysfs interface to control CPU freq limits"
        depends on KONA_CPU_FREQ_DRV
-       default y 
        help
 	Say Y to add sysfs interfaces to control CPU freq limits
 	under /sys/power folder. CPU-freq max & min limits can be set/read
 	using these interfaces. Interace to read freq table and active freq
 	also get added if this config is enabled.
+
+config KONA_CPU_FREQ_ENABLE_OPP_SET_CHANGE
+	bool "Enable OPP set change to select a different OPP set"
+	depends on KONA_CPU_FREQ_DRV
+	default n
+	help
+	    Say Y to enable dynamic switching of OPP set. This will provide
+	    debugfs interface to switch OPP set dynamically.
 
 config KONA_POWER_MGR
        bool "Enable Kona power manager driver"
@@ -177,25 +185,73 @@ config KONA_PWRMGR_ENABLE_HW_SEM_WORKAROUND
        help
        	Say Y if you want to enable Kona PWRMGR HW sempaphore workaround
 
+config KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
+	bool "Enable workaround for Kona SW seqeuncer fake trigger erratum"
+	depends on KONA_POWER_MGR
+	default y
+	help
+	 Say Y if you want to enable workaround for Kona SW sequencer
+	 fake trigger erratum. Refer Jira DB (HWRHEA-2747) for more
+	 info.
+
+config KONA_PWRMGR_SWSEQ_FAKE_INTR_ERRATUM
+	bool "Enable workaround for Kona SW seqeuncer fake interrupt erratum"
+	depends on KONA_POWER_MGR
+	default y
+	help
+	 Say Y if you want to enable workaround for Kona SW sequencer
+	 fake interrupt erratum. Refer Jira DB (HWRHEA-2706) for more
+	 info.
+
+config KONA_PWRMGR_SWSEQ_RETRY_WORKAROUND
+	bool "Enable workaround for sw sequencer retry mechanism"
+	depends on KONA_POWER_MGR
+	default y
+	help
+	 Say y if want to enable workaround for kona sw sequencer
+	 retry meachanism erratum. Refer JIRA DB (HWHAWAII-1054)
+	 for more info
+
 config KONA_PWRMGR_REV2
        bool "Enable Kona PWRMGR Revision-2 support"
-       depends on KONA_POWER_MGR
+       depends on KONA_POWER_MGR && ARCH_RHEA=n
        help
        	Say Y if you want to enable Kona PWRMGR Revision-2 support
 
 config KONA_PMU_BSC_USE_PMGR_HW_SEM
 	bool "use HW sem to sync i2c between sw & sequencer"
-	depends on ARCH_RHEA && KONA_POWER_MGR
+	depends on (ARCH_RHEA || ARCH_HAWAII) && KONA_POWER_MGR
 	default y
 	help
 	  The HW sequencer can generate i2c transcations on the PMU i2c
 	  bus while SW driver can still generate the same. To sync
 	  between the two use HW semaphore.
 
-config KONA_AVS
-       bool "Enable Kona AVS driver"
+config KONA_I2C_SEQUENCER_LOG
+	bool "enable pwrmgr i2c sequencer logging"
+	depends on ARCH_HAWAII && KONA_POWER_MGR
+	default n
+	help
+	 Say Y to enable sequencer logging. All the pwrmgr i2c
+	 sequencer state machine and data will be logged to an
+	 buffer which can be useful in debugging sequencer related
+	 issues
+
+config PM_LOG_TO_UNCACHED_MEM
+       bool "Enable power manager event logging to uncached memory"
+       default y
        help
-	Say Y if you want to enable Kona AVS  driver
+        Say Y if you want to enable logging of power events to uncached memory.
+        Logging will happen in a 32K circular buffer in the RAM. Useful to
+        retrieve information from RAM-dumps in case of errors or failures.
+
+config KONA_MEMC
+       bool "Enable Kona MEMC driver"
+       help
+         Say Y to enable MEMC driver fot BROADCOM
+	 mobile platform.
+	 MEMC config params (self refresh, DDRLDO state etc)
+	 can be set through driver platform data.
 
 config KONA_ATAG_DT
        bool "Enable ATAG-based DT support"
@@ -230,7 +286,7 @@ config KONA_WFI_WORKAROUND
 config KONA_DT_BCMPMU
 	bool "Support DT for bcmpmu drivers"
 	depends on KONA_ATAG_DT
-	depends on MFD_BCMPMU
+	depends on MFD_BCMPMU || MFD_BCM_PMU59056
 	default 0
 	help
 	  Say Y if you support BCMPMU nodes in DeviceTree
@@ -240,6 +296,12 @@ config KONA_PROFILER
 	default 0
 	help
 	  Say Y if you want to enable Kona profiling
+
+config KONA_CLK_TRACE
+	bool "Enable clk usage tracing to non-cached buffer"
+	default y
+	help
+	  Say Y if you want to enable clk usage counter tracing
 
 config KONA_USB_CONTROL
        bool "Support BCM USB wrapper framework"
@@ -253,5 +315,64 @@ config KONA_CSL_CAMERA
 config KONA_CHAL_CAMERA
 	tristate
 
-endmenu
+config KONA_DSI
+	tristate
 
+config KONA_SMI
+	tristate
+
+config KONA_VC4LITE
+	tristate
+
+config KONA_KEYPAD
+	tristate
+config BRCM_UART_CHANGES
+	bool "Enable the Uart 8250.c changes"
+	depends on ARCH_RHEA || ARCH_HAWAII
+	default y
+	help
+	  Say Y if you want to enable BRCM UART changes in 8250.c file
+
+config BRCM_UART_WAKELOCK_TIMEOUT
+	int "UART SUSPEND wakelock timeout value in milliseconds"
+	depends on BRCM_UART_CHANGES
+	default 5000
+	help
+	  Set this to number of milliseconds to hold the Suspend Wakelock
+
+config DW_UART_WA_JIRA_1744
+	bool "DesignWare UART Jira-1744 Software workaround"
+	depends on BRCM_UART_CHANGES
+	default y
+	help
+	  UART RX interrupt happened but in LSR Data Ready is not set.
+	  This fix modifies the serial driver to take decission to
+	  call receive_chars based on iir and not based on LSR
+
+config DW_BT_UART_CHANGES
+	bool "BT related changes for Designware Uart"
+	depends on BRCM_UART_CHANGES
+	default y
+	help
+	  Handling BT UART ISR changes.
+
+config KONA_AXITRACE
+        bool "Enable axitrace sources"
+        depends on ARM_AMBA
+        help
+          Say Y here to enable axitrace sources on hawaii.
+
+config SPLIT_VIDEO_CMD_MODE_INTERFACE
+	bool "Enable split video command mode interface"
+	default n
+	help
+	  Say Y here to enable seperate interface file for video and command mode lcd
+
+
+config FB_BRCM_LCD_EXIST_CHECK
+	bool "Enable LCD exist check code"
+	default n
+	help
+	  Say Y here to enable LCD exist check code
+
+endmenu

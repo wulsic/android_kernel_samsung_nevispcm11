@@ -171,8 +171,8 @@ enum CSL_CAPH_DEVICE_e {
 	CSL_CAPH_DEV_ANALOG_MIC,	/*Phone analog mic */
 	CSL_CAPH_DEV_HS_MIC,	/*Headset mic */
 	CSL_CAPH_DEV_BT_MIC,	/*Bluetooth headset mic */
-	CSL_CAPH_DEV_FM_RADIO,	/*FM Radio playback */
-	CSL_CAPH_DEV_MEMORY,	/*DDR memory */
+	CSL_CAPH_DEV_FM_RADIO,	/*19  FM Radio playback */
+	CSL_CAPH_DEV_MEMORY,	/*20  DDR memory */
 	CSL_CAPH_DEV_DSP_throughMEM,	/*DSP connection through shared mem */
 	CSL_CAPH_DEV_SSP_RX, /* SSP (PCM mode) to external modem chip */
 	CSL_CAPH_DEV_SSP_TX, /* SSP (PCM mode) to external modem chip */
@@ -180,5 +180,15 @@ enum CSL_CAPH_DEVICE_e {
 };
 
 #define CSL_CAPH_DEVICE_e enum CSL_CAPH_DEVICE_e
+
+/* Define the other mic which is used for Noise Cancellation.
+	It is product-dependent. */
+#if defined(CONFIG_RHEA_CLOVER_ICS) || defined(CONFIG_MACH_RHEA_STONE_EDN2X)
+	/* for Rheastone phone: */
+#define DUALMICS_NOISE_REF_MIC CSL_CAPH_DEV_DIGI_MIC_R
+#else
+	/* for RheaRay board, RheaBerri phone: */
+#define DUALMICS_NOISE_REF_MIC CSL_CAPH_DEV_EANC_DIGI_MIC_R
+#endif
 
 #endif /* _CSL_CAPH_ */

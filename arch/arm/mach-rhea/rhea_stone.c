@@ -26,7 +26,6 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/kernel_stat.h>
@@ -53,6 +52,7 @@
 #include "common.h"
 #include <mach/sdio_platform.h>
 #include <linux/i2c/tango_ts.h>
+#include <asm/hardware/gic.h>
 
 #ifdef CONFIG_KEYBOARD_BCM
 #include <mach/bcm_keypad.h>
@@ -106,7 +106,6 @@
 #endif
 
 #if defined(CONFIG_AL3006) || defined(CONFIG_AL3006_MODULE)
-#include <linux/al3006.h>
 #include <mach/rheastone/al3006_i2c_settings.h>
 #endif
 
@@ -119,7 +118,7 @@
 #include <linux/pwm_backlight.h>
 #endif
 
-#ifdef CONFIG_FB_BRCM_RHEA
+#ifdef CONFIG_FB_BRCM_KONA
 #include <video/kona_fb_boot.h>
 #include <video/kona_fb.h>
 #endif
@@ -143,14 +142,6 @@
 #ifdef CONFIG_WD_TAPPER
 #include <linux/broadcom/wd-tapper.h>
 #endif
-
-
-#if defined(CONFIG_AMI306) || defined(CONFIG_AMI306_MODULE)
-#include <linux/ami306_def.h>
-#include <linux/ami_sensor.h>
-#include <mach/rheastone/ami306_settings.h>
-#endif
-
 
 #ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
 
@@ -205,7 +196,8 @@ static int configure_sdio_pullup(bool pull_up);
 #define TANGO_GPIO_RESET_PIN			70
 #define TANGO_I2C_TS_DRIVER_NUM_BYTES_TO_READ 	14
 
-#if (defined(CONFIG_MFD_BCM59039) || defined(CONFIG_MFD_BCM59042))
+#if (defined(CONFIG_MFD_BCM59039) || defined(CONFIG_MFD_BCM59042) || \
+	 defined(CONFIG_MFD_BCM_PMU59xxx))
 struct regulator_consumer_supply hv6_supply[] = {
 	{.supply = "vdd_sdxc"},
 	{.supply = "sddat_debug_bus"},
@@ -394,16 +386,9 @@ static struct i2c_board_info __initdata i2c_bmp18x_info[] = {
 #endif
 
 #if defined(CONFIG_AL3006) || defined(CONFIG_AL3006_MODULE)
-
-static struct al3006_platform_data al3006_platform_data = {
-	.i2c_pdata	= { ADD_I2C_SLAVE_SPEED(BSC_BUS_SPEED_100K), },
-};
-
-static struct i2c_board_info __initdata i2c_al3006_info[] =
-{
+static struct i2c_board_info __initdata i2c_al3006_info[] = {
 	{
-		I2C_BOARD_INFO("al3006", 0x1d ),
-		.platform_data = &al3006_platform_data,
+		I2C_BOARD_INFO("al3006", AL3006_I2C_ADDRESS),
 	},
 };
 #endif
@@ -417,51 +402,32 @@ static struct bma222_accl_platform_data bma_pdata = {
 
 #if defined(CONFIG_MPU_SENSORS_MPU6050B1) || defined(CONFIG_MPU_SENSORS_MPU6050B1_MODULE)
 
-static struct bcm_mpu_platform_data bcm_mpu6050_platform_data = {
-	.base_data = {
-		      .int_config = MPU6050_INIT_CFG,
-		      .level_shifter = 0,
-		      .orientation = MPU6050_DRIVER_ACCEL_GYRO_ORIENTATION,
-		      },
-	.irq_gpio = MPU6050_IRQ_GPIO,
+static struct mpu_platform_data mpu6050_platform_data =
+{
+	.int_config  = MPU6050_INIT_CFG,
+	.level_shifter = 0,
+	.orientation = MPU6050_DRIVER_ACCEL_GYRO_ORIENTATION,
 };
 
-#ifdef CONFIG_MPU_SENSORS_AMI306
 static struct ext_slave_platform_data mpu_compass_data =
 {
 	.bus = EXT_SLAVE_BUS_SECONDARY,
 	.orientation = MPU6050_DRIVER_COMPASS_ORIENTATION,
 };
-#endif
 
 
 static struct i2c_board_info __initdata inv_mpu_i2c0_boardinfo[] =
 {
 	{
 		I2C_BOARD_INFO("mpu6050", MPU6050_SLAVE_ADDR),
-		.platform_data = &bcm_mpu6050_platform_data,
+		.platform_data = &mpu6050_platform_data,
 	},
-#ifdef CONFIG_MPU_SENSORS_AMI306
 	{
 		I2C_BOARD_INFO("ami306", MPU6050_COMPASS_SLAVE_ADDR),
 		.platform_data = &mpu_compass_data,
 	},
-#endif
 };
 #endif /* CONFIG_MPU_SENSORS_MPU6050B1 */
-
-#if defined(CONFIG_AMI306) || defined(CONFIG_AMI306_MODULE)
-static struct ami306_platform_data ami306_data = AMI306_DATA;
-static struct i2c_board_info __initdata i2c_ami306_info[] =
-{
-	{
-		I2C_BOARD_INFO(AMI_DRV_NAME, AMI_I2C_ADDRESS),
-		.platform_data = &ami306_data,
-	},
-};
-#endif
-
-
 
 #ifdef CONFIG_KONA_HEADSET_MULTI_BUTTON
 
@@ -583,7 +549,7 @@ static struct kona_pl330_data rhea_pl330_pdata =	{
 	/* # of PL330 dmac channels 'configurable' */
 	.num_pl330_chans = 8,
 	/* irq number to use */
-	.irq_base = BCM_INT_ID_RESERVED184,
+	.irq_base = BCM_INT_ID_DMAC0,
 	/* # of PL330 Interrupt lines connected to GIC */
 	.irq_line_count = 8,
 };
@@ -763,7 +729,7 @@ static struct haptic_platform_data haptic_control_data = {
 	/* Haptic device name: can be device-specific name like ISA1000 */
 	.name = "pwm_vibra",
 	/* PWM interface name to request */
-	.pwm_name = "kona_pwmc:4",
+	.pwm_id = 4,
 	/* Invalid gpio for now, pass valid gpio number if connected */
 	.gpio = ARCH_NR_GPIOS,
 	.setup_pin = haptic_gpio_setup,
@@ -1054,7 +1020,7 @@ void __init board_add_sdio_devices(void)
 
 static struct platform_pwm_backlight_data bcm_backlight_data = {
 /* backlight */
-	.pwm_name 	= "kona_pwmc:4",
+	.pwm_id 	= 4,
 	.max_brightness = 32,   /* Android calibrates to 32 levels*/
 	.dft_brightness = 32,
 	.polarity       = 1,    /* Inverted polarity */
@@ -1071,7 +1037,7 @@ static struct platform_device bcm_backlight_devices = {
 
 #endif /*CONFIG_BACKLIGHT_PWM */
 
-#ifdef CONFIG_FB_BRCM_RHEA
+#ifdef CONFIG_FB_BRCM_KONA
 
 #if 0
 static struct kona_fb_platform_data lq043y1dx01_dsi_display_fb_data = {
@@ -1484,8 +1450,8 @@ static struct unicam_platform_data rhea_stone_unicam_pdata = {
 
 static struct resource rhea_stone_unicam_rsrc[] = {
 	[0] = {
-		.start = BCM_INT_ID_RESERVED156,
-		.end = BCM_INT_ID_RESERVED156,
+		.start = BCM_INT_ID_CSI,
+		.end = BCM_INT_ID_CSI,
 		.flags = IORESOURCE_IRQ,
 	},
 };
@@ -1573,7 +1539,7 @@ static struct platform_device *rhea_stone_plat_devices[] __initdata = {
 #endif
 
 #if 0
-#ifdef CONFIG_FB_BRCM_RHEA
+#ifdef CONFIG_FB_BRCM_KONA
 	&lq043y1dx01_dsi_display_device,
 #endif
 #endif
@@ -1658,7 +1624,7 @@ static struct i2c_board_info __initdata bma222_accl_info[] = {
 	{
 		I2C_BOARD_INFO("bma222_accl", 0x08),
 		.irq = -1,
-		.platform_data = &bma_pdata, 
+		.platform_data = &bma_pdata,
 	},
 };
 #endif
@@ -1801,12 +1767,9 @@ static void __init rhea_stone_add_i2c_devices (void)
 #endif
 
 #if defined(CONFIG_AL3006) || defined(CONFIG_AL3006_MODULE)
-#ifdef AL3006_IRQ
+#ifdef AL3006_IRQ_GPIO
 	i2c_al3006_info[0].irq = gpio_to_irq(AL3006_IRQ_GPIO);
-#else
-	i2c_al3006_info[0].irq = -1;
 #endif
-
 	i2c_register_board_info(
 #ifdef AL3006_I2C_BUS_ID
 		AL3006_I2C_BUS_ID,
@@ -1815,17 +1778,6 @@ static void __init rhea_stone_add_i2c_devices (void)
 #endif
 		i2c_al3006_info, ARRAY_SIZE(i2c_al3006_info));
 #endif
-
-#if defined(CONFIG_AMI306) || defined(CONFIG_AMI306_MODULE)
-	i2c_register_board_info (
-#ifdef AMI_I2C_BUS_NUM
-		AMI_I2C_BUS_NUM,
-#else
-		-1,
-#endif
-		i2c_ami306_info, ARRAY_SIZE(i2c_ami306_info));
-#endif /* CONFIG_AMI306 */
-
 
 }
 
@@ -1865,7 +1817,7 @@ static void __init rhea_stone_add_devices(void)
 				ARRAY_SIZE(spi_slave_board_info));
 }
 
-#ifdef CONFIG_FB_BRCM_RHEA
+#ifdef CONFIG_FB_BRCM_KONA
 /*
  *   KONA FRAME BUFFER DSIPLAY DRIVER PLATFORM CONFIG
  */
@@ -1878,18 +1830,18 @@ struct kona_fb_platform_data konafb_devices[] __initdata = {
 			.w0 = {
 				.bits = {
 					.boot_mode	= 0,
-					.bus_type	= RHEA_BUS_DSI,
-					.bus_no = RHEA_BUS_0,
-					.bus_ch = RHEA_BUS_CH_0,
+					.bus_type	= KONA_BUS_DSI,
+					.bus_no = KONA_BUS_0,
+					.bus_ch = KONA_BUS_CH_0,
 					.bus_width	= 0,
-					.te_input	= RHEA_TE_IN_1_DSI0,
-					.col_mode_i = RHEA_CM_I_XRGB888,
-					.col_mode_o = RHEA_CM_O_RGB888,
+					.te_input	= KONA_TE_IN_1_DSI0,
+					.col_mode_i = KONA_CM_I_XRGB888,
+					.col_mode_o = KONA_CM_O_RGB888,
 				},
 			},
 			.w1 = {
 			.bits = {
-					.api_rev  =  RHEA_LCD_BOOT_API_REV,
+					.api_rev  =  KONA_LCD_BOOT_API_REV,
 					.lcd_rst0 =  12,
 				},
 			},
@@ -1903,18 +1855,18 @@ struct kona_fb_platform_data konafb_devices[] __initdata = {
 			.w0 = {
 				.bits = {
 					.boot_mode  = 0,
-					.bus_type   = RHEA_BUS_DSI,
-					.bus_no     = RHEA_BUS_0,
-					.bus_ch     = RHEA_BUS_CH_0,
+					.bus_type   = KONA_BUS_DSI,
+					.bus_no     = KONA_BUS_0,
+					.bus_ch     = KONA_BUS_CH_0,
 					.bus_width  = 0,
-					.te_input   = RHEA_TE_IN_1_DSI0,
-					.col_mode_i = RHEA_CM_I_RGB565,
-					.col_mode_o = RHEA_CM_O_RGB565,
+					.te_input   = KONA_TE_IN_1_DSI0,
+					.col_mode_i = KONA_CM_I_RGB565,
+					.col_mode_o = KONA_CM_O_RGB565,
 				},
 			},
 			.w1 = {
 			.bits = {
-					.api_rev  =  RHEA_LCD_BOOT_API_REV,
+					.api_rev  =  KONA_LCD_BOOT_API_REV,
 					.lcd_rst0 =  25, /* DSI_BRIDGE_PON   */
 					.lcd_rst1 =  12, /* DSI_BRIDGE_RESET */
 					.lcd_rst2 =  13, /* SHARP_RESET      */
@@ -1926,12 +1878,12 @@ struct kona_fb_platform_data konafb_devices[] __initdata = {
 };
 
 #include "rhea_fb_init.c"
-#endif /* #ifdef CONFIG_FB_BRCM_RHEA */
+#endif /* #ifdef CONFIG_FB_BRCM_KONA */
 
 void __init board_init(void)
 {
 	board_add_common_devices();
-#ifdef CONFIG_FB_BRCM_RHEA
+#ifdef CONFIG_FB_BRCM_KONA
 	/* rhea_fb_init.c */
 	konafb_init();
 #endif
@@ -1949,9 +1901,12 @@ void __init board_map_io(void)
 late_initcall(rhea_stone_add_lateInit_devices);
 
 MACHINE_START(RHEA_STONE, "rheastone")
+	.atag_offset = 0x100,
 	.map_io = board_map_io,
 	.init_irq = kona_init_irq,
+	.handle_irq = gic_handle_irq,
 	.timer  = &kona_timer,
 	.init_machine = board_init,
-	.reserve = rhea_stone_reserve
+	.reserve = rhea_stone_reserve,
+	.restart = rhea_restart,
 MACHINE_END

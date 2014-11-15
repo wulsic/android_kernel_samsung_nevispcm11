@@ -13,6 +13,7 @@
 
 #include <linux/rtc.h>
 #include <linux/sched.h>
+#include <linux/module.h>
 #include <linux/log2.h>
 #include <linux/workqueue.h>
 
@@ -72,6 +73,8 @@ int rtc_set_time(struct rtc_device *rtc, struct rtc_time *tm)
 		err = -EINVAL;
 
 	mutex_unlock(&rtc->ops_lock);
+	/* A timer might have just expired */
+	schedule_work(&rtc->irqwork);
 	return err;
 }
 EXPORT_SYMBOL_GPL(rtc_set_time);
@@ -111,6 +114,8 @@ int rtc_set_mmss(struct rtc_device *rtc, unsigned long secs)
 		err = -EINVAL;
 
 	mutex_unlock(&rtc->ops_lock);
+	/* A timer might have just expired */
+	schedule_work(&rtc->irqwork);
 
 	return err;
 }
@@ -227,11 +232,11 @@ int __rtc_read_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 		alarm->time.tm_hour = now.tm_hour;
 
 	/* For simplicity, only support date rollover for now */
-	if (alarm->time.tm_mday == -1) {
+	if (alarm->time.tm_mday < 1 || alarm->time.tm_mday > 31) {
 		alarm->time.tm_mday = now.tm_mday;
 		missing = day;
 	}
-	if (alarm->time.tm_mon == -1) {
+	if ((unsigned)alarm->time.tm_mon >= 12) {
 		alarm->time.tm_mon = now.tm_mon;
 		if (missing == none)
 			missing = month;
@@ -318,20 +323,6 @@ int rtc_read_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 }
 EXPORT_SYMBOL_GPL(rtc_read_alarm);
 
-static int ___rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
-{
-	int err;
-
-	if (!rtc->ops)
-		err = -ENODEV;
-	else if (!rtc->ops->set_alarm)
-		err = -EINVAL;
-	else
-		err = rtc->ops->set_alarm(rtc->dev.parent, alarm);
-
-	return err;
-}
-
 static int __rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 {
 	struct rtc_time tm;
@@ -355,7 +346,14 @@ static int __rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 	 * over right here, before we set the alarm.
 	 */
 
-	return ___rtc_set_alarm(rtc, alarm);
+	if (!rtc->ops)
+		err = -ENODEV;
+	else if (!rtc->ops->set_alarm)
+		err = -EINVAL;
+	else
+		err = rtc->ops->set_alarm(rtc->dev.parent, alarm);
+
+	return err;
 }
 
 int rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
@@ -382,41 +380,18 @@ int rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 }
 EXPORT_SYMBOL_GPL(rtc_set_alarm);
 
-/*[[_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15 [Mod] [P120503-3333]
-add auto power alarm for CHN feature */
-#if defined(CONFIG_MACH_ZANIN_CHN_OPEN)
-int rtc_set_alarm_boot(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
-{
-	int err;
-
-	err = rtc_valid_tm(&alarm->time);
-
-	err = mutex_lock_interruptible(&rtc->ops_lock);
-	if (err)
-		return err;
-
-	if (!rtc->ops)
-		err = -ENODEV;
-	else if (!rtc->ops->set_alarm)
-		err = -EINVAL;
-	else
-		err = rtc->ops->set_alarm_boot(rtc->dev.parent, alarm);
-	printk("%s : tm(%d %04d.%02d.%02d %02d:%02d:%02d)\n", __func__,alarm->enabled,
-			alarm->time.tm_year, alarm->time.tm_mon, alarm->time.tm_mday, alarm->time.tm_hour, alarm->time.tm_min, alarm->time.tm_sec);
-
-	mutex_unlock(&rtc->ops_lock);
-	return err;
-}
-EXPORT_SYMBOL_GPL(rtc_set_alarm_boot);
-#endif
-/*]]_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15*/
 /* Called once per device from rtc_device_register */
 int rtc_initialize_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 {
 	int err;
+	struct rtc_time now;
 
 	err = rtc_valid_tm(&alarm->time);
 	if (err != 0)
+		return err;
+
+	err = rtc_read_time(rtc, &now);
+	if (err)
 		return err;
 
 	err = mutex_lock_interruptible(&rtc->ops_lock);
@@ -425,7 +400,11 @@ int rtc_initialize_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 
 	rtc->aie_timer.node.expires = rtc_tm_to_ktime(alarm->time);
 	rtc->aie_timer.period = ktime_set(0, 0);
-	if (alarm->enabled) {
+
+	/* Alarm has to be enabled & in the futrure for us to enqueue it */
+	if (alarm->enabled && (rtc_tm_to_ktime(now).tv64 <
+			 rtc->aie_timer.node.expires.tv64)) {
+
 		rtc->aie_timer.enabled = 1;
 		timerqueue_add(&rtc->timerqueue, &rtc->aie_timer.node);
 	}
@@ -434,7 +413,92 @@ int rtc_initialize_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 }
 EXPORT_SYMBOL_GPL(rtc_initialize_alarm);
 
+#ifdef CONFIG_RTC_AUTO_PWRON
+#define BOOTALM_BIT_EN			0
+#define BOOTALM_BIT_YEAR		1
+#define BOOTALM_BIT_MONTH		5
+#define BOOTALM_BIT_DAY		7
+#define BOOTALM_BIT_HOUR		9
+#define BOOTALM_BIT_MIN		11
+#define BOOTALM_BIT_TOTAL		13
+int rtc_set_bootalarm(struct rtc_device *rtc, char* alarm_data)
+{
+	int err;
+	struct rtc_wkalrm alm;
+	int ret;
+	char buf_ptr[BOOTALM_BIT_TOTAL+1];
 
+/*	err = mutex_lock_interruptible(&rtc->ops_lock); */
+/*	if (err) */
+/*		return err; */
+
+
+	if (!rtc) {
+		pr_err(
+			"%s rtc_set_bootalarm: no RTC device\n",__func__);
+		return -1;
+	}
+
+	strlcpy(buf_ptr, alarm_data, BOOTALM_BIT_TOTAL+1);
+
+	alm.time.tm_sec = 0;
+	alm.time.tm_min  =  (buf_ptr[BOOTALM_BIT_MIN]-'0') * 10
+                      + (buf_ptr[BOOTALM_BIT_MIN+1]-'0');
+	alm.time.tm_hour =  (buf_ptr[BOOTALM_BIT_HOUR]-'0') * 10
+                      + (buf_ptr[BOOTALM_BIT_HOUR+1]-'0');
+	alm.time.tm_mday =  (buf_ptr[BOOTALM_BIT_DAY]-'0') * 10
+                      + (buf_ptr[BOOTALM_BIT_DAY+1]-'0');
+	alm.time.tm_mon  =  (buf_ptr[BOOTALM_BIT_MONTH]-'0') * 10
+                      + (buf_ptr[BOOTALM_BIT_MONTH+1]-'0');
+	alm.time.tm_year =  (buf_ptr[BOOTALM_BIT_YEAR]-'0') * 1000
+                      + (buf_ptr[BOOTALM_BIT_YEAR+1]-'0') * 100
+                      + (buf_ptr[BOOTALM_BIT_YEAR+2]-'0') * 10
+                      + (buf_ptr[BOOTALM_BIT_YEAR+3]-'0');
+	alm.enabled = (*buf_ptr == '1');
+
+	pr_info("%s : tm(%d %04d.%02d.%02d %02d:%02d:%02d)\n", __func__,alm.enabled,
+		alm.time.tm_year, alm.time.tm_mon, alm.time.tm_mday, alm.time.tm_hour, alm.time.tm_min, alm.time.tm_sec);
+
+	alm.time.tm_mon -= 1;
+	alm.time.tm_year -= 1900;
+
+	if (!rtc->ops) {
+		dev_err(&rtc->dev, "ops not exist\n");
+		err = -ENODEV;
+	} else if (!rtc->ops->set_bootalarm) {
+		dev_err(&rtc->dev, "bootalarm func not exist\n");
+		err = -EINVAL;
+	} else
+		err = rtc->ops->set_bootalarm(rtc->dev.parent, &alm);
+	
+	pr_info("[SAPA] %s\n",__func__);
+/*	mutex_unlock(&rtc->ops_lock); */
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_set_bootalarm);
+
+int rtc_get_bootalarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
+{
+	int err;
+
+/*	err = mutex_lock_interruptible(&rtc->ops_lock); */
+/*	if (err) */
+/*		return err; */
+
+	if (!rtc->ops) {
+		dev_err(&rtc->dev, "ops not exist\n");
+		err = -ENODEV;
+	} else if (!rtc->ops->read_bootalarm) {
+		dev_err(&rtc->dev, "bootalarm func not exist\n");
+		err = -EINVAL;
+	} else
+		err = rtc->ops->read_bootalarm(rtc->dev.parent, alarm);
+	pr_info("[SAPA] %s\n",__func__);
+/*	mutex_unlock(&rtc->ops_lock); */
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_get_bootalarm);
+#endif
 
 int rtc_alarm_irq_enable(struct rtc_device *rtc, unsigned int enabled)
 {
@@ -478,6 +542,11 @@ int rtc_update_irq_enable(struct rtc_device *rtc, unsigned int enabled)
 	/* make sure we're changing state */
 	if (rtc->uie_rtctimer.enabled == enabled)
 		goto out;
+
+	if (rtc->uie_unsupported) {
+		err = -EINVAL;
+		goto out;
+	}
 
 	if (enabled) {
 		struct rtc_time tm;
@@ -674,7 +743,7 @@ EXPORT_SYMBOL_GPL(rtc_irq_unregister);
 static int rtc_update_hrtimer(struct rtc_device *rtc, int enabled)
 {
 	/*
-	 * We unconditionally cancel the timer here, because otherwise
+	 * We always cancel the timer here first, because otherwise
 	 * we could run into BUG_ON(timer->state != HRTIMER_STATE_CALLBACK);
 	 * when we manage to start the timer before the callback
 	 * returns HRTIMER_RESTART.
@@ -799,16 +868,10 @@ static int rtc_timer_enqueue(struct rtc_device *rtc, struct rtc_timer *timer)
 
 static void rtc_alarm_disable(struct rtc_device *rtc)
 {
-	struct rtc_wkalrm alarm;
-	struct rtc_time tm;
+	if (!rtc->ops || !rtc->ops->alarm_irq_enable)
+		return;
 
-	__rtc_read_time(rtc, &tm);
-
-	alarm.time = rtc_ktime_to_tm(ktime_add(rtc_tm_to_ktime(tm),
-				     ktime_set(300, 0)));
-	alarm.enabled = 0;
-
-	___rtc_set_alarm(rtc, &alarm);
+	rtc->ops->alarm_irq_enable(rtc->dev.parent, false);
 }
 
 /**

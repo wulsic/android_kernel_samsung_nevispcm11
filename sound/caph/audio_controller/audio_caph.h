@@ -165,12 +165,20 @@ struct __BRCM_AUDIO_Param_Prepare_t {
 };
 #define BRCM_AUDIO_Param_Prepare_t struct __BRCM_AUDIO_Param_Prepare_t
 
+struct __BRCM_AUDIO_Param_BufferReady_t {
+	AUDIO_DRIVER_HANDLE_t drv_handle;
+	TIDChanOfDev *pdev_prop;
+	int stream;
+};
+#define BRCM_AUDIO_Param_BufferReady_t struct __BRCM_AUDIO_Param_BufferReady_t
+
 struct __BRCM_AUDIO_Param_Volume_t {
 	Int32 source;
 	Int32 sink;
 	Int32 volume1;
 	Int32 volume2;
 	int stream;
+	AudioApp_t app;
 	AUDIO_GAIN_FORMAT_t gain_format;
 };
 #define BRCM_AUDIO_Param_Volume_t struct __BRCM_AUDIO_Param_Volume_t
@@ -289,9 +297,7 @@ struct __BRCM_AUDIO_Param_AtCtl_t {
 	Int32 isGet;
 	Int32 Params[7];
 };
-
 #define BRCM_AUDIO_Param_AtCtl_t struct __BRCM_AUDIO_Param_AtCtl_t
-
 
 union __BRCM_AUDIO_Control_Params_un_t {
 	BRCM_AUDIO_Param_Start_t param_start;

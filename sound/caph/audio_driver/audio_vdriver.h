@@ -48,10 +48,7 @@ Copyright 2009 - 2012  Broadcom Corporation
 */
 
 typedef void (*audio_codecId_handler_t) (int codecId);
-
-/* Define the other mic which is used for Noise Cancellation.
-	It is product-dependent. */
-#define MIC_NOISE_CANCEL CSL_CAPH_DEV_EANC_DIGI_MIC_R
+typedef void (*audio_handleCPReset_handler_t) (Boolean cpReset);
 
 enum _AUDDRV_REQUEST_ID_t {
 	AUDDRV_RATE_CHANGE_REQ,	/* 0x00 */
@@ -88,12 +85,6 @@ enum _AudioDrvUserCtrl_t {
 };
 #define AudioDrvUserCtrl_t enum _AudioDrvUserCtrl_t
 
-struct _AUDDRV_PathID_t {
-	CSL_CAPH_PathID ulPathID;
-	CSL_CAPH_PathID ul2PathID;
-	CSL_CAPH_PathID dlPathID;
-};
-#define AUDDRV_PathID_t struct _AUDDRV_PathID_t
 
 #ifndef MAX_NO_OF_BIQUADS
 #define MAX_NO_OF_BIQUADS	12
@@ -240,6 +231,16 @@ void AUDDRV_RegisterRateChangeCallback(audio_codecId_handler_t
 			codecId_cb);
 
 /**
+*
+*  @brief  Register callback for handling cp reset
+*
+*  @param  none
+*
+*  @return none
+*****************************************************************************/
+void AUDDRV_RegisterHandleCPResetCB(audio_handleCPReset_handler_t cpReset_cb);
+
+/**
 *  @brief  the rate change request function called by CAPI message listener
 *
 *  @param  codecID		(in) voice call speech codec ID
@@ -248,6 +249,16 @@ void AUDDRV_RegisterRateChangeCallback(audio_codecId_handler_t
 *
 ****************************************************************************/
 void AUDDRV_Telephone_RequestRateChange(int codecID);
+
+/**
+*  @brief  the rate change request function called by CAPI message listener
+*
+*  @param  codecID		(in) voice call speech codec ID
+*
+*  @return none
+*
+****************************************************************************/
+void AUDDRV_HandleCPReset(Boolean cp_reset_start);
 
 /* the control sequence for ending telephony audio.
  this func let DSP to turn off voice path, if need to resume apps operation
@@ -274,6 +285,11 @@ void AUDDRV_SetAudioMode(AudioMode_t audio_mode, AudioApp_t audio_app,
 	CSL_CAPH_PathID ul2PathID,
 	CSL_CAPH_PathID dlPathID);
 
+void AUDDRV_SetAudioMode_voicerecord(AudioMode_t audio_mode,
+	AudioApp_t audio_app,
+	CSL_CAPH_PathID ulPathID,
+	CSL_CAPH_PathID ul2PathID);
+
 void AUDDRV_SetAudioMode_Speaker(SetAudioMode_Sp_t param);
 
 #ifdef CONFIG_ENABLE_SSMULTICAST
@@ -299,12 +315,11 @@ void Audio_InitRpc(void);
 void AUDLOG_ProcessLogChannel(UInt16 audio_stream_buffer_idx);
 void AUDDRV_EC(Boolean enable, UInt32 arg);
 void AUDDRV_NS(Boolean enable);
-void AUDDRV_ECreset_NLPoff(Boolean ECenable);
 
 void AUDDRV_SetTuningFlag(int flag);
 int AUDDRV_TuningFlag(void);
-AUDDRV_PathID_t *AUDDRV_GetTelephonyPath(void);
+int AUDDRV_GetULPath(void);
 void AUDDRV_SetCallMode(Int32);
-void AUDDRV_ConnectDL(void);
+void AUDDRV_CPResetCleanup(void);
 
 #endif				/* __AUDIO_VDRIVER_H__ */

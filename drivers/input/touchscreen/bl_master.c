@@ -70,11 +70,9 @@ int SMB_Write (unsigned char *rbuf, int size)
 //-----------------------------------------------------------------------------
 void SMB_Read (unsigned char *rbuf, int size)
 {
-    int ret;
-
+  int ret;
     ret=tsp_i2c_read(rbuf, size);
     mdelay(5);
-    return ret;
 }
 
 int EnterBootMode (int res)
@@ -111,7 +109,7 @@ int EnterBootMode (int res)
    return 1;
 }
 
-int GetInfo ()
+int GetInfo (void)
 {
    uint8_t i;
    uint8_t FirmwareVersion;
@@ -242,8 +240,6 @@ void Update_CRC (uint8_t newbyte)
    // Update the global variable "Running_CRC" (defined elsewhere).
 
    uint8_t i;                               // loop counter
-   uint8_t SMB_DATA_OUT[40];
-   uint8_t SMB_DATA_IN[5];   
 
    Running_CRC = Running_CRC ^ newbyte;
 
@@ -323,7 +319,7 @@ int GetPageCRC (unsigned int addr)
    return 1;
 }
 
-int ResetMCU ()
+int ResetMCU (void)
 {
    int i;
    uint8_t SMB_DATA_OUT[40];
@@ -347,7 +343,7 @@ int ResetMCU ()
    return 1;
 }
 
-int Firmware_Download ()
+int Firmware_Download (void)
 {
    int res;
    unsigned int addr;

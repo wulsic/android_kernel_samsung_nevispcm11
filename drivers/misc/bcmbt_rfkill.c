@@ -26,7 +26,14 @@
 #include <linux/delay.h>
 #include <linux/rfkill.h>
 #include <linux/gpio.h>
+#include <linux/module.h>
 #include <linux/broadcom/bcmbt_rfkill.h>
+#include <linux/slab.h>
+
+#include <linux/of.h>
+#include <linux/of_irq.h>
+#include <linux/of_platform.h>
+
 
 #if (defined(CONFIG_BCM_RFKILL) || defined(CONFIG_BCM_RFKILL_MODULE))
 #define REG_ON_SLEEP 150
@@ -53,10 +60,9 @@ static int bcmbt_rfkill_set_power(void *data, bool blocked)
 			gpio_get_value(vreg_gpio) ? "High [POWER ON]" :
 			"Low [POWER_OFF]");
 	} else {		/* Transmitter OFF (Blocked) */
-		//gpio_set_value(vreg_gpio, BCMBT_VREG_OFF);
+		gpio_set_value(vreg_gpio, BCMBT_VREG_OFF);
 		if (BCMBT_UNUSED_GPIO != n_reset_gpio)
 			gpio_set_value(n_reset_gpio, BCMBT_N_RESET_ON);
-		gpio_set_value(vreg_gpio, BCMBT_VREG_OFF);
 		if (BCMBT_UNUSED_GPIO != aux1_gpio)
 			gpio_set_value(aux1_gpio, BCMBT_AUX1_OFF);
 		if (BCMBT_UNUSED_GPIO != aux0_gpio)
@@ -75,22 +81,49 @@ static const struct rfkill_ops bcmbt_rfkill_ops = {
 static int bcmbt_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
-	struct bcmbt_rfkill_platform_data *pdata = pdev->dev.platform_data;
+	u32 val;
+	struct bcmbt_rfkill_platform_data *pdata;
+
+	if (pdev->dev.platform_data)
+		pdata	= pdev->dev.platform_data;
+
+	else if	(pdev->dev.of_node) {
+		pdata = kzalloc(sizeof(struct bcmbt_rfkill_platform_data),
+			GFP_ATOMIC);
+
+		if (pdata == NULL)
+			return -ENOMEM;
+
+		if (of_property_read_u32(pdev->dev.of_node, "verg-gpio", &val))
+			goto out;
+		pdata->vreg_gpio = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "n-reset-gpio",
+			&val))
+			goto out;
+		pdata->n_reset_gpio = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "aux0-gpio", &val))
+			goto out;
+		pdata->aux0_gpio = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "aux1-gpio", &val))
+			goto out;
+		pdata->aux1_gpio = val;
+		pdev->dev.platform_data = pdata;
+	} else {
+		pr_err("%s: **ERROR** NO platform data available\n", __func__);
+		goto out;
+	}
 
 	gpio_request(pdata->vreg_gpio, "rfkill_vreg_gpio");
-#if 0
 	pr_err("bcmbt_rfkill_probe:  Set vreg_gpio: %d, level: %s\n",
 	       pdata->vreg_gpio,
 	       gpio_get_value(pdata->vreg_gpio) ? "High" : "Low");
-#endif
 	gpio_export(pdata->vreg_gpio, false);
 	gpio_direction_output(pdata->vreg_gpio, BCMBT_VREG_OFF);
 
 	/* JIRA case --> HW4334-336*/
-	gpio_set_value(pdata->vreg_gpio, BCMBT_VREG_ON);
-	msleep(REG_ON_SLEEP);
-	gpio_set_value(pdata->vreg_gpio, BCMBT_VREG_OFF);
-
 	if (BCMBT_UNUSED_GPIO != pdata->n_reset_gpio) {
 		gpio_request(pdata->n_reset_gpio, "rfkill_reset_gpio");
 		gpio_direction_output(pdata->n_reset_gpio, BCMBT_N_RESET_ON);
@@ -117,34 +150,68 @@ static int bcmbt_rfkill_probe(struct platform_device *pdev)
 	    rfkill_alloc("bcmbt", &pdev->dev, RFKILL_TYPE_BLUETOOTH,
 			 &bcmbt_rfkill_ops, pdata);
 
-	if (unlikely(!pdata->rfkill))
+	if (unlikely(!pdata->rfkill)) {
+		if (pdev->dev.of_node) {
+			pdev->dev.platform_data = NULL;
+			kfree(pdata);
+		}
 		return -ENOMEM;
+	}
 
 	/* Keep BT Blocked by default as per above init */
 	rfkill_init_sw_state(pdata->rfkill, true);
 
 	rc = rfkill_register(pdata->rfkill);
 
-	if (unlikely(rc))
+	if (unlikely(rc)) {
 		rfkill_destroy(pdata->rfkill);
+		if (pdev->dev.of_node) {
+			pdev->dev.platform_data = NULL;
+			kfree(pdata);
+		}
+
+	}
 
 	return 0;
+out:
+
+	if (pdev->dev.of_node) {
+		pdev->dev.platform_data = NULL;
+		kfree(pdata);
+	}
+	return -EINVAL;
 }
 
 static int bcmbt_rfkill_remove(struct platform_device *pdev)
 {
 	struct bcmbt_rfkill_platform_data *pdata = pdev->dev.platform_data;
 
-	rfkill_unregister(pdata->rfkill);
-	rfkill_destroy(pdata->rfkill);
-	/* Free the GPIO resources */
-	gpio_free(pdata->vreg_gpio);
-	gpio_free(pdata->n_reset_gpio);
-	gpio_free(pdata->aux0_gpio);
-	gpio_free(pdata->aux1_gpio);
+	if (pdata != NULL) {
+		rfkill_unregister(pdata->rfkill);
+		rfkill_destroy(pdata->rfkill);
 
+		/* Free the GPIO resources */
+		if (BCMBT_UNUSED_GPIO != pdata->vreg_gpio)
+			gpio_free(pdata->vreg_gpio);
+		if (BCMBT_UNUSED_GPIO != pdata->n_reset_gpio)
+			gpio_free(pdata->n_reset_gpio);
+		if (BCMBT_UNUSED_GPIO != pdata->aux0_gpio)
+			gpio_free(pdata->aux0_gpio);
+		if (BCMBT_UNUSED_GPIO != pdata->aux1_gpio)
+			gpio_free(pdata->aux1_gpio);
+
+		if (pdev->dev.of_node) {
+			pdev->dev.platform_data = NULL;
+			kfree(pdata);
+		}
+	}
 	return 0;
 }
+static const struct of_device_id bcmbt_rfkill_of_match[] = {
+	{ .compatible = "bcm,bcmbt-rfkill", },
+	{},
+}
+MODULE_DEVICE_TABLE(of, bcmbt_rfkill_of_match);
 
 static struct platform_driver bcmbt_rfkill_platform_driver = {
 	.probe = bcmbt_rfkill_probe,
@@ -152,6 +219,7 @@ static struct platform_driver bcmbt_rfkill_platform_driver = {
 	.driver = {
 		   .name = "bcmbt-rfkill",
 		   .owner = THIS_MODULE,
+		   .of_match_table = bcmbt_rfkill_of_match,
 		   },
 };
 

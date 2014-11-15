@@ -155,7 +155,7 @@ CHAL_HANDLE chal_aci_init(cUInt32 baseAddr_NotUsed)
 	base_addr = (cUInt8 *)KONA_ACI_VA;
 	chal_aci_init_aci((cUInt32)base_addr);
 	audioh_apb_clk = clk_get(NULL, "audioh_apb_clk");
-	if (IS_ERR_OR_NULL(audioh_apb_clk)) {
+	if (IS_ERR(audioh_apb_clk)) {
 		pr_err("%s(): clk_get of audioh_apb_clk failed \r\n", __func__);
 		audioh_apb_clk = NULL;
 	}
@@ -593,7 +593,7 @@ static void chal_aci_block_ctrl_arg(CHAL_HANDLE handle,
 	case CHAL_ACI_BLOCK_ACTION_COMP_THRESHOLD:{
 			cUInt32 threshold_voltage = va_arg(argp, cUInt32);
 			/* = (voltage * NumberOfSteps) / Reference Voltage; */
-			cUInt32 threshold = ((threshold_voltage * 255) / 2500);
+			cUInt32 threshold = ((threshold_voltage * 255) / 2320);
 			switch (id) {
 			case CHAL_ACI_BLOCK_COMP:
 			/* The action applies to both Comperators */
@@ -1124,8 +1124,6 @@ cInt32 chal_aci_block_read(CHAL_HANDLE handle, CHAL_ACI_block_id_t id,
 			    (KONA_ACI_VA, ACI_INT,
 			     COMP1INT_STS) ? CHAL_ACI_BLOCK_COMP_LINE_HIGH :
 			    CHAL_ACI_BLOCK_COMP_LINE_LOW;
-		case 100:
-			break;	/* to avoid compiler warning */
 		default:
 			CHAL_ASSERT(0);
 		}
@@ -1152,8 +1150,6 @@ cInt32 chal_aci_block_read(CHAL_HANDLE handle, CHAL_ACI_block_id_t id,
 			    (KONA_ACI_VA, ACI_INT,
 			     COMP2INT_STS) ? CHAL_ACI_BLOCK_COMP_LINE_HIGH :
 			    CHAL_ACI_BLOCK_COMP_LINE_LOW;
-		case 100:
-			break;	/* to avoid compiler warning */
 		default:
 			CHAL_ASSERT(0);
 		}

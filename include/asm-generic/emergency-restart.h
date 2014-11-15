@@ -5,7 +5,6 @@
 /* for saving context when emergency restart is called */
 extern void sec_debug_emergency_restart_handler(void);
 #endif
-
 static inline void machine_emergency_restart(void)
 {
 #if defined(CONFIG_SEC_DEBUG)

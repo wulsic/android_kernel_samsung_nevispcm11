@@ -3,5 +3,5 @@
 #
 
 #  Object files in subdirectories
+obj-$(CONFIG_SENSORS_CORE)		+= sensors_core.o
 
-obj-$(CONFIG_SENSORS_CORE)	+=core/

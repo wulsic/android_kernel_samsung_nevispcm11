@@ -402,7 +402,7 @@ static int brcm_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 {
 	struct brcm_struct *brcm = hu->priv;
 
-	//BT_DBG("hu %p skb %p", hu, skb);
+	BT_DBG("hu %p skb %p", hu, skb);
 
 	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
@@ -463,7 +463,7 @@ static inline int brcm_check_data_len(struct brcm_struct *brcm, int len)
 {
 	register int room = skb_tailroom(brcm->rx_skb);
 
-//	BT_DBG("len %d room %d", len, room);
+	BT_DBG("len %d room %d", len, room);
 
 	if (!len) {
 		hci_recv_frame(brcm->rx_skb);
@@ -493,8 +493,8 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
 	struct hci_sco_hdr *sh;
 	register int len, type, dlen;
 
-	//BT_DBG("hu %p count %d rx_state %ld rx_count %ld", hu, count,
-	//       brcm->rx_state, brcm->rx_count);
+	BT_DBG("hu %p count %d rx_state %ld rx_count %ld", hu, count,
+	       brcm->rx_state, brcm->rx_count);
 
 	brcm->is_there_activity = 1;
 	if (brcm->hcibrcm_state == HCIBRCM_ASLEEP) {
@@ -519,7 +519,7 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
 
 			switch (brcm->rx_state) {
 			case HCIBRCM_W4_DATA:
-				//BT_DBG("Complete data");
+				BT_DBG("Complete data");
 				hci_recv_frame(brcm->rx_skb);
 
 				brcm->rx_state = HCIBRCM_W4_PACKET_TYPE;
@@ -557,21 +557,21 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
 		/* HCIBRCM_W4_PACKET_TYPE */
 		switch (*ptr) {
 		case HCI_EVENT_PKT:
-			//BT_DBG("Event packet");
+			BT_DBG("Event packet");
 			brcm->rx_state = HCIBRCM_W4_EVENT_HDR;
 			brcm->rx_count = HCI_EVENT_HDR_SIZE;
 			type = HCI_EVENT_PKT;
 			break;
 
 		case HCI_ACLDATA_PKT:
-			//BT_DBG("ACL packet");
+			BT_DBG("ACL packet");
 			brcm->rx_state = HCIBRCM_W4_ACL_HDR;
 			brcm->rx_count = HCI_ACL_HDR_SIZE;
 			type = HCI_ACLDATA_PKT;
 			break;
 
 		case HCI_SCODATA_PKT:
-			//BT_DBG("SCO packet");
+			BT_DBG("SCO packet");
 			brcm->rx_state = HCIBRCM_W4_SCO_HDR;
 			brcm->rx_count = HCI_SCO_HDR_SIZE;
 			type = HCI_SCODATA_PKT;
@@ -579,7 +579,7 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
 
 			/* HCIBRCM signals */
 		case HCIBRCM_GO_TO_SLEEP_IND:
-			//("HCIBRCM_GO_TO_SLEEP_IND packet");
+			BT_DBG("HCIBRCM_GO_TO_SLEEP_IND packet");
 			brcm_device_want_to_sleep(hu);
 			ptr++;
 			count--;

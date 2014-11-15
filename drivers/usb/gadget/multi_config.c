@@ -57,6 +57,7 @@ int get_config_number(void)
  */
 int check_config(unsigned num)
 {
+
 	USB_DBG("num=%d, multi=%d\n", num, multi);
 	/* multi is zero base, but num is 1 ase */
 	if (num && num == multi + 1) {
@@ -166,7 +167,7 @@ int change_conf(struct usb_function *f,
 	}
 	
 	USB_DBG("f->%s process multi\n", f->name);
-	
+		
 	if (speed == USB_SPEED_HIGH)
 		descriptors = f->hs_descriptors;
 	else

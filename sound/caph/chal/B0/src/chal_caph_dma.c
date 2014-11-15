@@ -183,16 +183,6 @@ cVoid chal_caph_dma_disable(CHAL_HANDLE handle, cUInt16 channel)
 	/* Find the channel we are looking for */
 	for (index = 0; index < CHAL_CAPH_DMA_MAX_CHANNELS; index++) {
 		if ((1UL << index) & channel) {
-#ifdef CAPH_NEW_SEQUENCE
-			/* found the channel we are looking for,
-			set FIFO_RST accordng to new sequence */
-			reg_val = BRCM_READ_REG_IDX(base,
-					CPH_AADMAC_CH1_AADMAC_SR_1,
-					(index*CHAL_CAPH_DMA_CH_REG_SIZE));
-		reg_val |= CPH_AADMAC_CH1_AADMAC_SR_1_CH1_AADMAC_FIFO_RST_MASK;
-			BRCM_WRITE_REG_IDX(base, CPH_AADMAC_CH1_AADMAC_SR_1,
-				(index*CHAL_CAPH_DMA_CH_REG_SIZE), reg_val);
-#endif
 			/* found the channel, disable the channel */
 			reg_val =
 			    BRCM_READ_REG_IDX(base, CPH_AADMAC_CH1_AADMAC_CR_2,
@@ -203,16 +193,6 @@ cVoid chal_caph_dma_disable(CHAL_HANDLE handle, cUInt16 channel)
 			BRCM_WRITE_REG_IDX(base, CPH_AADMAC_CH1_AADMAC_CR_2,
 					   (index * CHAL_CAPH_DMA_CH_REG_SIZE),
 					   reg_val);
-#ifdef CAPH_NEW_SEQUENCE
-			/* found the channel we are looking for,
-			clear FIFO_RST according to new sequence*/
-			reg_val = BRCM_READ_REG_IDX(base,
-					CPH_AADMAC_CH1_AADMAC_SR_1,
-					(index*CHAL_CAPH_DMA_CH_REG_SIZE));
-		reg_val &= ~CPH_AADMAC_CH1_AADMAC_SR_1_CH1_AADMAC_FIFO_RST_MASK;
-			BRCM_WRITE_REG_IDX(base, CPH_AADMAC_CH1_AADMAC_SR_1,
-				(index*CHAL_CAPH_DMA_CH_REG_SIZE), reg_val);
-#endif
 		}
 
 	}
@@ -231,17 +211,17 @@ cVoid chal_caph_dma_disable(CHAL_HANDLE handle, cUInt16 channel)
 CAPH_DMA_CHANNEL_e chal_caph_dma_alloc_channel(CHAL_HANDLE handle)
 {
 	chal_caph_dma_cb_t *pchal_cb = (chal_caph_dma_cb_t *) handle;
-	cUInt32 ch = 0;
+	cUInt32 ch;
 
-	if (ch == 0) {
-		/* Look for a free (non-allocated) channel  */
-		for (; ch < CHAL_CAPH_DMA_MAX_CHANNELS; ch++) {
-			if (pchal_cb->alloc_status[ch] == FALSE) {
-				/* Found one */
-				break;
-			}
+	/* Look for a free (non-allocated) channel  */
+
+	for (ch = 2; ch < CHAL_CAPH_DMA_MAX_CHANNELS; ch++) {
+		if (pchal_cb->alloc_status[ch] == FALSE) {
+			/* Found one */
+			break;
 		}
 	}
+
 
 	if (ch < CHAL_CAPH_DMA_MAX_CHANNELS) {
 		/* Found a free channel */

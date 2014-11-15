@@ -56,9 +56,6 @@ static Boolean rpc_build_lookup_msgs(UInt16 *tbl, UInt16 table_size,
 			UInt32 mask)
 {
 	Boolean bRetVal = TRUE;
-
-	/* tableBase is a reference to a table of pointers */
-	/* coverity[suspicious_sizeof] */
 	if (tableBase == NULL) {
 		tableBase = (UInt32 **) capi2_malloc(256 * sizeof(UInt32));
 
@@ -141,7 +138,7 @@ Boolean rpc_reset_client_msgs(UInt8 clientId)
 }
 
 Boolean rpc_register_client_msgs(UInt8 clientId, UInt16 *tbl,
-					UInt32 table_size)
+					UInt16 table_size)
 {
 	UInt32 mask = 1;
 

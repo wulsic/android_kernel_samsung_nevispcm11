@@ -68,31 +68,33 @@ void touchkeyled_power_ctrl(unsigned char on_off)
 	if(touchkeyled_regulator == NULL)
 	{
 		KLDBG(" %s, %d \n", __func__, __LINE__ );
-		touchkeyled_regulator = regulator_get(NULL, "vdd_keyled");
-	
+		touchkeyled_regulator = regulator_get(NULL, "gpldo3_uc");
+
 		if(IS_ERR(touchkeyled_regulator)){
 			printk("[KEYLED] can not get VKEYLED_3.3V\n");
 		}
-	}		
+	}
 	if(on_off==TOUCHKEYLED_ON)
 	{
 	    KLDBG("[KEYLED] %s, %d Keyled On\n", __func__, __LINE__ );
-	
-	    ret = regulator_set_voltage(touchkeyled_regulator,3300000,3300000);	
+
+	    ret = regulator_set_voltage(touchkeyled_regulator,3300000,3300000);
 	   if(ret<0)
 	   	printk("[KEYLED] regulator_set_voltage : %d\n", ret);
-	   
+
+	    //ret = regulator_enable(touchkeyled_regulator);
 	    ret = regulator_enable(touchkeyled_regulator);
 	   if(ret<0)
-	      printk("[KEYLED] regulator_enable : %d\n", ret);	
+	      printk("[KEYLED] regulator_enable : %d\n", ret);
 	}
 	else
 	{
 	    KLDBG("[KEYLED] %s, %d Keyled Off\n", __func__, __LINE__ );
 
 	    ret = regulator_disable(touchkeyled_regulator);
+	   //ret = regulator_force_disable(touchkeyled_regulator);
 	   if(ret<0)
-	     printk("[KEYLED] regulator_disable : %d\n", ret);		
+	     printk("[KEYLED] regulator_disable : %d\n", ret);
 	}
 
 }
@@ -119,7 +121,7 @@ int touchkeyled_set_intensity(struct backlight_device *bd)
 static int touchkeyled_set_brightness(struct backlight_device *bd)
 {
 
-	KLDBG("[KEYLED] %s, brightness=%d \n", __func__, bd->props.brightness);	
+	KLDBG("[KEYLED] %s, brightness=%d \n", __func__, bd->props.brightness);
 
        touchkeyled_set_intensity(bd);
 
@@ -129,8 +131,8 @@ static int touchkeyled_set_brightness(struct backlight_device *bd)
 
 static int touchkeyled_get_brightness(struct backlight_device *bl)
 {
-	KLDBG("[KEYLED] %s\n", __func__);	
-    
+	KLDBG("[KEYLED] %s\n", __func__);
+
 	return current_intensity;
 }
 
@@ -145,7 +147,7 @@ static int touchkeyled_suspend(struct platform_device *pdev,
 {
 
 	KLDBG("[KEYLED] %s, %d\n", __func__, __LINE__ );
-	
+
     return 0;
 }
 
@@ -153,7 +155,7 @@ static int touchkeyled_resume(struct platform_device *pdev)
 {
 
 	KLDBG("[KEYLED] %s, %d\n", __func__, __LINE__ );
-	
+
     return 0;
 }
 
@@ -172,7 +174,7 @@ static int touchkeyled_probe(struct platform_device *pdev)
 	if (!touchkeyled) {
 		dev_err(&pdev->dev, "no memory for state\n");
 		ret = -ENOMEM;
-		return ret;
+		goto err_bl;
 	}
 
 	memset(&props, 0, sizeof(struct backlight_properties));
@@ -185,7 +187,7 @@ static int touchkeyled_probe(struct platform_device *pdev)
 			NULL, &bcm_touchkey_led_ops, &props);
 	if (IS_ERR(bl)) {
 		dev_err(&pdev->dev, "failed to register backlight\n");
-		return PTR_ERR(bl);
+		goto err_bl;
 	}
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -196,6 +198,7 @@ static int touchkeyled_probe(struct platform_device *pdev)
 	register_early_suspend(&touchkeyled->early_suspend_desc);
 #endif
 
+	    //touchkeyled_power_ctrl(TOUCHKEYLED_ON);
 	platform_set_drvdata(pdev, bl);
 
 	bl->props.power = FB_BLANK_UNBLANK;
@@ -203,9 +206,10 @@ static int touchkeyled_probe(struct platform_device *pdev)
 	bl->props.max_brightness = TOUCHKEY_LED_MAX;
 
 	KLDBG("[KEYLED] Probe done!");
-       
+ 	return 0;
+err_bl:
+	kfree(touchkeyled);
 	return ret;
-
 
 }
 
@@ -225,6 +229,13 @@ static int touchkeyled_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int touchkeyled_shutdown(struct platform_device *pdev)
+{
+	KLDBG("[KEYLED] touchkeyled_shutdown\n");
+       touchkeyled_power_ctrl(TOUCHKEYLED_OFF);
+
+	return 0;
+}
 
 static struct platform_driver touchkeyled_driver = {
 	.driver		= {
@@ -233,7 +244,7 @@ static struct platform_driver touchkeyled_driver = {
 	},
 	.probe		= touchkeyled_probe,
 	.remove		= touchkeyled_remove,
-
+	.shutdown      = touchkeyled_shutdown,
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend        = touchkeyled_suspend,
 	.resume         = touchkeyled_resume,

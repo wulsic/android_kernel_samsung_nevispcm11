@@ -21,7 +21,19 @@
 #include <mach/rdb/brcm_rdb_padctrlreg.h>
 #include "camdrv_ss.h"
 #include <linux/kthread.h>
-#include <asm/atomic.h>		     
+#include <asm/atomic.h>
+#include <linux/videodev2.h>
+#include <linux/slab.h>
+#include <linux/i2c.h>
+#include <linux/log2.h>
+#include <linux/delay.h>
+#include <linux/module.h>
+
+#include <media/v4l2-subdev.h>
+#include <media/v4l2-chip-ident.h>
+#include <media/soc_camera.h>
+#include <linux/videodev2_brcm.h>
+
 
 /* #define CONFIG_LOAD_FILE */
 
@@ -30,8 +42,7 @@
 
 #define FACTORY_CHECK
 static int camera_id = 0;
-int tmp_sensor_state_previous = 0;
-int flash_check=0; 
+int flash_check =0;
 DECLARE_WAIT_QUEUE_HEAD(gCamdrvReadyQ);
 
 enum camdrv_ss_sensor_init_state_t {
@@ -57,6 +68,17 @@ static struct camdrv_ss_sensor_cap	sensor;
 static int camdrv_ss_s_stream(struct v4l2_subdev *sd, int enable);
 static int camdrv_ss_init_thread_func(void *data);
 static int camdrv_ss_init(struct v4l2_subdev *sd, u32 val);
+static int camdrv_ss_actual_sensor_power_up();
+static void camdrv_ss_init_func(struct v4l2_subdev *sd);
+static int camdrv_ss_set_preview_start(struct v4l2_subdev *sd);
+
+static int (*camdrv_ss_generic_flash_control)
+			(struct v4l2_subdev *sd, int control_mode);
+
+static char camdrv_ss_main_name[50];
+static char camdrv_ss_sub_name[50];
+
+char camdrv_rear_camera_vendorid[10]; 
 
 bool camdrv_ss_power(int cam_id, int bOn);
 
@@ -90,14 +112,10 @@ static dev_t rear_flash_devnum;
 static bool cam_class_init = false;
 ssize_t maincamtype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorname;    /* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
-	#if defined(CONFIG_SOC_CAMERA)
-	camdrv_ss_sensor_main_name( &sensor);
-        #endif
-	sensorname=sensor.name;
-	CAM_INFO_PRINTK("%s  Enter\n", __func__);
-
-	return sprintf(buf, "%s\n", sensorname);
+	/* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
+	CAM_INFO_PRINTK("%s  camdrv_ss_main_name = %s\n",
+						__func__, camdrv_ss_main_name);
+	return sprintf(buf, "%s\n", camdrv_ss_main_name);
 }
 
 ssize_t maincamtype_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
@@ -108,15 +126,10 @@ ssize_t maincamtype_store(struct device *dev, struct device_attribute *attr, con
 
 ssize_t maincamfw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorfw ;
-	#if defined(CONFIG_SOC_CAMERA)
-		camdrv_ss_sensor_main_name( &sensor);
-         #endif
-
-		 sensorfw = sensor.name;
-	CAM_INFO_PRINTK("%s  Enter\n", __func__);
-
-	return sprintf(buf, "%s %s\n", sensorfw, sensorfw);
+	CAM_INFO_PRINTK("%s  camdrv_ss_main_name = %s\n",
+						__func__, camdrv_ss_main_name);
+	//return sprintf(buf, "%s \n", camdrv_ss_main_name);
+	return sprintf(buf, "%s %s\n", camdrv_ss_main_name,"N");
 }
 
 ssize_t maincamfw_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
@@ -127,14 +140,11 @@ ssize_t maincamfw_store(struct device *dev, struct device_attribute *attr, const
 
 ssize_t subcamtype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorname;    /* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
-	#ifdef CONFIG_SOC_SUB_CAMERA
-	camdrv_ss_sensor_sub_name( &sensor);
-	#endif
-	sensorname=sensor.name;
-	CAM_INFO_PRINTK("%s  Enter\n", __func__);
+	/* this is to display the ISP version name. Rhea is SOC type ,so sensor name will be displayed.*/
 
-	return sprintf(buf, "%s\n", sensorname);
+	CAM_INFO_PRINTK("%s  camdrv_ss_sub_name = %s\n",
+						__func__, camdrv_ss_sub_name);
+	return sprintf(buf, "%s\n", camdrv_ss_sub_name);
 }
 
 ssize_t subcamtype_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
@@ -146,16 +156,11 @@ ssize_t subcamtype_store(struct device *dev, struct device_attribute *attr, cons
 
 ssize_t subcamfw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char *sensorfw; 
 
-		#ifdef CONFIG_SOC_SUB_CAMERA
-			 camdrv_ss_sensor_sub_name(&sensor);
-              #endif
-        
-	sensorfw= sensor.name;
-	CAM_INFO_PRINTK("%s	Enter\n", __func__);
-
-	return sprintf(buf, "%s %s\n", sensorfw, sensorfw);
+	CAM_INFO_PRINTK("%s  camdrv_ss_sub_name = %s\n",
+					__func__, camdrv_ss_sub_name);
+	//return sprintf(buf, "%s \n", camdrv_ss_sub_name);
+	  return sprintf(buf, "%s %s\n", camdrv_ss_sub_name,"N");
 }
 
 ssize_t subcamfw_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
@@ -206,24 +211,26 @@ static struct device_attribute camera_antibanding_attr = {
 	.show = camera_antibanding_show,
 	.store = camera_antibanding_store
 };
+// AT command flash implementation
+/*Backporting Rhea to Hawaii start: */
 ssize_t rear_flash_show(struct device *dev,
 	struct device_attribute *attr, const char *buf,
 	size_t count)
 {
-        struct v4l2_subdev *sd;
-        sd = NULL;
 	if (buf[0] == '0')
 	{
-		if (sensor.AAT_flash_control != NULL)
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
-		printk(KERN_ERR "[%s]: off!\n", __func__);
+		if (camdrv_ss_generic_flash_control != NULL)
+			camdrv_ss_generic_flash_control
+					(NULL, FLASH_CONTROL_OFF);
+		CAM_INFO_PRINTK("[%s]: off!\n", __func__);
 	}
 	else
 	{
 	
-		if (sensor.AAT_flash_control != NULL)
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_LOW_LEVEL);
-		printk(KERN_ERR "[%s]: on!\n", __func__);
+		if (camdrv_ss_generic_flash_control != NULL)
+			camdrv_ss_generic_flash_control
+					(NULL, FLASH_CONTROL_MIDDLE_LEVEL);
+		CAM_INFO_PRINTK("[%s]: on!\n", __func__);
 	}
 
 	return count;
@@ -233,34 +240,24 @@ ssize_t rear_flash_store(struct device *dev,
 	struct device_attribute *attr, const char *buf,
 	size_t count)
 {
-        struct v4l2_subdev *sd;
-        sd = NULL;
-	
-		camdrv_ss_sensor_init_main(0, &sensor);
+
 	if (buf[0] == '0')
 	{
-		if (sensor.AAT_flash_control != NULL)
-		{
-		flash_check=0;
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
+		if (camdrv_ss_generic_flash_control != NULL) {
+			camdrv_ss_generic_flash_control
+				(NULL, FLASH_CONTROL_OFF);
+			flash_check = 0;
 		}
-		CAM_INFO_PRINTK(KERN_ERR "[%s]: off!\n", __func__);
-		
+		CAM_INFO_PRINTK("[%s]: off!\n", __func__);
 	}
 	else
 	{
-                		//gpio_direction_output(CAM_FLASH_EN_GPIO,1);
-
-		if (sensor.AAT_flash_control != NULL)
-		{
-		 flash_check=1;
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_LOW_LEVEL);		
+		if (camdrv_ss_generic_flash_control != NULL) {
+			camdrv_ss_generic_flash_control
+				(NULL, FLASH_CONTROL_MIDDLE_LEVEL);
+			flash_check = 1;
 		}
-		
-           //sensor.AAT_flash_control(sd, FLASH_CONTROL_LOW_LEVEL);
-             
-             
-		CAM_INFO_PRINTK(KERN_ERR "mrad6[%s]: on!\n", __func__);
+		CAM_INFO_PRINTK("[%s]: on!\n", __func__);
 	}
 
 	return count;
@@ -275,8 +272,19 @@ static struct device_attribute dev_attr_rear_flash = {
 		.store = rear_flash_store
 		
 }; 
-#endif
+//Added changes to show vendor id in string *#34971539#
 
+ssize_t camera_rear_vendorid_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int count;
+    CAM_INFO_PRINTK("%s : rear_vendorid is %d\n", __func__, camera_rear_vendorid_show);
+	return sprintf(buf, "%s\n", camdrv_rear_camera_vendorid);
+		
+}
+static DEVICE_ATTR(rear_vendorid, 0644, camera_rear_vendorid_show, NULL);
+
+#endif
+/*Backporting Rhea to Hawaii End*/ 
 
 /**************************************************************************
 * EXTERN VARIABLES
@@ -440,6 +448,8 @@ static reg_hash_t reg_hash_table[] = {
 	{"preview_size_800x600_regs",						NULL},
 	{"preview_size_1024x600_regs",						NULL},
 	{"preview_size_1024x768_regs",						NULL},
+	{"HD_Camcorder_regs",						NULL},
+	{"HD_Camcorder_Disable_regs",						NULL},
 	{"preview_size_1280x960_regs",						NULL},
 	{"preview_size_1600x960_regs",						NULL},
 	{"preview_size_1600x1200_regs",						NULL},
@@ -511,7 +521,21 @@ static reg_hash_t reg_hash_table[] = {
 	{"focus_mode_continuous_picture_macro_regs",				NULL},
 #endif
 	{"vt_mode_regs",							NULL},
-	{"init_regs_smart_stay",						NULL}
+	{"init_regs_smart_stay",						NULL},
+	
+	{"Pre_Flash_Start_EVT1",						NULL},
+	{"Pre_Flash_End_EVT1",						NULL},
+	{"Main_Flash_Start_EVT1",						NULL},
+	{"Main_Flash_End_EVT1",						NULL},
+	{"focus_mode_auto_regs_cancel1",						NULL},
+	{"focus_mode_auto_regs_cancel2",						NULL},
+	{"focus_mode_auto_regs_cancel3",						NULL},
+	{"focus_mode_macro_regs_cancel1",						NULL},
+	{"focus_mode_macro_regs_cancel2",						NULL},
+	{"focus_mode_macro_regs_cancel3",						NULL},
+	{"antibanding_50hz_regs",						NULL},
+	{"antibanding_60hz_regs",						NULL}
+	
 };
 
 static bool camdrv_ss_regs_get_line(char *line_buf)
@@ -586,13 +610,13 @@ static bool camdrv_ss_regs_trim(char *line_buf)
 
 static int camdrv_ss_regs_parse_table(void)
 {
-	char reg_buf[7], data_buf[7], data_temp_buf[4];
+	char reg_buf[7], data_buf[7]; /* , data_temp_buf[4]; */
 	unsigned char reg[10];
 	int reg_index = 0;
 
 	memset(reg, '\0', strlen(reg));
 	memset(reg_buf, '\0', strlen(reg_buf));
-	memset(data_temp_buf, '\0', strlen(data_temp_buf));
+	/* memset(data_temp_buf, '\0', strlen(data_temp_buf)); */
 
 	while (camdrv_ss_regs_get_line(current_line)) {
 		if (camdrv_ss_regs_trim(current_line) == false) {
@@ -613,8 +637,8 @@ static int camdrv_ss_regs_parse_table(void)
 				reg_table[reg_index].subaddr = (unsigned short)simple_strtoul(reg_buf, NULL, 16);
 				reg_table[reg_index].value = (unsigned int)simple_strtoul(reg, NULL, 16) & 0x0000FFFF;
 
-				memset(reg_buf, '\0', strlen(reg_buf));
-				memset(reg, '\0', strlen(reg));
+				/* memset(reg_buf, '\0', strlen(reg_buf)); */
+				/* memset(reg, '\0', strlen(reg)); */
 				/* CAM_PRINTK("%s,reg_table[%d].subaddr = 0x%x\n",__func__, reg_index, reg_table[reg_index].subaddr ); */
 				/* CAM_PRINTK("%s,reg_table[%d].value = 0x%x\n",__func__, reg_index, reg_table[reg_index].value ); */
 				reg_index++;
@@ -662,19 +686,20 @@ static int camdrv_ss_regs_table_write(struct i2c_client *client, char *name)
 	}
 
 
-	unsigned short next_subaddr = 0;
+	/* unsigned short next_subaddr = 0; */
 	unsigned short subaddr = 0, data_value = 0;
-	static unsigned char pBurstData[2048];
+	/* static unsigned char pBurstData[2048]; */
 	int index;
-	struct i2c_msg msg = {client->addr, 0, 0, 0};
-	memset(pBurstData, 0, sizeof(pBurstData));
+	/* struct i2c_msg msg = {client->addr, 0, 0, 0}; */
+	/* memset(pBurstData, 0, sizeof(pBurstData)); */
 
 	CAM_ERROR_PRINTK("%s : sensor.register_size = %d\n", __func__, sensor.register_size);
 	if (sensor.register_size == 4) {
 		for (i = 0; i < reg_num_of_element; i++) {
 
-			data_value = reg_table[i].value;
+			/* ata_value = reg_table[i].value; */
 			subaddr = reg_table[i].subaddr;
+			CAM_ERROR_PRINTK("sensor reg_table = 0x%x\n", reg_table[i]);
 
 			switch (subaddr) {
 #if 0
@@ -734,7 +759,9 @@ static int camdrv_ss_regs_table_write(struct i2c_client *client, char *name)
 			case 0x002A:
 			default:
 			{
-				err = camdrv_ss_i2c_write_4_bytes(client, subaddr, data_value);
+				/* err = camdrv_ss_i2c_write_4_bytes(client, subaddr, data_value); */
+				err = camdrv_ss_i2c_write_4_bytes(client,  reg_table[i].subaddr, reg_table[i].value);
+
 				if (err < 0) {
 					CAM_ERROR_PRINTK(" %s :i2c transfer failed !\n", __func__);
 					return -EIO;
@@ -1173,16 +1200,6 @@ static int camdrv_ss_set_vt_mode(struct v4l2_subdev *sd, struct v4l2_control *ct
 	CAM_INFO_PRINTK("%s %s :camdrv_ss_set_vt_mode E\n", sensor.name, __func__);
 
 	switch (ctrl->value) {
-	case CAM_VT_MODE_NONE:
-	{
-		if (sensor.vt_mode_regs == 0) {
-			CAM_ERROR_PRINTK("%s %s : CAM_VT_MODE_NONE not supported !!!\n", sensor.name, __func__);
-				 err = -EIO;
-		} else
-			err =  camdrv_ss_i2c_set_config_register(client, sensor.vt_mode_regs, sensor.rows_num_vt_mode_regs, "vt_mode_regs");
-
-			break;
-	}
 
 	case CAM_VT_MODE_3G:
 	{
@@ -1204,6 +1221,69 @@ static int camdrv_ss_set_vt_mode(struct v4l2_subdev *sd, struct v4l2_control *ct
 			err = camdrv_ss_i2c_set_config_register(client, sensor.vt_mode_regs, sensor.rows_num_vt_mode_regs, "vt_mode_regs");
 
 			break;
+	}
+	case CAM_VT_MODE_SMART_STAY:
+	{
+		int  tmp_sensor_state = atomic_read(&sensor_state);
+		bool bAlreadyStreaming = false;
+		if (sensor.smartStayChangeInitSetting == NULL) {
+			CAM_ERROR_PRINTK("%s %s : CAM_VT_MODE_SMART_STAY not supported !!!\n", sensor.name, __func__);
+				 return -EIO;
+		}
+
+		CAM_INFO_PRINTK("%s: smartStayChangeInitSetting called ..\n", __func__);
+		sensor.smartStayChangeInitSetting(&sensor);
+
+		if (tmp_sensor_state == CAMDRV_SS_NOT_INITIALIZED) {
+			CAM_ERROR_PRINTK("%s %s : CAMDRV_SS_NOT_INITIALIZED! Initialize again! Normally this case will not happen! !\n", sensor.name, __func__);
+			if (0 != camdrv_ss_actual_sensor_power_up()) {
+				CAM_ERROR_PRINTK("%s %s :"
+					"camdrv_ss_actual_sensor_power_up"
+					"FAILED. Return ERR !!!!\n",
+					sensor.name, __func__);
+				return -1;
+			}
+		} else if (tmp_sensor_state == CAMDRV_SS_INITIALIZE_FAILED) {
+			CAM_ERROR_PRINTK("%s %s :  CAMDRV_SS_INITIALIZE_FAILED !\n", sensor.name, __func__);
+			return -EFAULT;
+		} else if (tmp_sensor_state == CAMDRV_SS_INITIALIZING) {
+			CAM_ERROR_PRINTK("%s %s : Waiting for the camera initalize thread to finish initialization .........\n", sensor.name, __func__);
+			if (0 == wait_event_interruptible_timeout(gCamdrvReadyQ,
+				((atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_DONE) || (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_FAILED)), msecs_to_jiffies(30000))) { /* aska modify for ivory */
+				CAM_ERROR_PRINTK("%s %s : TIMEOUT 6 sec, waited for event CAMDRV_SS_INITIALIZE_DONE: state =%d !\n", sensor.name, __func__, atomic_read(&sensor_state));
+				return -EFAULT;
+			}
+			if (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_FAILED) {
+				CAM_ERROR_PRINTK("%s %s :  CAMDRV_SS_INITIALIZE_FAILED happened in init thread ! return ERROR !\n", sensor.name, __func__);
+				return -EFAULT;
+			}
+		} else if (tmp_sensor_state == CAMDRV_SS_INITIALIZE_DONE) {
+			CAM_INFO_PRINTK("%s %s : CAMDRV_SS_INITIALIZE_DONE. Now set smart stay\n", sensor.name, __func__);
+		} else if (tmp_sensor_state == CAMDRV_SS_STREAMING) {
+			bAlreadyStreaming = true;
+			CAM_INFO_PRINTK("%s %s : CAMDRV_SS_STREAMING. Now set smart stay and preview size\n", sensor.name, __func__);
+		} else {
+			CAM_ERROR_PRINTK("%s %s : WRONG sensor state = %d ! ERROR! FAILED  .\n", sensor.name, __func__, tmp_sensor_state);
+			return -EFAULT;
+		}
+
+		/* previous initiliazation is success. Now put smart stay settings */
+		camdrv_ss_init_func(sd);
+		if (atomic_read(&sensor_state) != CAMDRV_SS_INITIALIZE_DONE) {
+			CAM_ERROR_PRINTK("%s %s : SmartStay Initialization FAILED !!.\n", sensor.name, __func__);
+			return -EFAULT;
+		}
+		else
+			CAM_INFO_PRINTK("%s %s : SmartStay Initialization success.\n", sensor.name, __func__);
+
+		if(bAlreadyStreaming) {
+			if (sensor.set_preview_start != NULL) {
+				CAM_ERROR_PRINTK("%s %s :sensor has defined its set_preview_start\n", sensor.name, __func__);
+				sensor.set_preview_start(sd);
+			} else
+				camdrv_ss_set_preview_start(sd);
+		}
+		break;
 	}
 
 	default:
@@ -1227,8 +1307,8 @@ static int camdrv_ss_set_flash_mode(struct v4l2_subdev *sd, struct v4l2_control 
 {
 
 	struct camdrv_ss_state *state = to_state(sd);
-	 struct i2c_client *client = v4l2_get_subdevdata(sd); 
-	 int err =0;
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	int err = 0;
 
 	CAM_INFO_PRINTK("%s %s :camdrv_ss_set_flash_mode E\n", sensor.name, __func__);
 
@@ -1247,52 +1327,50 @@ static int camdrv_ss_set_flash_mode(struct v4l2_subdev *sd, struct v4l2_control 
 
 	case FLASH_MODE_TORCH_ON:
 	{
-		if (sensor.AAT_flash_control != NULL)
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_LOW_LEVEL);
+		if (sensor.flash_control != NULL)
+			sensor.flash_control(sd, FLASH_CONTROL_LOW_LEVEL);
 		else
-			CAM_ERROR_PRINTK("%s %s :AAT_flash_control is NULL!!!s\n", sensor.name, __func__);
+			CAM_ERROR_PRINTK("%s %s :flash_control is NULL!!!s\n", sensor.name, __func__);
 
 		break;
 	}
 
 	case FLASH_MODE_TORCH_OFF:
 	{
-		//if (state->camera_flash_fire)
-			//{
-		if (sensor.AAT_flash_control != NULL)
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
+		if (sensor.flash_control != NULL)
+			sensor.flash_control(sd, FLASH_CONTROL_OFF);
 		else
-			CAM_ERROR_PRINTK("%s %s :AAT_flash_control is NULL!!!s\n", sensor.name, __func__);
-			//}
+			CAM_ERROR_PRINTK("%s %s :flash_control is NULL!!!s\n", sensor.name, __func__);
 		break;
 	}
-//NIKHIL
-        case  FLASH_MAIN_OFF :
+
+	case  FLASH_MAIN_OFF:
 	{
-		if (state->camera_flash_fire)
-		{
-		       if(sensor.main_flash_off_regs != 0) 
-                       {
-		                     err = camdrv_ss_i2c_set_config_register(client, sensor.main_flash_off_regs, sensor.rows_num_main_flash_off_regs, "Main_Flash_End_EVT1");
-		                     if (err < 0) {
-			                                 CAM_ERROR_PRINTK("[%s: %d] ERROR! Setting main_flash_off_regs\n", __FILE__, __LINE__);
-		                     }
-                      }
-		       if (sensor.AAT_flash_control != NULL)
-			       sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
-		         else
-			CAM_ERROR_PRINTK("%s %s :AAT_flash_control is NULL!!!s\n", sensor.name, __func__);
-	        }
+		if (state->camera_flash_fire) {
+			if (sensor.main_flash_off_regs != 0) {
+				err = camdrv_ss_i2c_set_config_register(client,
+					sensor.main_flash_off_regs,
+					sensor.rows_num_main_flash_off_regs,
+					"Main_Flash_End_EVT1");
+				if (err < 0) {
+					CAM_ERROR_PRINTK("[%s: %d] ERROR! Setting main_flash_off_regs\n", __FILE__, __LINE__);
+				}
+			}
+			if (sensor.flash_control != NULL)
+				sensor.flash_control(sd, FLASH_CONTROL_OFF);
+			else
+				CAM_ERROR_PRINTK("%s %s :flash_control is NULL!!!s\n", sensor.name, __func__);
+		}
 		break;
 	}
-			
+
 	case FLASH_MODE_OFF:
 	default:
 	{
-		if (sensor.AAT_flash_control != NULL)
-			sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
+		if (sensor.flash_control != NULL)
+			sensor.flash_control(sd, FLASH_CONTROL_OFF);
 		else
-			CAM_ERROR_PRINTK("%s %s :AAT_flash_control is NULL!!!s\n", sensor.name, __func__);
+			CAM_ERROR_PRINTK("%s %s :flash_control is NULL!!!s\n", sensor.name, __func__);
 
 		state->current_flash_mode = FLASH_MODE_OFF;
 		break;
@@ -1492,7 +1570,7 @@ static int  camdrv_ss_set_preview_stop(struct v4l2_subdev *sd)
 
 	CAM_INFO_PRINTK("%s %s : camdrv_ss_set_preview_stop\n", sensor.name, __func__);
 
-	ctrl.value = AUTO_FOCUS_STOP;
+	ctrl.value = AUTO_FOCUS_OFF;
 
 	if (sensor.set_auto_focus != NULL) {
 		err = sensor.set_auto_focus(sd, &ctrl);
@@ -1501,18 +1579,7 @@ static int  camdrv_ss_set_preview_stop(struct v4l2_subdev *sd)
 			return -1;
 		}
 	}
-	/*
-	ctrl.value = AUTO_FOCUS_2ND_CANCEL;
 
-	if (sensor.set_auto_focus != NULL) {
-		err = sensor.set_auto_focus(sd, &ctrl);
-		if (err < 0) {
-			CAM_ERROR_PRINTK("%s %s : set_auto_focus error\n", sensor.name, __func__);
-			return -1;
-		}
-		msleep(300);
-	}
-*/
 	return 0;
 }
 
@@ -2236,10 +2303,10 @@ static int camdrv_ss_set_capture_start(struct v4l2_subdev *sd, struct v4l2_contr
 			if (err < 0) {
 				CAM_ERROR_PRINTK("[%s : %d] ERROR! Couldn't Set Flash_on_regs\n", __FILE__, __LINE__);
 			}
-			if (sensor.AAT_flash_control == NULL)
-				CAM_ERROR_PRINTK("%s %s : AAT_flash_control not supported !!!\n", sensor.name, __func__);
+			if (sensor.flash_control == NULL)
+				CAM_ERROR_PRINTK("%s %s : flash_control not supported !!!\n", sensor.name, __func__);
 			else
-				sensor.AAT_flash_control(sd, FLASH_CONTROL_MAX_LEVEL);
+				sensor.flash_control(sd, FLASH_CONTROL_MAX_LEVEL);
 		}
 
 		if (sensor.get_light_condition != NULL) {
@@ -2297,7 +2364,7 @@ static int camdrv_ss_set_capture_done(struct v4l2_subdev *sd, struct v4l2_contro
 	int err = 0;
 
 	CAM_INFO_PRINTK("%s\n", __func__);
-
+     /*Backporting Rhea to Hawaii start:Check if preflash was fired then only apply  settings*/
 	if (state->camera_af_flash_fire) {
 		if (sensor.snapshot_af_preflash_off_regs == 0) {
 			CAM_ERROR_PRINTK("%s %s : snapshot_af_preflash_off_regs not supported !!!\n", sensor.name, __func__);
@@ -2308,13 +2375,11 @@ static int camdrv_ss_set_capture_done(struct v4l2_subdev *sd, struct v4l2_contro
 			CAM_ERROR_PRINTK("[%s: %d] ERROR! Setting af_preflash_off_regs\n", __FILE__, __LINE__);
 		}
 	}
-        state->bTouchFocus = false;
-      #if 0
-       if (state->camera_flash_fire) 
+
+       if (state->camera_flash_fire) /* Backporting Rhea to Hawaii:Check if flash is on then only apply main flash off settings*/
        {
-	if (sensor.AAT_flash_control != NULL)
-        {
-		sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
+	if (sensor.flash_control != NULL) {
+		sensor.flash_control(sd, FLASH_CONTROL_OFF); /*Backporting Rhea to Hawaii:Turn off the main flash after capture done*/
                //Add main flash off setting for Nevis
                if(sensor.main_flash_off_regs != 0) 
                {
@@ -2324,12 +2389,10 @@ static int camdrv_ss_set_capture_done(struct v4l2_subdev *sd, struct v4l2_contro
 		    }
                }
         }
-	
          //   state->camera_flash_fire = 0;
 
 	   }
-	   #endif
-
+/*Backporting Rhea to Hawaii End*/
 /*
 	if(state->fps == FRAME_RATE_AUTO) {
 		CAM_ERROR_PRINTK("%s : Rollback to FRAME_RATE_AUTO again as capture is done !!\n",__func__);
@@ -2544,7 +2607,7 @@ static int camdrv_ss_set_effect(struct v4l2_subdev *sd, struct v4l2_control *ctr
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int err = 0;
-
+	struct camdrv_ss_state *state = to_state(sd);
 	CAM_INFO_PRINTK("%s %s :  value =%d\n", sensor.name, __func__, ctrl->value);
 
 	switch (ctrl->value) {
@@ -2654,6 +2717,7 @@ static int camdrv_ss_set_effect(struct v4l2_subdev *sd, struct v4l2_control *ctr
 	}
 	}
 
+	state->currentEffect=ctrl->value;
 	return err;
 }
 
@@ -3074,7 +3138,10 @@ static int camdrv_ss_set_ev(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		if (sensor.ev_plus_1_5_regs == 0)
 			CAM_ERROR_PRINTK("%s %s : ev_plus_1_5_regs not supported !!!\n", sensor.name, __func__);
 		else
-			err = camdrv_ss_i2c_set_config_register(client, sensor.ev_plus_1_5_regs, sensor.rows_num_ev_plus_1_5_regs, "ev_plus_1_5_regs");
+			err = camdrv_ss_i2c_set_config_register(client,
+					sensor.ev_plus_1_5_regs,
+					sensor.rows_num_ev_plus_1_5_regs,
+					"ev_plus_1_5_regs");
 
 		break;
 	}
@@ -3473,10 +3540,10 @@ static int camdrv_ss_set_af_preflash(struct v4l2_subdev *sd, struct v4l2_control
 				CAM_ERROR_PRINTK("[%s: %d] ERROR! Setting af_preflash_on_regs\n", __FILE__, __LINE__);
 			}
 
-			if (sensor.AAT_flash_control == NULL)
-				CAM_ERROR_PRINTK("%s %s : AAT_flash_control  NULL!!not  supported !!!\n", sensor.name, __func__);
+			if (sensor.flash_control == NULL)
+				CAM_ERROR_PRINTK("%s %s : flash_control  NULL!!not  supported !!!\n", sensor.name, __func__);
 			else
-				sensor.AAT_flash_control(sd, FLASH_CONTROL_MIDDLE_LEVEL);
+				sensor.flash_control(sd, FLASH_CONTROL_MIDDLE_LEVEL);
 		} else {
 			return -1; /* Must return a non-zero value, when flash is not fired. */
 		}
@@ -3490,10 +3557,10 @@ static int camdrv_ss_set_af_preflash(struct v4l2_subdev *sd, struct v4l2_control
 					CAM_ERROR_PRINTK("[%s: %d] ERROR! Setting af_preflash_off_regs\n", __FILE__, __LINE__);
 				}
 			}
-			if (sensor.AAT_flash_control == NULL)
-				CAM_ERROR_PRINTK("%s %s : AAT_flash_control  NULL!!not  supported !!!\n", sensor.name, __func__);
+			if (sensor.flash_control == NULL)
+				CAM_ERROR_PRINTK("%s %s : flash_control  NULL!!not  supported !!!\n", sensor.name, __func__);
 			else
-				sensor.AAT_flash_control(sd, FLASH_CONTROL_OFF);
+				sensor.flash_control(sd, FLASH_CONTROL_OFF);
 
 			state->camera_af_flash_fire = 0;
 		}
@@ -3610,10 +3677,10 @@ static int camdrv_ss_AE_AWB_lock(struct v4l2_subdev *sd, struct v4l2_control *ct
 		}
 		break;
 	}
-         case  AE_UNLOCK:
+	case  AE_UNLOCK:
 	{
-          if (sensor.ae_unlock_regs == 0)
-				CAM_ERROR_PRINTK("%s %s : ae_unlock_regs  supported !!!\n", sensor.name, __func__);
+		if (sensor.ae_unlock_regs == 0)
+			CAM_ERROR_PRINTK("%s %s : ae_unlock_regs  supported !!!\n", sensor.name, __func__);
 		else
 			err = camdrv_ss_i2c_set_config_register(client, sensor.ae_unlock_regs, sensor.rows_num_ae_unlock_regs, "ae_unlock_regs");
 
@@ -3778,8 +3845,6 @@ static int camdrv_ss_enum_framesizes(struct v4l2_subdev *sd, struct v4l2_frmsize
 {
 	/* struct i2c_client *client = v4l2_get_subdevdata(sd); */
 
-	CAM_INFO_PRINTK("%s %s Entered\n", sensor.name, __func__);
-
 	if (fsize->pixel_format == sensor.default_pix_fmt || fsize->pixel_format == sensor.default_mbus_pix_fmt) {
 		if (fsize->index >= sensor.supported_number_of_preview_sizes) {
 			CAM_ERROR_PRINTK("%s %s : exceeded index =%d\n", sensor.name, __func__, fsize->index);
@@ -3824,7 +3889,6 @@ static int camdrv_ss_enum_framesizes(struct v4l2_subdev *sd, struct v4l2_frmsize
 static int camdrv_ss_enum_frameintervals(struct v4l2_subdev *sd,
 					struct v4l2_frmivalenum *fival)
 {
-	CAM_INFO_PRINTK("%s : camdrv_ss_enum_frameintervals w = %d h = %d\n", __func__, fival->width, fival->height);
 	return sensor.enum_frameintervals(sd, fival);
 }
 
@@ -3865,9 +3929,9 @@ static int camdrv_ss_try_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *
 	return ret;
 }
 
-void camdrv_ss_init_func(struct v4l2_subdev *sd)
+static int camdrv_ss_actual_sensor_power_up()
 {
-	int err;
+	int err = 0;
 	GPIOSetup.name = PN_BSC1CLK;
 	pinmux_get_pin_config(&GPIOSetup);
 	GPIOSetup.func = PF_BSC1CLK;
@@ -3886,17 +3950,25 @@ void camdrv_ss_init_func(struct v4l2_subdev *sd)
 	if (err < 0) {
 		atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_FAILED);
 		CAM_ERROR_PRINTK("%s: sensor_power failed ! CAMDRV_SS_INITIALIZE_FAILED !!\n", __func__);
-	} else {
-		err = camdrv_ss_init(sd, 1);
-		if (err < 0) {
-			atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_FAILED);
-			CAM_ERROR_PRINTK("%s:camdrv_ss_init failed! CAMDRV_SS_INITIALIZE_FAILED !!\n", __func__);
-		} else {
-			atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_DONE);
-			CAM_INFO_PRINTK("%s: CAMDRV_SS_INITIALIZE_DONE\n", __func__);
-		}
+		return err;
 	}
 
+	return 0;
+
+}
+
+
+void camdrv_ss_init_func(struct v4l2_subdev *sd)
+{
+	int err;
+	err = camdrv_ss_init(sd, 1);
+	if (err < 0) {
+		atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_FAILED);
+		CAM_ERROR_PRINTK("%s:camdrv_ss_init failed! CAMDRV_SS_INITIALIZE_FAILED !!\n", __func__);
+	} else {
+		atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_DONE);
+		CAM_INFO_PRINTK("%s: CAMDRV_SS_INITIALIZE_DONE\n", __func__);
+	}
 }
 static int camdrv_ss_init_thread_func(void *data)
 {
@@ -3922,7 +3994,7 @@ static int camdrv_ss_g_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *para
 	state->strm.parm.capture.timeperframe.numerator = 1;
 	state->strm.parm.capture.timeperframe.denominator = state->fps;
 
-	memcpy(param, &state->strm, sizeof(param));
+	memcpy(param, &state->strm, sizeof(*param));
 
 	return err;
 }
@@ -3967,13 +4039,18 @@ static int camdrv_ss_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	switch (ctrl->id) {
 	case V4L2_CID_CAMERA_READ_MODE_CHANGE_REG:
 	{
-		if (atomic_read(&gCapModeState) == CAMDRV_SS_CAPTURE_MODE_READ_PROCESSING)
+		if (atomic_read(&gCapModeState) ==
+			CAMDRV_SS_CAPTURE_MODE_READ_PROCESSING) {
 			/* if successful read sensor mode change value */
 			/* and that value is preview mode, skip one frame */
 			/* but other case include error case, just do capture without skip frame */
-			ctrl->value = 0;
-		else
+			CAM_INFO_PRINTK(
+			"%s %s : CAPTURE MODE STILL PROCESSING....\n",
+			sensor.name, __func__, ctrl->id);
+
 			ctrl->value = 1;
+		} else
+			ctrl->value = 0;
 		break;
 	}
 	case V4L2_CID_EXPOSURE:
@@ -4205,7 +4282,8 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	int err = 0;
 	int temp_sensor_state = 0;
 
-	CAM_INFO_PRINTK("%s %s : id = %d\n", sensor.name, __func__, ctrl->id);
+	/*CAM_INFO_PRINTK("%s %s : id = %d\n",
+		sensor.name, __func__, ctrl->id);*/
 
 	if (ctrl->id == V4L2_CID_CAMERA_INITIALIZE) {
 		CAM_INFO_PRINTK("denis : sensor initialize %s\n", sensor.name);
@@ -4218,6 +4296,18 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		struct task_struct *camdrv_ss_init_thread;
 		if (atomic_read(&sensor_state) == CAMDRV_SS_NOT_INITIALIZED) {
 			atomic_set(&sensor_state, CAMDRV_SS_INITIALIZING);
+
+			/* Sensor power up is sequential
+				function After it is successful
+				create seperate thread for init */
+
+			if (0 != camdrv_ss_actual_sensor_power_up()) {
+				CAM_ERROR_PRINTK("%s %s :"
+				 "camdrv_ss_actual_sensor_power_up"
+				  "FAILED. Return ERR !!!!.\n",
+				  sensor.name, __func__);
+				return -1;
+			}
 			CAM_INFO_PRINTK("%s %s :creating camera intialize thread...\n", sensor.name, __func__);
 			state->current_mode = INIT_MODE;
 			state->mode_switch = INIT_DONE_TO_CAMERA_PREVIEW;
@@ -4301,7 +4391,7 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		break;
 	}
 
-	case V4L2_CID_CAMERA_AE_AWB_LOCKUNLOCK:
+	case V4L2_CID_CAMERA_AEAWB_LOCK_UNLOCK:
 	{
 		err = camdrv_ss_AE_AWB_lock(sd, ctrl);
 		break;
@@ -4315,8 +4405,8 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 
 	case V4L2_CID_CAMERA_FLASH_CONTROL:
 	{
-		if (sensor.AAT_flash_control != NULL)
-			err = sensor.AAT_flash_control(sd, ctrl->value);
+		if (sensor.flash_control != NULL)
+			err = sensor.flash_control(sd, ctrl->value);
 		break;
 	}
 
@@ -4546,8 +4636,7 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	}
 
 	case V4L2_CID_CAMERA_SET_AUTO_FOCUS:
-	{int tmp_sensor_state = 0;
-				tmp_sensor_state = atomic_read(&sensor_state);
+	{
 		CAM_INFO_PRINTK(
 			"%s : V4L2_CID_CAMERA_SET_AUTO_FOCUS"
 			" value=%d, bTouchFocus=%d, af_mode=%d\n",
@@ -4564,14 +4653,16 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 			}
 			if (ctrl->value == AUTO_FOCUS_ON) {
 				err = sensor.set_touch_focus(sd, TOUCH_AF_START, NULL);
-			} else if(ctrl->value == AUTO_FOCUS_OFF) {
+			}
+            /*Backporting Rhea to Hawaii Start: To avoid frame drop in AF cancel, splited currently applied register into three part 
+			and pass them one by one
+			AUTO_FOCUS_1ST_CANCEL -> pass 1st part of register
+			AUTO_FOCUS_2ND_CANCEL -> pass 2nd part of register
+			AUTO_FOCUS_OFF -> pass last part
+			*/			
+			else if(ctrl->value == AUTO_FOCUS_OFF) {
 				err = sensor.set_touch_focus(sd, TOUCH_AF_STOP, NULL);
 				state->bTouchFocus = false;
-				CAM_INFO_PRINTK("%s : outside (AF off)enable check\n", __func__);
-				
-				if ( tmp_sensor_state == CAMDRV_SS_INITIALIZE_DONE ){
-				CAM_INFO_PRINTK("%s : inside (AF off) enable check\n", __func__);
-				camdrv_ss_set_preview_stop(sd); }
 			}else if (ctrl->value ==AUTO_FOCUS_1ST_CANCEL)
 				{
                                 err = sensor.set_touch_focus(sd, AUTO_FOCUS_1ST_CANCEL, NULL);
@@ -4589,10 +4680,6 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 				break;
 			}
 			err = sensor.set_auto_focus(sd, ctrl);
-			if(ctrl->value == AUTO_FOCUS_OFF) {
-			if ( tmp_sensor_state == CAMDRV_SS_INITIALIZE_DONE ){
-				CAM_INFO_PRINTK("%s : inside (AF off) enable check\n", __func__);
-				camdrv_ss_set_preview_stop(sd); }}
 		}
 		break;
 	}
@@ -4600,7 +4687,7 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	case V4L2_CID_CAMERA_SET_AF_PREFLASH:
 	{
 		//err = camdrv_ss_set_af_preflash(sd, ctrl);
-		//FLASH Nikhil
+		//Backporting Rhea to Hawaii: For Nevis added sensor specific preflash on rotuine
               if(sensor.get_prefalsh_on !=NULL){
                 err = sensor.get_prefalsh_on(sd, ctrl);
 	      }
@@ -4718,7 +4805,8 @@ static int camdrv_ss_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	}
 
 	mutex_unlock(&sensor_s_ctrl);
-	CAM_INFO_PRINTK("%s %s : %d SUCCESS\n", sensor.name, __func__, ctrl->id);
+	/* CAM_INFO_PRINTK("%s %s : %d SUCCESS\n",
+			sensor.name, __func__, ctrl->id); */
 	return err;
 }
 
@@ -4745,15 +4833,23 @@ static int camdrv_ss_init(struct v4l2_subdev *sd, u32 val)
 		CAM_ERROR_PRINTK("%s %s : init_regs is NULL, please check if it is needed !!!\n", sensor.name, __func__);
 	else {
 
-		err = camdrv_ss_i2c_set_config_register(client, sensor.init_regs, sensor.rows_num_init_regs, "init_regs");
+			err = camdrv_ss_i2c_set_config_register(client, sensor.init_regs, sensor.rows_num_init_regs, "init_regs");
 
-	 }
+			if(camera_antibanding_get() == ANTI_BANDING_60HZ && sensor.antibanding_60hz_regs != NULL) {
+				err = camdrv_ss_i2c_set_config_register(client, sensor.antibanding_60hz_regs, sensor.rows_num_antibanding_60hz_regs, "antibanding_60hz_regs");
+				CAM_INFO_PRINTK("%s %s : set antibanding 60hz! \n", sensor.name, __func__);
+				if (err < 0) {
+					CAM_ERROR_PRINTK("%s %s :set antibanding 60hz failed !!\n", sensor.name, __func__);
+					return -EINVAL;
+				}
+			}
+		}
 	if (err < 0) {
 		CAM_ERROR_PRINTK("%s %s :i2c failed !!\n", sensor.name, __func__);
 		return -EINVAL;
 	}
 
-	return 0;
+	return err;
 }
 
 
@@ -4789,21 +4885,20 @@ static int camdrv_ss_cap_mode_change_monitor(struct v4l2_subdev *sd)
 static int camdrv_ss_cap_mode_change_monitor_thread_func(void *data)
 {
 	struct v4l2_subdev *sd = (struct v4l2_subdev *)data;
-	int ret = -1;
-	int mode_change_reg_value = 0;
+	enum camdrv_ss_capture_mode_state mode = 0;
 	int timeout = CAP_MODE_CHANGE_MORNITOR_TIMEOUT;
+
+	CAM_INFO_PRINTK("%s %s :E\n", sensor.name, __func__);
 
 	do {
 		msleep(CAP_MODE_CHANGE_MORNITOR_INTERVAL_MS);
 		timeout--;
 
-		mode_change_reg_value = sensor.get_mode_change_reg(sd);
-		if (mode_change_reg_value == 1) {
+		mode = sensor.get_mode_change_reg(sd);
+		if (mode == CAMDRV_SS_CAPTURE_MODE_READY) {
 			atomic_set(&gCapModeState, CAMDRV_SS_CAPTURE_MODE_READY);
-			ret = 0;
-		} else if (mode_change_reg_value == 0) {
+		} else if (mode == CAMDRV_SS_CAPTURE_MODE_READ_PROCESSING) {
 			atomic_set(&gCapModeState, CAMDRV_SS_CAPTURE_MODE_READ_PROCESSING);
-
 			if (timeout <= 0) {
 				atomic_set(&gCapModeState, CAMDRV_SS_CAPTURE_MODE_READ_FAILED);
 				CAM_ERROR_PRINTK(
@@ -4817,10 +4912,10 @@ static int camdrv_ss_cap_mode_change_monitor_thread_func(void *data)
 				"[WARN]%s %s:get_mode_change_reg read failed\n",
 				sensor.name, __func__);
 		}
-	} while (mode_change_reg_value == 0);
+	} while (mode == CAMDRV_SS_CAPTURE_MODE_READ_PROCESSING);
 
-	/* CAM_INFO_PRINTK("%s %s, gCapModeState=%d, timeout=%d\n", sensor.name, __func__, atomic_read(&gCapModeState), timeout); */
-	return ret;
+	CAM_INFO_PRINTK("%s %s :X\n", sensor.name, __func__);
+	return 0;
 }
 /**************************************************************************
  * DRIVER REGISTRATION FACTORS
@@ -4832,15 +4927,22 @@ static int camdrv_ss_s_stream(struct v4l2_subdev *sd, int enable)
 	 struct camdrv_ss_state *state = to_state(sd);
 	/* struct i2c_client *client = v4l2_get_subdevdata(sd); */
 	int tmp_sensor_state = 0;
-
-	CAM_INFO_PRINTK("%s %s :\n", sensor.name, __func__);
+    int err = 0;
 
 	atomic_set(&gCapModeState, CAMDRV_SS_CAPTURE_MODE_NOT_SUPPORT);
 	tmp_sensor_state = atomic_read(&sensor_state);
 
 	if (enable && (tmp_sensor_state != CAMDRV_SS_STREAMING)) {
+		CAM_INFO_PRINTK("%s %s : START\n", sensor.name, __func__);
 		if (tmp_sensor_state == CAMDRV_SS_NOT_INITIALIZED) {
 			CAM_ERROR_PRINTK("%s %s : CAMDRV_SS_NOT_INITIALIZED! Initialize again! Normally this case will not happen! !\n", sensor.name, __func__);
+			if (0 != camdrv_ss_actual_sensor_power_up()) {
+				CAM_ERROR_PRINTK("%s %s :"
+					"camdrv_ss_actual_sensor_power_up"
+					"FAILED. Return ERR !!!!\n",
+					sensor.name, __func__);
+				return -1;
+			}
 			camdrv_ss_init_func(sd);
 			tmp_sensor_state = atomic_read(&sensor_state);
 		}
@@ -4871,9 +4973,9 @@ static int camdrv_ss_s_stream(struct v4l2_subdev *sd, int enable)
 
 			if (sensor.set_capture_start != NULL) {
 				CAM_ERROR_PRINTK("%s %s :sensor has defined its sequence\n", sensor.name, __func__);
-				sensor.set_capture_start(sd, NULL);
+				err = sensor.set_capture_start(sd, NULL);
 			} else
-				camdrv_ss_set_capture_start(sd, NULL);
+				err = camdrv_ss_set_capture_start(sd, NULL);
 
 			camdrv_ss_cap_mode_change_monitor(sd);
 		} else {
@@ -4886,29 +4988,32 @@ static int camdrv_ss_s_stream(struct v4l2_subdev *sd, int enable)
 
 			if (sensor.set_preview_start != NULL) {
 				CAM_ERROR_PRINTK("%s %s :sensor has defined its sequence\n", sensor.name, __func__);
-				sensor.set_preview_start(sd);
+				err  = sensor.set_preview_start(sd);
 			} else
-				camdrv_ss_set_preview_start(sd);
+				err = camdrv_ss_set_preview_start(sd);
 		}
 
+		if (err < 0)
+		{
+			CAM_ERROR_PRINTK("%s %s : Failed !! \n", sensor.name, __func__);
+		}
+		else
+		{
 		atomic_set(&sensor_state, CAMDRV_SS_STREAMING);
 
-		CAM_INFO_PRINTK("%s %s : START SUCCESS!!\n", sensor.name, __func__);
+		CAM_INFO_PRINTK(
+			"%s %s : START success\n", sensor.name, __func__);
+		}
 	}
 
-	if (!enable) {
-	if (  state->current_mode == PICTURE_MODE ){ // temp fix for CTS issue
-CAM_INFO_PRINTK("%s : delay for picture mode%d\n", __func__,camera_id);
-                 msleep(7);
-}
-			if (tmp_sensor_state_previous==tmp_sensor_state){
-		CAM_INFO_PRINTK("%s : inside enable check\n", __func__);
-		camdrv_ss_set_preview_stop(sd); }
+	if (!enable && (tmp_sensor_state != CAMDRV_SS_INITIALIZE_DONE)) {
+		CAM_INFO_PRINTK("%s %s :STOP\n", sensor.name, __func__);
+		/* camdrv_ss_set_preview_stop(sd); */
 		atomic_set(&sensor_state, CAMDRV_SS_INITIALIZE_DONE);
 		CAM_INFO_PRINTK("%s : STOP success\n", __func__);
 	}
-    tmp_sensor_state_previous=tmp_sensor_state;
-	return 0;
+
+	return err;
 }
 
 
@@ -4964,14 +5069,12 @@ static int camdrv_ss_enum_input(struct soc_camera_device *icd, struct v4l2_input
 		inp->status = 0;
 /*Backporting Rhea to Hawaii: Patch from Broadcom for rotation issues CSP:576850*/
 		/* Samsung project not use PORTRAIT and LANDSCAPE */
-		if (plat_parms->orientation == V4L2_SUBDEV_SENSOR_PORTRAIT)
-		{
-		    CAM_INFO_PRINTK("%s %s : V4L2_SUBDEV_SENSOR_PORTRAIT and V4L2_SUBDEV_SENSOR_ORIENT_0 are same !\n", __func__, sensor.name);
-		    plat_parms->orientation = V4L2_SUBDEV_SENSOR_ORIENT_0;
+		if (plat_parms->orientation == V4L2_SUBDEV_SENSOR_PORTRAIT) {
+			CAM_INFO_PRINTK("%s %s : V4L2_SUBDEV_SENSOR_PORTRAIT and V4L2_SUBDEV_SENSOR_ORIENT_0 are same !\n", __func__, sensor.name);
+			plat_parms->orientation = V4L2_SUBDEV_SENSOR_ORIENT_0;
 		}
-		if (plat_parms->orientation == V4L2_SUBDEV_SENSOR_LANDSCAPE)
-		{
-		    CAM_INFO_PRINTK("%s %s : V4L2_SUBDEV_SENSOR_LANDSCAPE and V4L2_SUBDEV_SENSOR_ORIENT_90 are same !\n", __func__, sensor.name);
+		if (plat_parms->orientation == V4L2_SUBDEV_SENSOR_LANDSCAPE) {
+			CAM_INFO_PRINTK("%s %s : V4L2_SUBDEV_SENSOR_LANDSCAPE and V4L2_SUBDEV_SENSOR_ORIENT_90 are same !\n", __func__, sensor.name);
 			plat_parms->orientation = V4L2_SUBDEV_SENSOR_ORIENT_90;
 		}
 
@@ -4991,7 +5094,6 @@ static int camdrv_ss_enum_input(struct soc_camera_device *icd, struct v4l2_input
 		if (plat_parms->facing == V4L2_SUBDEV_SENSOR_BACK)
 			inp->status |= V4L2_IN_ST_BACK;
 	}
-
 	return 0;
 }
 
@@ -5096,14 +5198,39 @@ bool camdrv_ss_power(int cam_id, int bOn)
 	camera_id = cam_id;
 
 	if (bOn) {
+		if (atomic_read(&sensor_state) != CAMDRV_SS_NOT_INITIALIZED) {
+			CAM_ERROR_PRINTK(
+				"%s:cam_id = %d ,Camera in use by another client\n",
+				__func__, cam_id);
+			return false;
+		}
+
 		memset(&sensor, 0, sizeof(struct camdrv_ss_sensor_cap));
 		CAM_INFO_PRINTK("%s : cam_id = %d powering ON ..\n", __func__, cam_id);
 
-		if (camera_id == CAMDRV_SS_CAM_ID_MAIN)
+		if (camera_id == CAMDRV_SS_CAM_ID_MAIN) {
 			camdrv_ss_sensor_init_main(bOn, &sensor);
+			strcpy(camdrv_ss_main_name, sensor.name);
+			camdrv_ss_generic_flash_control	= sensor.flash_control;
+			if (!camdrv_ss_generic_flash_control)
+				CAM_ERROR_PRINTK(
+						"%s %s : There is no FLASH support\n",
+						__func__, sensor.name);
+
+			if ( sensor.rear_camera_vendorid != NULL){
+				
+				sensor.rear_camera_vendorid(camdrv_rear_camera_vendorid);
+				CAM_ERROR_PRINTK(
+						"%s %s : camdrv_rear_camera_vendorid\n",
+						__func__, camdrv_rear_camera_vendorid);
+				}
+		}
+
 #ifdef CONFIG_SOC_SUB_CAMERA
-		else if (camera_id == CAMDRV_SS_CAM_ID_SUB)
+		else if (camera_id == CAMDRV_SS_CAM_ID_SUB) {
 			camdrv_ss_sensor_init_sub(bOn, &sensor);
+			strcpy(camdrv_ss_sub_name, sensor.name);
+		}
 #endif
 
 		if (sensor.thumbnail_ioctl == NULL) {
@@ -5139,13 +5266,18 @@ bool camdrv_ss_power(int cam_id, int bOn)
 		}
 
 		if (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZING) {
-			CAM_ERROR_PRINTK("%s %s : Need to wait for the previous camera initialize finishes !\n", sensor.name, __func__);
-			if (0 == wait_event_interruptible_timeout(gCamdrvReadyQ, (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_DONE), msecs_to_jiffies(6000))) {
-				CAM_ERROR_PRINTK("%s %s : Serious problem ,TIMEOUT 6 sec, waited for event CAMDRV_SS_INITIALIZE_DONE: state =%d !\n", sensor.name, __func__, atomic_read(&sensor_state));
-				return -EFAULT;
+			CAM_ERROR_PRINTK("%s %s : Waiting for the camera initialize to finish and then we will power off camera !\n", sensor.name, __func__);
+			if (0 == wait_event_interruptible_timeout(gCamdrvReadyQ, ((atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_DONE) || (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_FAILED)), msecs_to_jiffies(6000))) {
+				CAM_ERROR_PRINTK("%s %s : Serious problem ,TIMEOUT 6 sec, waited for event INITIALIZE or FAILED: state =%d !\n", sensor.name, __func__, atomic_read(&sensor_state));
 			}
+			if (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_FAILED)
+				CAM_ERROR_PRINTK("%s %s :  waiting finished.  CAMDRV_SS_INITIALIZE_FAILED,Now power off the camera !\n", sensor.name, __func__);
+			if (atomic_read(&sensor_state) == CAMDRV_SS_INITIALIZE_DONE)
+				CAM_ERROR_PRINTK("%s %s :  waiting finished.  CAMDRV_SS_INITIALIZE_DONE, Now power off the camera !\n", sensor.name, __func__);
+
 		}
 
+		/* For power consumption */
 		GPIOSetup.name = PN_BSC1CLK;
 		pinmux_get_pin_config(&GPIOSetup);
 		GPIOSetup.func = PF_GPIO51;
@@ -5263,13 +5395,20 @@ static int camdrv_ss_probe(struct i2c_client *client, const struct i2c_device_id
 				CAM_ERROR_PRINTK("Failed to create anti-banding device file,  %s\n",
 				camera_antibanding_attr.attr.name);
 			}
+                 /* AT command flash implementation */
+                  /*Backporting Rhea to Hawaii start:*/
 	          #ifdef CONFIG_FLASH_ENABLE
-			if (device_create_file(sec_main_cam_dev, &dev_attr_rear_flash) < 0) 
-			{
+			if (device_create_file(sec_main_cam_dev, &dev_attr_rear_flash) < 0) {
 			CAM_INFO_PRINTK( "[%s]: failed to create device file, %s\n", __func__,dev_attr_rear_flash.attr.name);
 			return 0;
 			}
                   #endif
+				   if (device_create_file(sec_main_cam_dev, &dev_attr_rear_vendorid) < 0) 
+			{
+			CAM_INFO_PRINTK( "[%s]: failed to create device file, %s\n", __func__,dev_attr_rear_vendorid.attr.name);
+			return 0;
+			}
+                  /*Backporting Rhea to Hawaii End */
 			} else {
 				CAM_ERROR_PRINTK("Creat Sub cam device !\n");
 

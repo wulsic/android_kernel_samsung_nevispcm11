@@ -26,6 +26,7 @@
 #include <linux/mmc-poll/mmc_poll.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
+#include <mach/memory.h>
 #include "kona_mmc.h"
 
 #ifdef DEBUG
@@ -646,7 +647,7 @@ static int kona_mmc_core_init(struct mmc *mmc)
 
 	kona_mmc_reset(host);
 
-	host->version = (ioread32(&host->reg_p2->hcversirq) |
+	host->version = (ioread32(&host->reg_p2->hcversirq) &
 			  EMMCSDXC_HCVERSIRQ_VENDVER_MASK)
 			  >> EMMCSDXC_HCVERSIRQ_VENDVER_SHIFT;
 

@@ -76,7 +76,7 @@ typedef IPC_U32 IPC_SmPtr;	/* "Pointer" in Shared Memory */
 /* Special values used to mark the top 2 bytes of IPC version */
 #define IPC_VersionHi		0xabcd
 /* IPC version, starting from 1 */
-#define IPC_VersionLo		0x1
+#define IPC_VersionLo		0x2
 #define IPC_Version		((IPC_VersionHi << 16) | IPC_VersionLo)
 
 /**************************************************
@@ -84,7 +84,7 @@ typedef IPC_U32 IPC_SmPtr;	/* "Pointer" in Shared Memory */
 * per CPU i.e. IPC_SM_MAX_BUFFERS can be owned by both Apps and Comms
 * Must be a power of 2
 **************************************************/
-#define IPC_SM_MAX_BUFFER_POWER	(10)
+#define IPC_SM_MAX_BUFFER_POWER	(11)
 #define IPC_SM_MAX_BUFFERS		(1 << IPC_SM_MAX_BUFFER_POWER)
 
 /*============================================================
@@ -172,8 +172,7 @@ typedef struct IPC_SmLocalControl_S {
 	IPC_CPU_ID_T CpuId;
 	IPC_SmControl SmControl;
 	IPC_RaiseInterruptFPtr_T RaiseInterrupt;
-	IPC_EnableReEntrancyFPtr_T EnableReentrancy;
-	IPC_DisableReEntrancyFPtr_T DisableReentrancy;
+	IPC_LockFunctions_T LockFunctions;
 	IPC_PhyAddrToOSAddrFPtr_T PhyToOSAddress;
 	IPC_OSAddrToPhyAddrFPtr_T OsToPhyAddress;
 	IPC_EventFunctions_T Event;
@@ -195,14 +194,19 @@ extern IPC_SmLocalControl_T SmLocalControl;
 
 /* Macros for critical region protection */
 #define CRITICAL_REIGON_SETUP
-#define CRITICAL_REIGON_ENTER	(*SmLocalControl.DisableReentrancy) ();
-#define CRITICAL_REIGON_LEAVE	(*SmLocalControl.EnableReentrancy)  ();
+#define CRITICAL_REIGON_CREATE()	(*SmLocalControl.LockFunctions.CreateLock)()
+#define CRITICAL_REIGON_ENTER(lock)	(*SmLocalControl.LockFunctions.AcquireLock) ((void *) lock)
+#define CRITICAL_REIGON_LEAVE(lock)	(*SmLocalControl.LockFunctions.ReleaseLock) ((void *) lock)
+#define CRITICAL_REIGON_DELETE(lock) \
+		(*SmLocalControl.LockFunctions.DeleteLock) ((void *) lock)
 
 /* Macros for Event Flags */
 #define IPC_EVENT_CREATE					 	  SmLocalControl.Event.Create ? (*SmLocalControl.Event.Create) () : 0
 #define IPC_EVENT_SET(EventPtr)					(*SmLocalControl.Event.Set)		((void *) EventPtr)
 #define IPC_EVENT_CLEAR(EventPtr)				(*SmLocalControl.Event.Clear)	((void *) EventPtr)
 #define IPC_EVENT_WAIT(EventPtr, MilliSeconds)	(*SmLocalControl.Event.Wait)	((void *) EventPtr, MilliSeconds)
+#define IPC_EVENT_DELETE(EventPtr) (*SmLocalControl.Event.Delete) \
+	((void *) EventPtr)
 
 /*============================================================
 * Functions

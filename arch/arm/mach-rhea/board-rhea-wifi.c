@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/module.h>
 #include <asm/mach-types.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
@@ -93,9 +94,9 @@ static void *rhea_wifi_mem_prealloc(int section, unsigned long size)
 	if (section == PREALLOC_WLAN_SEC_NUM)
 		return wlan_static_skb;
 	if (section == WLAN_STATIC_SCAN_BUF0)
-		return wlan_static_scan_buf0;	
+		return wlan_static_scan_buf0;
 	if (section == WLAN_STATIC_SCAN_BUF1)
-		return wlan_static_scan_buf1;	
+		return wlan_static_scan_buf1;
 	if ((section < 0) || (section > PREALLOC_WLAN_SEC_NUM))
 		return NULL;
 
@@ -126,33 +127,33 @@ int __init rhea_init_wifi_mem(void)
 	if (!wlan_static_skb[i])
 		goto err_skb_alloc;
 
-	for (i = 0 ; i < PREALLOC_WLAN_SEC_NUM ; i++) {
+	for (i = 0; i < PREALLOC_WLAN_SEC_NUM; i++) {
 		wlan_mem_array[i].mem_ptr =
-				kmalloc(wlan_mem_array[i].size, GFP_KERNEL);
+		    kmalloc(wlan_mem_array[i].size, GFP_KERNEL);
 
 		if (!wlan_mem_array[i].mem_ptr)
 			goto err_mem_alloc;
 	}
-	wlan_static_scan_buf0 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf0)		
+	wlan_static_scan_buf0 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf0)
 		goto err_mem_alloc;
-	wlan_static_scan_buf1 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf1)		
+	wlan_static_scan_buf1 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf1)
 		goto err_mem_alloc;
 
 	printk("%s: WIFI MEM Allocated\n", __FUNCTION__);
 	return 0;
 
- err_mem_alloc:
+err_mem_alloc:
 	pr_err("Failed to mem_alloc for WLAN\n");
-	for (j = 0 ; j < i ; j++)
+	for (j = 0; j < i; j++)
 		kfree(wlan_mem_array[j].mem_ptr);
 
 	i = WLAN_SKB_BUF_NUM;
 
- err_skb_alloc:
+err_skb_alloc:
 	pr_err("Failed to skb_alloc for WLAN\n");
-	for (j = 0 ; j < i ; j++)
+	for (j = 0; j < i; j++)
 		dev_kfree_skb(wlan_static_skb[j]);
 
 	return -ENOMEM;
@@ -164,7 +165,7 @@ extern int bcm_sdiowl_init(int onoff);
 extern int bcm_sdiowl_term(void);
 
 int rhea_wifi_status_register(void (*callback) (int card_present, void *dev_id),
-		void *dev_id);
+			      void *dev_id);
 
 EXPORT_SYMBOL(rhea_wifi_status_register);
 
@@ -179,7 +180,7 @@ int omap_mux_init_signal(const char *muxname, int val);
 
 int omap4_rhea_get_type(void)
 {
-//	return tuna_hw_rev & TUNA_TYPE_MASK;
+//      return tuna_hw_rev & TUNA_TYPE_MASK;
 	return 0;
 }
 
@@ -190,16 +191,15 @@ int __init omap_mux_init_signal(const char *muxname, int val)
 }
 
 
-
-static int rhea_wifi_cd = 0; /* WIFI virtual 'card detect' status */
-static void (*wifi_status_cb)(int card_present, void *dev_id);
+static int rhea_wifi_cd = 0;	/* WIFI virtual 'card detect' status */
+static void (*wifi_status_cb) (int card_present, void *dev_id);
 static void *wifi_status_cb_devid;
 //static struct regulator *clk32kaudio_reg;
 
 int rhea_wifi_status_register(void (*callback) (int card_present, void *dev_id),
-		void *dev_id)
+			      void *dev_id)
 {
-	printk(KERN_ERR " %s ENTRY\n",__FUNCTION__);
+	printk(KERN_ERR " %s ENTRY\n", __FUNCTION__);
 
 	if (wifi_status_cb)
 		return -EAGAIN;
@@ -214,22 +214,22 @@ static unsigned int rhea_wifi_status(struct device *dev)
 }
 
 struct mmc_platform_data rhea_wifi_data = {
-	.ocr_mask		= MMC_VDD_165_195 | MMC_VDD_20_21,
-	.built_in		= 1,
-	.status			= rhea_wifi_status,
-	.card_present		= 0,
-	.register_status_notify	= rhea_wifi_status_register,
+	.ocr_mask = MMC_VDD_165_195 | MMC_VDD_20_21,
+	.built_in = 1,
+	.status = rhea_wifi_status,
+	.card_present = 0,
+	.register_status_notify = rhea_wifi_status_register,
 };
 
 static int rhea_wifi_set_carddetect(int val)
 {
 	pr_debug("%s: %d\n", __func__, val);
-	printk(KERN_ERR " %s INSIDE rhea_wifi_set_carddetect\n",__FUNCTION__);	
+	printk(KERN_ERR " %s INSIDE rhea_wifi_set_carddetect\n", __FUNCTION__);
 	rhea_wifi_cd = val;
 	if (wifi_status_cb) {
-		printk(KERN_ERR " %s CALLBACK NOT NULL\n",__FUNCTION__);	
+		printk(KERN_ERR " %s CALLBACK NOT NULL\n", __FUNCTION__);
 		wifi_status_cb(val, wifi_status_cb_devid);
-		printk(KERN_ERR " %s CALLBACK COMPLETE\n",__FUNCTION__);	
+		printk(KERN_ERR " %s CALLBACK COMPLETE\n", __FUNCTION__);
 	} else
 		pr_warning("%s: Nobody to notify\n", __func__);
 
@@ -258,34 +258,34 @@ static struct regulator_consumer_supply rhea_vmmc5_supply = {
 
 static struct regulator_init_data rhea_vmmc5 = {
 	.constraints = {
-		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
-	},
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+			},
 	.num_consumer_supplies = 1,
 	.consumer_supplies = &rhea_vmmc5_supply,
 };
 
 static struct fixed_voltage_config rhea_vwlan = {
 	.supply_name = "vwl1271",
-	.microvolts = 2000000, /* 2.0V */
+	.microvolts = 2000000,	/* 2.0V */
 	.gpio = GPIO_WLAN_PMENA,
-	.startup_delay = 70000, /* 70msec */
+	.startup_delay = 70000,	/* 70msec */
 	.enable_high = 1,
 	.enabled_at_boot = 0,
 	.init_data = &rhea_vmmc5,
 };
 
 static struct platform_device omap_vwlan_device = {
-	.name		= "reg-fixed-voltage",
-	.id		= 1,
+	.name = "reg-fixed-voltage",
+	.id = 1,
 	.dev = {
 		.platform_data = &rhea_vwlan,
-	},
+		},
 };
 #endif
 
 static int rhea_wifi_power(int on)
 {
-	printk(KERN_ERR " %s INSIDE rhea_wifi_power\n",__FUNCTION__);
+	printk(KERN_ERR " %s INSIDE rhea_wifi_power\n", __FUNCTION__);
 #if 0
 	if (!clk32kaudio_reg) {
 		clk32kaudio_reg = regulator_get(0, "clk32kaudio");
@@ -306,10 +306,13 @@ static int rhea_wifi_power(int on)
 	if (clk32kaudio_reg && !on && rhea_wifi_power_state)
 		regulator_disable(clk32kaudio_reg);
 #endif
-	bcm_sdiowl_init(on);
+	if (on)
+		bcm_sdiowl_init(on);
+	else
+		bcm_sdiowl_term();
 
 	rhea_wifi_power_state = on;
-	
+
 	return 0;
 }
 
@@ -318,16 +321,16 @@ static int rhea_wifi_reset_state;
 static int rhea_wifi_reset(int on)
 {
 	pr_debug("%s: do nothing\n", __func__);
-		printk(KERN_ERR " %s INSIDE rhea_wifi_reset\n",__FUNCTION__);
+	printk(KERN_ERR " %s INSIDE rhea_wifi_reset\n", __FUNCTION__);
 	rhea_wifi_reset_state = on;
 	return 0;
 }
 
-static unsigned char rhea_mac_addr[IFHWADDRLEN] = { 0,0x90,0x4c,0,0,0 };
+static unsigned char rhea_mac_addr[IFHWADDRLEN] = { 0, 0x90, 0x4c, 0, 0, 0 };
 
 static int __init rhea_mac_addr_setup(char *str)
 {
-	char macstr[IFHWADDRLEN*3];
+	char macstr[IFHWADDRLEN * 3];
 	char *macptr = macstr;
 	char *token;
 	int i = 0;
@@ -361,14 +364,14 @@ static int rhea_wifi_get_mac_addr(unsigned char *buf)
 //	int type = omap4_rhea_get_type();
 	uint rand_mac;
 
-//	if (type != RHEA_TYPE_TORO)
-//		return -EINVAL;
+//      if (type != RHEA_TYPE_TORO)
+//              return -EINVAL;
 
-//	if (!buf)
-//		return -EFAULT;
+//      if (!buf)
+//              return -EFAULT;
 
 	if ((rhea_mac_addr[4] == 0) && (rhea_mac_addr[5] == 0)) {
-		srandom32((uint)jiffies);
+		srandom32((uint) jiffies);
 		rand_mac = random32();
 		rhea_mac_addr[3] = (unsigned char)rand_mac;
 		rhea_mac_addr[4] = (unsigned char)(rand_mac >> 8);
@@ -383,15 +386,15 @@ static int rhea_wifi_get_mac_addr(unsigned char *buf)
 typedef struct cntry_locales_custom {
 	char iso_abbrev[WLC_CNTRY_BUF_SZ];
 	char custom_locale[WLC_CNTRY_BUF_SZ];
-	int  custom_locale_rev;
+	int custom_locale_rev;
 } cntry_locales_custom_t;
 
 static cntry_locales_custom_t rhea_wifi_translate_custom_table[] = {
 /* Table should be filled out based on custom platform regulatory requirement */
-	{"",   "XY", 4},  /* universal */
-	{"US", "US", 69}, /* input ISO "US" to : US regrev 69 */
-	{"CA", "US", 69}, /* input ISO "CA" to : US regrev 69 */
-	{"EU", "EU", 5},  /* European union countries */
+	{"", "XY", 4},		/* universal */
+	{"US", "US", 69},	/* input ISO "US" to : US regrev 69 */
+	{"CA", "US", 69},	/* input ISO "CA" to : US regrev 69 */
+	{"EU", "EU", 5},	/* European union countries */
 	{"AT", "EU", 5},
 	{"BE", "EU", 5},
 	{"BG", "EU", 5},
@@ -419,14 +422,14 @@ static cntry_locales_custom_t rhea_wifi_translate_custom_table[] = {
 	{"SI", "EU", 5},
 	{"ES", "EU", 5},
 	{"SE", "EU", 5},
-	{"GB", "EU", 5},  /* input ISO "GB" to : EU regrev 05 */
+	{"GB", "EU", 5},	/* input ISO "GB" to : EU regrev 05 */
 	{"IL", "IL", 0},
 	{"CH", "CH", 0},
 	{"TR", "TR", 0},
 	{"NO", "NO", 0},
 	{"KR", "XY", 3},
 	{"AU", "XY", 3},
-	{"CN", "XY", 3},  /* input ISO "CN" to : XY regrev 03 */
+	{"CN", "XY", 3},	/* input ISO "CN" to : XY regrev 03 */
 	{"TW", "XY", 3},
 	{"AR", "XY", 3},
 	{"MX", "XY", 3}
@@ -451,19 +454,20 @@ static void *rhea_wifi_get_country_code(char *ccode)
 static struct resource rhea_wifi_resources[] = {
 	[0] = {
 		.name		= "bcmdhd_wlan_irq",
-		.start		= gpio_to_irq(48),	//GPIO48
-		.end		= gpio_to_irq(48),	//GPIO48
+		.start		= gpio_to_irq(74),	//GPIO74
+		.end		= gpio_to_irq(74),	//GPIO74
+		.flags          = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWEDGE/* IORESOURCE_IRQ_HIGHLEVEL */| IORESOURCE_IRQ_SHAREABLE | IRQF_NO_SUSPEND,
 	},
 };
 //New chanege
 static struct wifi_platform_data rhea_wifi_control = {
-	.set_power      = rhea_wifi_power,
-	.set_reset      = rhea_wifi_reset,
+	.set_power = rhea_wifi_power,
+	.set_reset = rhea_wifi_reset,
 	.set_carddetect = rhea_wifi_set_carddetect,
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
-	.mem_prealloc	= rhea_wifi_mem_prealloc,
+	.mem_prealloc = rhea_wifi_mem_prealloc,
 #endif
-	.get_mac_addr	= rhea_wifi_get_mac_addr,
+	.get_mac_addr = rhea_wifi_get_mac_addr,
 	.get_country_code = rhea_wifi_get_country_code,
 };
 
@@ -471,35 +475,86 @@ static struct platform_device rhea_wifi_device = {
 	.name = "bcmdhd_wlan",
 	.id = 2,
 	.resource = rhea_wifi_resources,
-	.num_resources   = ARRAY_SIZE(rhea_wifi_resources),
-	.dev      = {
+	.num_resources = ARRAY_SIZE(rhea_wifi_resources),
+	.dev = {
 		.platform_data = &rhea_wifi_control,
-	},
+		},
 };
 
+#if 0
+static struct platform_device rhea_wifi_device = {
+	.name = "bcmdhd_wlan",
+	.id = 1,
+	.num_resources = ARRAY_SIZE(rhea_wifi_resources),
+	.resource = rhea_wifi_resources,
+	.dev = {
+		.platform_data = &rhea_wifi_control,
+		},
+};
+#endif
 
 /* Common devices among all the Rhea boards (Rhea Ray, Rhea Berri, etc.) */
 //static struct platform_device *board_sdio_plat_devices[] __initdata = {
-//	&rhea_wifi_device,
+//      &rhea_wifi_device,
 //};
 
 static void __init rhea_wlan_gpio(void)
 {
 	pr_debug("%s: start\n", __func__);
+#if 0
+	/* WLAN SDIO: MMC5 CMD */
+	omap_mux_init_signal("sdmmc5_cmd", OMAP_PIN_INPUT_PULLUP);
+	/* WLAN SDIO: MMC5 CLK */
+	omap_mux_init_signal("sdmmc5_clk", OMAP_PIN_INPUT_PULLUP);
+	/* WLAN SDIO: MMC5 DAT[0-3] */
+	omap_mux_init_signal("sdmmc5_dat0", OMAP_PIN_INPUT_PULLUP);
+	omap_mux_init_signal("sdmmc5_dat1", OMAP_PIN_INPUT_PULLUP);
+	omap_mux_init_signal("sdmmc5_dat2", OMAP_PIN_INPUT_PULLUP);
+	omap_mux_init_signal("sdmmc5_dat3", OMAP_PIN_INPUT_PULLUP);
+	/* WLAN OOB - BCM4330 - GPIO 16 or GPIO 2 */
+	omap_mux_init_signal("sim_reset.gpio_wk2", OMAP_PIN_INPUT);
+	omap_mux_init_signal("kpd_row1.safe_mode", 0);
+	/* WLAN PMENA - GPIO 104 */
+	omap_mux_init_signal("gpmc_ncs7.gpio_104", OMAP_PIN_OUTPUT);
+	/* Enable power to gpio_wk0-gpio_wk2 */
+	omap4_ctrl_wk_pad_writel(0xb0000000,
+				 OMAP4_CTRL_MODULE_PAD_WKUP_CONTROL_USIMIO);
+
+	/* gpio_enable(GPIO_WLAN_IRQ); */
+	gpio_request(GPIO_WLAN_IRQ, "wlan_irq");
+	gpio_direction_input(GPIO_WLAN_IRQ);
+#endif
+#if 1
+
+// Need to make decision shall we unlock the pad_ctrl and changes the values of pins ?
+
+//IMPORTANT
+
+//      PIN_CFG(MMC1DAT0, MMC1DAT0, 0, OFF, ON, 0, 0, 16MA);
+//      PIN_CFG(MMC1DAT1, MMC1DAT1, 0, OFF, ON, 0, 0, 16MA);
+//      PIN_CFG(MMC1DAT2, MMC1DAT2, 0, OFF, ON, 0, 0, 16MA);
+//      PIN_CFG(MMC1DAT3, MMC1DAT3, 0, OFF, ON, 0, 0, 16MA);
+
+//      PIN_CFG(MMC1CK, MMC1CK, 0, OFF, ON, 0, 0, 16MA);
+//      PIN_CFG(MMC1CMD, MMC1CMD, 0, OFF, ON, 0, 0, 16MA);
+//      PIN_CFG(MMC1RST, GPIO70, 0, OFF, ON, 0, 0, 16MA);
+
+#endif
+
 }
 
 int __init rhea_wlan_init(void)
 {
 	pr_debug("%s: start\n", __func__);
-	printk(KERN_ERR " %s Calling GPIO INIT!\n",__FUNCTION__);
+	printk(KERN_ERR " %s Calling GPIO INIT!\n", __FUNCTION__);
 
-//	rhea_wlan_gpio();
-//	printk(KERN_ERR " %s Calling GPIO INIT DONE !\n",__FUNCTION__);
+	rhea_wlan_gpio();
+	printk(KERN_ERR " %s Calling GPIO INIT DONE !\n", __FUNCTION__);
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
 	rhea_init_wifi_mem();
 #endif
-	printk(KERN_ERR " %s Calling MEM INIT DONE !\n",__FUNCTION__);	
-	
+	printk(KERN_ERR " %s Calling MEM INIT DONE !\n", __FUNCTION__);
+
 	return platform_device_register(&rhea_wifi_device);
 
 }

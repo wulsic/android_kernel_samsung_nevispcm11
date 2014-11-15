@@ -9,28 +9,7 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
-
-/*******************************************************************************************
-Copyright 2010 Broadcom Corporation.  All rights reserved.
-
-Unless you and Broadcom execute a separate written software license agreement governing use 
-of this software, this software is licensed to you under the terms of the GNU General Public 
-License version 2, available at http://www.gnu.org/copyleft/gpl.html (the "GPL"). 
-
-Notwithstanding the above, under no circumstances may you combine this software in any way 
-with any other Broadcom software provided under a license other than the GPL, without 
-Broadcom's express prior written consent.
-*******************************************************************************************/
 
 /* #define VERBOSE_DEBUG */
 
@@ -97,18 +76,22 @@ struct eth_dev {
 	struct work_struct	work;
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
 	struct workqueue_struct *rx_workqueue;
+	unsigned char			*skb_data;
 #endif
 	unsigned long		todo;
 #define	WORK_RX_MEMORY		0
 #define	WORK_BRCM_NETCONSOLE_ON		1
 #define	WORK_BRCM_NETCONSOLE_OFF	2
-
+#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
+#define	WORK_ALLOC_RX_SKB			4
+#endif
 	bool			zlp;
 	u8			host_mac[ETH_ALEN];
 };
 
+static struct eth_dev *the_dev;
+
 #ifdef CONFIG_BRCM_NETCONSOLE
-#define MAX_RETRY_NO	1000
 
 static DEFINE_MUTEX(cleanup_netpoll_mutex);
 
@@ -122,19 +105,44 @@ void cleanup_netpoll_unlock(void)
 	if (mutex_is_locked(&cleanup_netpoll_mutex))
 		mutex_unlock(&cleanup_netpoll_mutex);
 }
-
-extern void brcm_current_netcon_status(unsigned char status);
-extern unsigned char brcm_get_netcon_status(void);
 #endif
 
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
 #define	MAX_RX_SKB_SIZE			2048
-#define	UETH_RX_SKB_THRESHOLD	40
+#define	UETH_RX_SKB_THRESHOLD	192
+#define	UETH_RX_SKB_THRESH_NCM	48
 static struct sk_buff_head skb_rx_pool;
-atomic_t ueth_rx_skb_ref_count = ATOMIC_INIT(0);
-static int	rx_skb_limit_no;
-static bool is_rx_threshold_mode;
-EXPORT_SYMBOL_GPL(ueth_rx_skb_ref_count);
+static int	rx_skb_q_no;
+static bool is_rx_prealloc_mode;
+static unsigned short max_skb_buf_sz, max_skb_buf_no;
+
+/**
+ * static void prealloc_rx_skbs(void) - the function is to alloc skb
+ * if pre-allocated memory was able to reach the max_skb_buf_no.
+ *
+ */
+static void alloc_rx_skb(void)
+{
+	struct sk_buff *skb;
+	unsigned long flags;
+
+	pr_debug("alloc_rx_skbs");
+	spin_lock_irqsave(&skb_rx_pool.lock, flags);
+	if (rx_skb_q_no < max_skb_buf_no) {
+		skb = alloc_skb(max_skb_buf_sz, GFP_ATOMIC);
+		if (!skb) {
+			spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
+			return;
+		} else {
+			rx_skb_q_no++;
+			pr_debug("TX_SKB NO:%d\n", skb_rx_pool.qlen);
+			skb->signature = SKB_UETH_RX_THRESHOLD_SIG;
+			__skb_queue_tail(&skb_rx_pool, skb);
+		}
+	}
+	spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
+}
+
 
 /**
  * static void refill_rx_skbs(struct sk_buff *skb) - put the skb buf back to queue to reuse
@@ -142,38 +150,38 @@ EXPORT_SYMBOL_GPL(ueth_rx_skb_ref_count);
  */
 static void refill_rx_skbs(struct sk_buff *skb)
 {
-       unsigned long flags;
+	unsigned long flags;
 
-       spin_lock_irqsave(&skb_rx_pool.lock, flags);
-
-               if (skb) {
-			__skb_queue_tail(&skb_rx_pool, skb);
-			/* pr_info("@%d", skb_rx_pool.qlen); */
-		} else pr_info("Can not refill the skb buffer....\n");
-               /* pr_info("@%d",skb_pool.qlen); */
-       spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
+	spin_lock_irqsave(&skb_rx_pool.lock, flags);
+	if (skb) {
+		skb->signature = SKB_UETH_RX_THRESHOLD_SIG;
+		__skb_queue_tail(&skb_rx_pool, skb);
+		/* pr_info("@%d", skb_rx_pool.qlen); */
+	} else {
+		pr_warn("Can not refill the skb buffer....\n");
+	}
+	/* pr_info("@%d",skb_pool.qlen); */
+	spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
 }
 
-/**
- * void ueth_recycle_rx_skbs(struct sk_buff *skb) - recycle the skb buf for
- * rx_submit and skb_clone.
- *
- */
-
-void ueth_recycle_rx_skbs(struct sk_buff *skb)
-{
-	pr_debug("ueth_recycle_rx_skbs");
-       refill_rx_skbs(skb);
-}
+static void defer_kevent(struct eth_dev *dev, int flag);
 
 /**
- * unsigned short netpoll_skb_size(void) - the whole skb size for
- * rx_submit and skb_clone.
+ * void ueth_recycle_rx_skbs_data - recycle the skb buffer with
+ * the new skb header.
  *
  */
-unsigned short ueth_rx_skb_size(void)
+void ueth_recycle_rx_skb_data(unsigned char *skb_data, gfp_t gfp_flags)
 {
-       return  MAX_RX_SKB_SIZE;
+	struct sk_buff *skb;
+
+	skb = alloc_skb_uether_rx(max_skb_buf_sz, skb_data, gfp_flags);
+	if (!skb) {
+		pr_warn("retry: alloc ueth rx skb\n");
+		the_dev->skb_data = skb_data;
+		defer_kevent(the_dev, WORK_ALLOC_RX_SKB);
+	} else
+		refill_rx_skbs(skb);
 }
 
 /**
@@ -199,27 +207,29 @@ static void ueth_rx_skb_queue_purge(struct sk_buff_head *list)
  */
 static void prealloc_rx_skbs(void)
 {
-       struct sk_buff *skb;
-       unsigned long flags;
+	struct sk_buff *skb;
+	unsigned long flags;
 
 	pr_info("prealloc_rx_skbs");
-	rx_skb_limit_no = 0;
-	is_rx_threshold_mode =  true;
-	atomic_set(&ueth_rx_skb_ref_count, 0);
+	rx_skb_q_no = 0;
+	is_rx_prealloc_mode =  true;
+
 	skb_queue_head_init(&skb_rx_pool);
-       spin_lock_irqsave(&skb_rx_pool.lock, flags);
-	while (skb_rx_pool.qlen < UETH_RX_SKB_THRESHOLD) {
-		skb = alloc_skb(MAX_RX_SKB_SIZE, GFP_ATOMIC);
-               if (!skb) {
-				spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
-				return;
+	spin_lock_irqsave(&skb_rx_pool.lock, flags);
+	while (skb_rx_pool.qlen < max_skb_buf_no) {
+		skb = alloc_skb(max_skb_buf_sz, GFP_ATOMIC);
+		if (!skb) {
+			rx_skb_q_no = skb_rx_pool.qlen;
+			spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
+			return;
 		} else {
+			rx_skb_q_no++;
 			pr_debug("TX_SKB NO:%d\n", skb_rx_pool.qlen);
 			skb->signature = SKB_UETH_RX_THRESHOLD_SIG;
 			__skb_queue_tail(&skb_rx_pool, skb);
 		}
 	}
-       spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
+	spin_unlock_irqrestore(&skb_rx_pool.lock, flags);
 }
 #endif
 
@@ -234,16 +244,17 @@ static void prealloc_rx_skbs(void)
 
 static unsigned qmult = 5;
 module_param(qmult, uint, S_IRUGO|S_IWUSR);
-MODULE_PARM_DESC(qmult, "queue length multiplier at high speed");
+MODULE_PARM_DESC(qmult, "queue length multiplier at high/super speed");
 
 #else	/* full speed (low speed doesn't do bulk) */
 #define qmult		1
 #endif
 
-/* for dual-speed hardware, use deeper queues at highspeed */
+/* for dual-speed hardware, use deeper queues at high/super speed */
 static inline int qlen(struct usb_gadget *gadget)
 {
-	if (gadget_is_dualspeed(gadget) && gadget->speed == USB_SPEED_HIGH)
+	if (gadget_is_dualspeed(gadget) && (gadget->speed == USB_SPEED_HIGH ||
+					    gadget->speed == USB_SPEED_SUPER))
 		return qmult * DEFAULT_QLEN;
 	else
 		return DEFAULT_QLEN;
@@ -339,30 +350,29 @@ static void defer_kevent(struct eth_dev *dev, int flag)
 	spin_unlock_irqrestore(&dev->req_rx_lock, flags);
 
 
-	if (testwkbit) return;
+	if (testwkbit)
+		return;
 
-	if (dev->rx_workqueue){
-
+	if (dev->rx_workqueue) {
 		if (!queue_work(dev->rx_workqueue, &dev->work))
 			ERROR(dev, "kevent %d may have been dropped\n", flag);
 		else
 			DBG(dev, "kevent %d scheduled\n", flag);
-	}
-	else
-	{
+	} else {
 		if (!schedule_work(&dev->work))
 			ERROR(dev, "kevent %d may have been dropped\n", flag);
 		else
 			DBG(dev, "kevent %d scheduled\n", flag);
 	}
 	return;
-#endif
+#else
 	if (test_and_set_bit(flag, &dev->todo))
 		return;
 	if (!schedule_work(&dev->work))
 		ERROR(dev, "kevent %d may have been dropped\n", flag);
 	else
 		DBG(dev, "kevent %d scheduled\n", flag);
+#endif		
 }
 
 static void rx_complete(struct usb_ep *ep, struct usb_request *req);
@@ -399,64 +409,36 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
 	 * means receivers can't recover lost synch on their own (because
 	 * new packets don't only start after a short RX).
 	 */
-#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-	if (is_rx_threshold_mode) {
-#endif
 		size += sizeof(struct ethhdr) + dev->net->mtu + RX_EXTRA;
 		size += dev->port_usb->header_len;
 		size += out->maxpacket - 1;
 		size -= size % out->maxpacket;
 
 		if (dev->port_usb->is_fixed)
-			size = max_t(size_t, size, dev->port_usb->fixed_out_len);
+			size = max_t(size_t, size,
+				dev->port_usb->fixed_out_len);
 
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-		/* When uppler level network drivers can not handle the skbs fast enough so that
-		skbs can not be released by them and ueth_rx_skb_ref_count will be increased and then
-		ueth_rx_skb_ref_count will be larger than UETH_RX_SKB_THRESHOLD eventually.
-		In this case, we stop to allocate new skb because of the limited memory pool and
-		wait for the skbs to be released by upper level network drivers to be available to
-		allocate the new skbs. */
-		if ((atomic_read(&ueth_rx_skb_ref_count) + rx_skb_limit_no)
-						> UETH_RX_SKB_THRESHOLD) {
-			skb = NULL;
-			pr_debug("ueth_rx_skb_ref_count = %d, rx_skb_limit_no=%d\n",
-			atomic_read(&ueth_rx_skb_ref_count), rx_skb_limit_no);
+	if (is_rx_prealloc_mode) {
+		if (size > max_skb_buf_sz) {
+			pr_info("skb data size = %d\n", size);
+			skb = alloc_skb(size + NET_IP_ALIGN, gfp_flags);
+		} else
+			skb = skb_dequeue(&skb_rx_pool);
+
+		if (!skb) {
+			alloc_rx_skb();
+			pr_debug("No RX SKB...\n");
 			goto enomem;
-		} else {
-			bool recycle_skb = false;
-			while (!recycle_skb) {
-				skb = skb_dequeue(&skb_rx_pool);
-				if (!skb)
-					break;
-				recycle_skb = skb_recycle_check(skb,
-						MAX_RX_SKB_SIZE - NET_SKB_PAD);
-				if (!recycle_skb) {
-					pr_debug("skb cannot be reused...");
-					dev_kfree_skb_any(skb);
-				}
-			}
-			if (!skb)
+		}
+	} else {
 #endif
 				skb = alloc_skb(size + NET_IP_ALIGN, gfp_flags);
 			if (skb == NULL) {
 				DBG(dev, "no rx skb\n");
-#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-				rx_skb_limit_no = UETH_RX_SKB_THRESHOLD/2;
-#endif
-				goto enomem;
-			}
-#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-			else {
-				if (rx_skb_limit_no)
-					rx_skb_limit_no--;
-			}
-
-			skb->signature = SKB_UETH_RX_THRESHOLD_SIG;
-			atomic_inc(&ueth_rx_skb_ref_count);
-			/* pr_info("++: ueth_rx_skb_ref_count = %d\n", a
-			tomic_read(&ueth_rx_skb_ref_count)); */
+			goto enomem;
 		}
+#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
 	}
 #endif
 
@@ -467,14 +449,7 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
 	skb_reserve(skb, NET_IP_ALIGN);
 
 	req->buf = skb->data;
-#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-	if (is_rx_threshold_mode)
-#endif
-		req->length = size;
-#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-	else
-		req->length = MAX_RX_SKB_SIZE;
-#endif
+	req->length = size;
 	req->complete = rx_complete;
 	req->context = skb;
 	req->dma = 0;
@@ -685,8 +660,8 @@ static void eth_work(struct work_struct *work)
 	struct eth_dev	*dev = container_of(work, struct eth_dev, work);
 
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-	int 				testwkbit;
-	unsigned long		flags;
+	int			testwkbit;
+	unsigned long	flags;
 
 	spin_lock_irqsave(&dev->req_rx_lock, flags);
 	testwkbit = test_and_clear_bit(WORK_RX_MEMORY, &dev->todo);
@@ -701,45 +676,49 @@ static void eth_work(struct work_struct *work)
 				cleanup_netpoll_lock();
 				brcm_current_netcon_status(USB_RNDIS_ON);
 				cleanup_netpoll_unlock();
-	}
-	else if (test_and_clear_bit(WORK_BRCM_NETCONSOLE_OFF, &dev->todo)) {
+	} else if (test_and_clear_bit(WORK_BRCM_NETCONSOLE_OFF, &dev->todo)) {
 				cleanup_netpoll_lock();
 				brcm_current_netcon_status(USB_RNDIS_OFF);
 				cleanup_netpoll_unlock();
 	}
+	if (test_and_clear_bit(WORK_ALLOC_RX_SKB, &dev->todo))
+		ueth_recycle_rx_skb_data(dev->skb_data, GFP_KERNEL);
 #endif
 
 	if (dev->todo)
 		DBG(dev, "work done, flags = 0x%lx\n", dev->todo);
 	return;
-#endif /* CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION */
+
+#else /* CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION */
 
 	if (test_and_clear_bit(WORK_RX_MEMORY, &dev->todo)) {
 		if (netif_running(dev->net))
-                        rx_fill(dev, GFP_KERNEL);
-        }
+			rx_fill(dev, GFP_KERNEL);
+	}
 #ifdef CONFIG_BRCM_NETCONSOLE
 	else if (test_and_clear_bit(WORK_BRCM_NETCONSOLE_ON, &dev->todo)) {
-				cleanup_netpoll_lock();
-				brcm_current_netcon_status(USB_RNDIS_ON);
-				cleanup_netpoll_unlock();
-	}
-	else if (test_and_clear_bit(WORK_BRCM_NETCONSOLE_OFF, &dev->todo)) {
-				cleanup_netpoll_lock();
-				brcm_current_netcon_status(USB_RNDIS_OFF);
-				cleanup_netpoll_unlock();
+		cleanup_netpoll_lock();
+		brcm_current_netcon_status(USB_RNDIS_ON);
+		cleanup_netpoll_unlock();
+	} else if (test_and_clear_bit(WORK_BRCM_NETCONSOLE_OFF, &dev->todo)) {
+		cleanup_netpoll_lock();
+		brcm_current_netcon_status(USB_RNDIS_OFF);
+		cleanup_netpoll_unlock();
 	}
 #endif
 
 	if (dev->todo)
 		DBG(dev, "work done, flags = 0x%lx\n", dev->todo);
+
+#endif /* CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION */
+
 }
 
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void eth_poll_controller(struct net_device *dev)
 {
-  return; //do not thing....
+	return; /* do not thing.... */
 }
 #endif
 
@@ -897,9 +876,10 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 	req->length = length;
 
-	/* throttle highspeed IRQ rate back slightly */
+	/* throttle high/super speed IRQ rate back slightly */
 	if (gadget_is_dualspeed(dev->gadget))
-		req->no_interrupt = (dev->gadget->speed == USB_SPEED_HIGH)
+		req->no_interrupt = (dev->gadget->speed == USB_SPEED_HIGH ||
+				     dev->gadget->speed == USB_SPEED_SUPER)
 			? ((atomic_read(&dev->tx_qlen) % qmult) != 0)
 			: 0;
 
@@ -1005,8 +985,8 @@ static int eth_stop(struct net_device *net)
 		usb_ep_disable(link->out_ep);
 		if (netif_carrier_ok(net)) {
 			DBG(dev, "host still using in/out endpoints\n");
-			usb_ep_enable(link->in_ep, link->in);
-			usb_ep_enable(link->out_ep, link->out);
+			usb_ep_enable(link->in_ep);
+			usb_ep_enable(link->out_ep);
 		}
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
@@ -1026,7 +1006,7 @@ static char *host_addr;
 module_param(host_addr, charp, S_IRUGO);
 MODULE_PARM_DESC(host_addr, "Host Ethernet Address");
 
-#if 1 // See gether_setup
+#if 0 /* See gether_setup */
 static int get_ether_addr(const char *str, u8 *dev_addr)
 {
 	if (str) {
@@ -1039,7 +1019,7 @@ static int get_ether_addr(const char *str, u8 *dev_addr)
 				str++;
 			num = hex_to_bin(*str++) << 4;
 			num |= hex_to_bin(*str++);
-			dev_addr [i] = num;
+			dev_addr[i] = num;
 		}
 		if (is_valid_ether_addr(dev_addr))
 			return 0;
@@ -1056,7 +1036,7 @@ static const struct net_device_ops eth_netdev_ops = {
 	.ndo_stop		= eth_stop,
 	.ndo_start_xmit		= eth_start_xmit,
 	.ndo_change_mtu		= ueth_change_mtu,
-	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller = eth_poll_controller,
@@ -1124,24 +1104,15 @@ int gether_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
 	spin_lock_init(&dev->req_rx_lock);
 	dev->rx_workqueue = create_workqueue("rx_ether_queue");
-	if (dev->rx_workqueue == NULL) {
-			DBG(dev, "kevent %d rx_ether_queue creation fail once \n",flag);
-	}
+	if (dev->rx_workqueue == NULL)
+		pr_err("rx_ether_queue creation fail once\n");
 #endif
 
 	/* network device setup */
 	dev->net = net;
 	snprintf(net->name, sizeof(net->name), "%s%%d", netname);
 
-#ifdef CONFIG_USB_G_ANDROID_SAMSUNG_COMPOSITE
-	if (get_ether_addr(dev_addr, net->dev_addr))
-		dev_warn(&g->dev, 
-			"using random %s ethernet address\n", "self");
-
-	memcpy(dev->host_mac, ethaddr, ETH_ALEN);
-	printk(KERN_DEBUG "usb: set unique host mac\n");
-#else
-#if 0 //We use the fixed host MAC address for USB logging.
+#if 0 /* We use the fixed host MAC address for USB logging. */
 	if (get_ether_addr(dev_addr, net->dev_addr))
 		dev_warn(&g->dev,
 			"using random %s ethernet address\n", "self");
@@ -1151,24 +1122,23 @@ int gether_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 #else
 	dev_warn(&g->dev,
 			"using fixed %s ethernet address\n", "self");
-	net->dev_addr [0] = 0x22;
-	net->dev_addr [1] = 0x33;
-	net->dev_addr [2] = 0x44;
-	net->dev_addr [3] = 0x55;
-	net->dev_addr [4] = 0x66;
-	net->dev_addr [5] = 0x77;
+	net->dev_addr[0] = 0x22;
+	net->dev_addr[1] = 0x33;
+	net->dev_addr[2] = 0x44;
+	net->dev_addr[3] = 0x55;
+	net->dev_addr[4] = 0x66;
+	net->dev_addr[5] = 0x77;
 	dev_warn(&g->dev,
 			"using fixed %s ethernet address\n", "host");
-	dev->host_mac [0] = 0xaa;
-	dev->host_mac [1] = 0xbb;
-	dev->host_mac [2] = 0xcc;
-	dev->host_mac [3] = 0xdd;
-	dev->host_mac [4] = 0xee;
-	dev->host_mac [5] = 0xff;
+	dev->host_mac[0] = 0xaa;
+	dev->host_mac[1] = 0xbb;
+	dev->host_mac[2] = 0xcc;
+	dev->host_mac[3] = 0xdd;
+	dev->host_mac[4] = 0xee;
+	dev->host_mac[5] = 0xff;
 #endif
 	if (ethaddr)
 		memcpy(ethaddr, dev->host_mac, ETH_ALEN);
-#endif
 
 	net->netdev_ops = &eth_netdev_ops;
 
@@ -1249,7 +1219,7 @@ struct net_device *gether_connect(struct gether *link)
 		return ERR_PTR(-EINVAL);
 
 	link->in_ep->driver_data = dev;
-	result = usb_ep_enable(link->in_ep, link->in);
+	result = usb_ep_enable(link->in_ep);
 	if (result != 0) {
 		DBG(dev, "enable %s --> %d\n",
 			link->in_ep->name, result);
@@ -1257,7 +1227,7 @@ struct net_device *gether_connect(struct gether *link)
 	}
 
 	link->out_ep->driver_data = dev;
-	result = usb_ep_enable(link->out_ep, link->out);
+	result = usb_ep_enable(link->out_ep);
 	if (result != 0) {
 		DBG(dev, "enable %s --> %d\n",
 			link->out_ep->name, result);
@@ -1269,7 +1239,14 @@ struct net_device *gether_connect(struct gether *link)
 
 	if (result == 0) {
 #ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
-		pr_info("USB Ether: It is in SKB threshold mode!\n");
+		if (link->is_fixed) { /* NCM */
+			max_skb_buf_no = UETH_RX_SKB_THRESH_NCM;
+			max_skb_buf_sz = link->fixed_out_len;
+		} else {
+			max_skb_buf_no = UETH_RX_SKB_THRESHOLD;
+			max_skb_buf_sz = MAX_RX_SKB_SIZE;
+		}
+		pr_info("USB Ether: It is in SKB prealloc mode!\n");
 		prealloc_rx_skbs();
 #endif
 		dev->zlp = link->is_zlp_ok;
@@ -1292,9 +1269,8 @@ struct net_device *gether_connect(struct gether *link)
 		spin_unlock(&dev->lock);
 
 		netif_carrier_on(dev->net);
-		if (netif_running(dev->net)){
+		if (netif_running(dev->net))
 			eth_start(dev, GFP_ATOMIC);
-		} 
 
 	/* on error, disable any endpoints  */
 	} else {
@@ -1326,6 +1302,7 @@ void gether_disconnect(struct gether *link)
 	struct eth_dev		*dev = link->ioport;
 	struct usb_request	*req;
 
+	WARN_ON(!dev);
 	if (!dev)
 		return;
 
@@ -1356,7 +1333,7 @@ void gether_disconnect(struct gether *link)
 	}
 	spin_unlock(&dev->req_lock);
 	link->in_ep->driver_data = NULL;
-	link->in = NULL;
+	link->in_ep->desc = NULL;
 
 	usb_ep_disable(link->out_ep);
 	spin_lock(&dev->req_lock);
@@ -1371,7 +1348,7 @@ void gether_disconnect(struct gether *link)
 	}
 	spin_unlock(&dev->req_lock);
 	link->out_ep->driver_data = NULL;
-	link->out = NULL;
+	link->out_ep->desc = NULL;
 
 	/* finish forgetting about this USB link episode */
 	dev->header_len = 0;

@@ -43,7 +43,6 @@ static struct __init pin_config board_pin_config[] = {
 //	PIN_CFG(UBRX, UB1_IF_UART_RX, 0, OFF, ON, 0, 0, 8MA),		// UB1_IF_UART_RX
 //	PIN_CFG(UBTX, UB1_IF_UART_TX, 0, OFF, ON, 0, 0, 8MA),		// UB1_IF_UART_TX
 //	PIN_CFG(ADCSYN, GPEN09, 0, OFF, ON, 0, 0, 8MA),			// ADCSYNC_PMU
-	PIN_CFG(ICUSBDM, GPIO122, 0, ON, OFF, 0, 0, 8MA),		// UART_SEL
 
 	/*
 	 * Note:- For eMMC, Enable Slew-rate, Increase pin drive strength to 10mA.
@@ -76,13 +75,8 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(SDDAT0, SDDAT0, 0, OFF, ON, 0, 0, 8MA),
 	PIN_CFG(DMIC0CLK, GPIO123, 0, OFF, ON, 0, 0, 16MA),		//SD_DECTECT
 
-	/*	Pinmux for keypad */
-	PIN_CFG(GPIO04, KEY_R4, 0, ON, OFF, 0, 0, 8MA),
-	PIN_CFG(GPIO05, KEY_R5, 0, ON, OFF, 0, 0, 8MA),
-	PIN_CFG(GPIO12, KEY_C4, 0, OFF, ON, 0, 0, 8MA),
 
-
-	/* LCD */
+	
 	PIN_CFG(GPIO22, GPIO22, 0, ON, OFF, 0, 0, 8MA), 			// TOUCH_EN
 
 	/* STM trace - PTI */
@@ -127,11 +121,13 @@ static struct __init pin_config board_pin_config[] = {
 
 	// for GPS
 	PIN_CFG(GPIO28, GPIO28, 0, OFF, ON, 0, 0, 8MA), 			// GPS_EN
-	PIN_CFG(DMIC0DQ, GPIO124, 0, OFF, ON, 0, 0, 8MA), 			// GPS_HOST_WAKE
+	PIN_CFG(DMIC0DQ, GPIO124, 0, ON, OFF, 0, 0, 8MA), 			// GPS_HOST_REQ
 	/* GPS - BSC2 */
-	PIN_BSC_CFG(GPIO16, BSC2CLK, 0x120), 						// GPS_SCL
-	PIN_BSC_CFG(GPIO17, BSC2DAT, 0x120), 						// GPS_SDA
+	PIN_BSC_CFG(GPIO16, BSC2CLK, 0x20), 						// GPS_SCL
+	PIN_BSC_CFG(GPIO17, BSC2DAT, 0x20), 						// GPS_SDA
 	PIN_CFG(GPS_PABLANK, GPIO97, 0, ON, OFF, 0, 0, 8MA), 		// GPS_CAL_REQ
+	PIN_CFG(GPS_TMARK, GPEN10, 0, ON, OFF, 0, 0, 8MA),			// GPS_SYNC
+
 
 	/* WLAN */
 	PIN_CFG(MMC1DAT0, MMC1DAT0, 0, OFF, ON, 0, 0, 8MA),		// WLAN_SDIO_DAT0
@@ -144,24 +140,13 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(GPIO07, GPIO7, 0, ON, OFF, 0, 0, 8MA),			// WLAN_HOST_WAKE
 	PIN_CFG(CAMCS1, ANA_SYS_REQ2, 0, ON, OFF, 0, 0, 8MA), 		// WLAN_CLK_REQ
 		
-	PIN_CFG(SPI0TXD, GPIO91, 0, OFF, OFF, 0, 0, 8MA), // KEY Expander INT
-	PIN_CFG(GPIO33, GPIO33, 0, OFF, OFF, 0, 0, 8MA), 			/* KEYEXPANDER_SCL*/	
-	PIN_CFG(GPIO34, GPIO34, 0, OFF, OFF, 0, 0, 8MA), 			/* KEYEXPANDER_SDA*/	
-		
-	/* NFC */
-/*
+
+
 	PIN_CFG(SIMDET, GPIO56, 0, OFF, ON, 0, 0, 8MA), 			// NFC_SDA 
 	PIN_CFG(GPS_CALREQ, GPIO99, 0, OFF, ON, 0, 0, 8MA), 		// NFC_WAKE 
-*/
+
 	/* Headset */
 	PIN_CFG(STAT1, GPIO31, 0, OFF, ON, 0, 0, 4MA),				//	EAR_3.5_DETECT	
-
-	/* Sensor(Acceleromter,Magnetic,Proximity) */
-	PIN_CFG(GPIO15, GPIO15, 0, OFF, OFF, 0, 0, 8MA), 			/* SENSOR_SDA*/
-	PIN_CFG(GPIO32, GPIO32, 0, OFF, OFF, 0, 0, 8MA), 			/* SENSOR_SCL*/	
-	PIN_CFG(SPI0RXD, GPIO92, 0, OFF, ON, 0, 0, 8MA), 			/* PROXI_INT*/
-
-
 
 	/* SIMCARD */
 	PIN_CFG(SIMRST, SIMRST, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_RST
@@ -169,10 +154,11 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(SIMCLK, SIMCLK, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_CLK
 	
 
-//@HW LCD part configuration
-	PIN_CFG(LCDCS0, LCDSCS0, 0, ON, OFF, 0, 0, 8MA),            //  LCD_CS
+
+	
+	PIN_CFG(LCDCS0, LCDCS2, 0, OFF, ON, 0, 0, 8MA),            //  LCD_CS
 	PIN_CFG(LCDSCL, LCDCD,  0, OFF, ON, 0, 0, 8MA),			//	LCD_RS
-	PIN_CFG(LCDSDA, LCDD0,	0, ON, OFF,  0, 0, 8MA),			//  LCD_D0	
+	PIN_CFG(LCDSDA, LCDD0,	0, OFF, ON,  0, 0, 8MA),			//  LCD_D0	
 	
 	PIN_CFG(GPIO19, LCDWE,  0, OFF, ON,  0, 0, 8MA),			//	LCD_WR
 	PIN_CFG(GPIO20, LCDRE,  0, OFF, ON,  0, 0, 8MA),			//	LCD_RD
@@ -183,18 +169,18 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(GPIO25, LCDD3,  0, OFF, ON,  0, 0, 8MA),			//	LCD_D3
 	PIN_CFG(GPIO26, LCDD2,  0, OFF, ON,  0, 0, 8MA),			//	LCD_D2
 	PIN_CFG(GPIO27, LCDD1,  0, OFF, ON,  0, 0, 8MA),			//	LCD_D1
-	PIN_CFG(GPIO00, LCDD15, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO01, LCDD14, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO02, LCDD13, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO03, LCDD12, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO08, LCDD11, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO09, LCDD10, 0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO10, LCDD9,	0, ON, OFF,  0, 0, 8MA),
-	PIN_CFG(GPIO11, LCDD8,	0, ON, OFF,  0, 0, 8MA),
+	PIN_CFG(GPIO00, LCDD15, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO01, LCDD14, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO02, LCDD13, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO03, LCDD12, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO08, LCDD11, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO09, LCDD10, 0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO10, LCDD9,	0, OFF, ON,  0, 0, 8MA),
+	PIN_CFG(GPIO11, LCDD8,	0, OFF, ON,  0, 0, 8MA),
 
 	PIN_CFG(DCLK4,  GPIO95, 0, OFF, OFF, 0, 0, 8MA),				// LCD_BL_EN
 	PIN_CFG(LCDRES, GPIO41, 0, OFF, OFF, 0, 0, 8MA), 			//	LCD_RST
-	PIN_CFG(LCDTE,  LCDTE,  0, OFF, ON,  0, 0, 8MA), 			//	LCD_FLM
+	PIN_CFG(DSI0TE, DSI0TE,  0, OFF, ON,  0, 0, 8MA), 			//	LCD_FLM
 
 		/* Touch */	
 	PIN_CFG(SSPSYN, GPIO85, 0, OFF, OFF, 0, 0, 16MA), 			/* TSP_SDA*/

@@ -102,9 +102,6 @@ extern "C" {
 #define CDBG_INFO       3
 #define CDBG_INFO2      4
 
-
-#define CHAL_NDEBUG_BUILD
-
 #ifndef CHAL_NDEBUG_BUILD
 
 	extern void dprintf_impl(const cUInt32 level, cInt8 * fmt, ...);

@@ -173,21 +173,11 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(GPS_CALREQ, GPIO99, 0, OFF, ON, 0, 0, 8MA),
 
 	/* Bluetooth related GPIOS */
-#ifdef CONFIG_MACH_RHEA_SS
 	PIN_CFG(SPI0RXD, GPIO92, 0, OFF, ON, 0, 0, 8MA),      // BT_WAKE
 	PIN_CFG(SPI0TXD, GPIO91, 0, OFF, ON, 0, 0, 8MA),      // BT_HOST_WAKE
 	PIN_CFG(SPI0CLK, GPIO90, 0, OFF, ON, 0, 0, 8MA),      // BT_RESETN
-#elif CONFIG_MACH_RHEA_AMAZING_SS
-	PIN_CFG(LCDSCL, GPIO39, 0, OFF, ON, 0, 0, 8MA),      			// BT_WAKE			
-	PIN_CFG(LCDSDA, GPIO40, 0, OFF, ON, 0, 0, 8MA),      		// BT_RESETN		
-	PIN_CFG(UBRTSN, GPIO47, 0, OFF, ON, 0, 0, 8MA), 			// BT_HOST_WAKE 
-#elif CONFIG_MACH_RHEA_LUCAS_SS
-	PIN_CFG(LCDSCL, GPIO39, 0, OFF, ON, 0, 0, 8MA),      			// BT_WAKE			/* [H.S Yeom120108]  base version of Lucas model */
-	PIN_CFG(LCDSDA, GPIO40, 0, OFF, ON, 0, 0, 8MA),      		// BT_RESETN		/* [H.S Yeom120108]  base version of Lucas model */
-	PIN_CFG(UBRTSN, GPIO47, 0, OFF, ON, 0, 0, 8MA), 			// BT_HOST_WAKE 	/* [H.S Yeom120108]  base version of Lucas model */
-#endif
 	PIN_CFG(GPS_HOSTREQ, GPIO100, 0, OFF, ON, 0, 0, 8MA), // BT_REG_ON	
-	PIN_CFG(GPIO10, GPIO10, 0, OFF, ON, 0, 0, 8MA),       // BT_SEC
+//	PIN_CFG(GPIO10, GPIO10, 0, OFF, ON, 0, 0, 8MA),       // BT_SEC
 
 	// for GPS
 	PIN_CFG(GPIO28, GPIO28, 0, OFF, ON, 0, 0, 8MA),   // GPS_EN

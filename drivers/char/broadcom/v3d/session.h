@@ -33,13 +33,14 @@ struct v3d_session_tag {
 	unsigned int initialised;
 
 	struct v3d_driver_tag *driver;
-	const char            *name;
+	const char          *name;
 
-	int32_t last_id;
+	int32_t        last_id;
 
 	struct {
 		/* All jobs issued but not yet completed, in posted order */
 		struct list_head list;
+		spinlock_t       lock;
 	} issued;
 
 	ktime_t        start;
@@ -64,7 +65,6 @@ extern v3d_session_t *v3d_session_create(struct v3d_driver_tag *driver, const ch
 extern void           v3d_session_delete(v3d_session_t *instance);
 
 /* V3dDriver Interface */
-
 extern void           v3d_session_add_statistics(
 	v3d_session_t *instance,
 	int            user,
@@ -72,22 +72,15 @@ extern void           v3d_session_add_statistics(
 	unsigned int   run,
 	unsigned int   binning_bytes);
 extern void           v3d_session_reset_statistics(v3d_session_t *instance);
-/* The issued lock must be held */
-extern void           v3d_session_job_issued(struct v3d_driver_job_tag *job);
-/* The issued lock must be held */
-extern void           v3d_session_job_complete(struct v3d_driver_job_tag *job, int status);
+extern void           v3d_session_issued(struct v3d_driver_job_tag *job);
+extern void           v3d_session_complete(struct v3d_driver_job_tag *job, int status);
 
 /* External interface */
-
 extern int v3d_session_job_post(
 	v3d_session_t *instance,
 	const v3d_job_post_t *user_job);
-
-/* The relevant lock must be held to take a reference */
 extern void v3d_session_job_reference(struct v3d_driver_job_tag *job, const char *name);
 extern void v3d_session_job_release(struct v3d_driver_job_tag *job, const char *name);
-
-extern void v3d_session_jobs_abort(v3d_session_t *instance);
 
 extern int v3d_session_counters_enable(v3d_session_t *instance, uint32_t enables);
 extern int v3d_session_counters_disable(v3d_session_t *instance);

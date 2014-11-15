@@ -718,13 +718,13 @@ static void AMI_ConvertMag(s16 val[3], struct ami_sensor_parameter *prm,
 
 #if 0
 printf("convert %d,%d,%d  %d,%d,%d  %d,%d,%d  %d,%d,%d  %d,%d,%d  %d,%d,%d\r",
- v[0], v[1], v[2],
- val[0], val[1], val[2],
- prm->win.fine[0], prm->win.fine[1], prm->win.fine[2],
- prm->win.zero_gauss_fine[0], prm->win.zero_gauss_fine[1],
- prm->win.zero_gauss_fine[2],
- prm->win.fine_output[0], prm->win.fine_output[1], prm->win.fine_output[2],
- prm->mag.sensitivity[0], prm->mag.sensitivity[1], prm->mag.sensitivity[2]);
+v[0], v[1], v[2],
+val[0], val[1], val[2],
+prm->win.fine[0], prm->win.fine[1], prm->win.fine[2],
+prm->win.zero_gauss_fine[0], prm->win.zero_gauss_fine[1],
+prm->win.zero_gauss_fine[2],
+prm->win.fine_output[0], prm->win.fine_output[1], prm->win.fine_output[2],
+prm->mag.sensitivity[0], prm->mag.sensitivity[1], prm->mag.sensitivity[2]);
 #endif
 
 	sens[0] = prm->mag.sensitivity[0] == 0 ? 600 : prm->mag.sensitivity[0];
@@ -763,7 +763,8 @@ int AMI_GetMemSize(void)
  * @param comm_handle	Communication handle
  * @return handle
  */
-void *AMI_InitDriver(void *mem, void *comm_handle, int ami_dir, int ami_polarity)
+void *AMI_InitDriver(void *mem, void *comm_handle,
+		int ami_dir, int ami_polarity)
 {
 	int res = 0;
 	struct ami_stat *stat = mem;
@@ -934,7 +935,7 @@ int AMI_SearchOffset(void *handle)
 	}
 
 	res = AMI_SearchOffsetProc(stat->i2c_hnd, fine);
-	if (res <0) {
+	if (res < 0) {
 		AMI_LOG("AMI_SearchOffsetProc ERROR(%d)", res);
 		return res;
 	}

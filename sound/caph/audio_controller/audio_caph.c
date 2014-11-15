@@ -62,9 +62,6 @@ static struct hrtimer hr_timer;
 static ktime_t ktime;
 #endif
 
-#ifdef CONFIG_D2083_AUDIO
-#include <linux/d2083/audio.h>
-#endif
 
 /* ---- Data structure  ------------------------------------------------- */
 
@@ -153,15 +150,18 @@ static char action_names[ACTION_AUD_TOTAL][40] = {
 };
 
 extern brcm_alsa_chip_t *sgpCaph_chip;
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+extern int bcmpmu_read_pmu_temp(void);
+static BrcmPmuTempGainComp sgTempGainComp;
+#endif
+
 static unsigned int pathID[CAPH_MAX_PCM_STREAMS];
 static unsigned int n_msg_in, n_msg_out, last_action;
 static struct completion complete_kfifo;
 static struct TAudioHalThreadData sgThreadData;
-static bool telephonyIsEnabled = FALSE;
-static bool playbackIsEnabled = FALSE;
-static bool recordingIsEnabled = FALSE;
-static bool isTelephonySpkrVolumeStored = FALSE;
-static BRCM_AUDIO_Param_Volume_t storedTelephonySpkrVolume;
+static int telephonyIsEnabled;
+static DEFINE_MUTEX(mutexBlock);
 
 #define KFIFO_SIZE		2048
 #define BLOCK_WAITTIME_MS	60000
@@ -169,6 +169,10 @@ static BRCM_AUDIO_Param_Volume_t storedTelephonySpkrVolume;
 
 static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			void *arg_param, void *callback, int block);
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+static void temp_gain_comp_work(struct work_struct *work);
+#endif
 
 #ifdef USE_HR_TIMER
 static enum hrtimer_restart TimerCbStopVibrator(struct hrtimer *timer)
@@ -209,9 +213,7 @@ static void AudioCtrlWorkThread(struct work_struct *work)
 {
 	TMsgAudioCtrl msgAudioCtrl;
 	unsigned int len = 0;
-
 	set_user_nice(current, -20);
-
 	while (1) {
 		/* get operation code from fifo */
 		len = kfifo_out_locked(&sgThreadData.m_pkfifo,
@@ -241,6 +243,7 @@ static void AudioCtrlWorkThread(struct work_struct *work)
 		last_action = msgAudioCtrl.action_code;
 
 		/* process the operation */
+		/* This is message consumer of sgThreadData.m_pkfifo */
 		AUDIO_Ctrl_Process(msgAudioCtrl.action_code,
 				   &msgAudioCtrl.param,
 				   msgAudioCtrl.pCallBack, msgAudioCtrl.block);
@@ -278,7 +281,40 @@ void caph_audio_init(void)
 	hr_timer.function = &TimerCbStopVibrator;
 #endif
 
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+	sgTempGainComp.intiComplete = 0;
+	INIT_DELAYED_WORK(&sgTempGainComp.temp_gain_comp, temp_gain_comp_work);
+#endif
 }
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+static void temp_gain_comp_work(struct work_struct *work)
+{
+	int temp = 0;
+	int next_delay;
+	int result;
+	BrcmPmuTempGainComp *paudio =
+		container_of(work, BrcmPmuTempGainComp, temp_gain_comp.work);
+	if (!AUDCTRL_TempGainCompStatus())
+		return;
+	/* read temperature from PMU */
+	temp = bcmpmu_read_pmu_temp();
+	paudio->prevTemp = paudio->currTemp;
+	paudio->currTemp = temp;
+	next_delay = AUDCTRL_TempGainComp(paudio);
+	aTrace(LOG_AUDIO_PMUTEMP, "temp_gain_comp_work:  temp = %d"
+		"next_delay = %d\n", temp, next_delay);
+	if (!AUDCTRL_AllPathsDisabled()) {
+		result = schedule_delayed_work(&paudio->temp_gain_comp,
+		msecs_to_jiffies(next_delay));
+	} else {
+		AUDCTRL_TempGainCompDeInit(&sgTempGainComp);
+		aTrace(LOG_AUDIO_PMUTEMP, "Stopped Scheduling"
+			"temp_gain_comp_work\n");
+	}
+}
+#endif
+
 
 /**
  * LaunchAudioHalThread: Create Worker thread.
@@ -372,6 +408,9 @@ static int AUDIO_Ctrl_Trigger_GetParamsSize(BRCM_AUDIO_ACTION_en_t action_code)
 	case ACTION_AUD_SetPrePareParameters:
 		size = sizeof(BRCM_AUDIO_Param_Prepare_t);
 		break;
+	case ACTION_AUD_BufferReady:
+		size = sizeof(BRCM_AUDIO_Param_BufferReady_t);
+		break;
 	case ACTION_AUD_AddChannel:
 	case ACTION_AUD_RemoveChannel:
 	case ACTION_AUD_SwitchSpkr:
@@ -400,6 +439,7 @@ static int AUDIO_Ctrl_Trigger_GetParamsSize(BRCM_AUDIO_ACTION_en_t action_code)
 	case ACTION_AUD_SetPlaybackVolume:
 	case ACTION_AUD_SetRecordGain:
 	case ACTION_AUD_SetTelephonySpkrVolume:
+	case ACTION_AUD_UpdateUserVolSetting:
 		size = sizeof(BRCM_AUDIO_Param_Volume_t);
 		break;
 	case ACTION_AUD_SetHWLoopback:
@@ -565,6 +605,8 @@ void AUDIO_Ctrl_SetUserAudioApp(AudioApp_t app)
   *     we reserve bit 0 to indicate block mode.
   *
   * Return 0 for success, non-zero for error code
+  *
+  * This is message producer to sgThreadData.m_pkfifo
   */
 Result_t AUDIO_Ctrl_Trigger(BRCM_AUDIO_ACTION_en_t action_code,
 			    void *arg_param, void *callback, int block)
@@ -580,6 +622,8 @@ Result_t AUDIO_Ctrl_Trigger(BRCM_AUDIO_ACTION_en_t action_code,
 	int is_atomic;
 	int is_cb = 0;
 
+
+
 	/** BEGIN: not support 48KHz recording during voice call */
 	static int record48K_in_call_is_blocked;
 	if (action_code == ACTION_AUD_StartRecord) {
@@ -588,7 +632,7 @@ Result_t AUDIO_Ctrl_Trigger(BRCM_AUDIO_ACTION_en_t action_code,
 		memcpy((void *)&param_start, arg_param,
 			sizeof(BRCM_AUDIO_Param_Start_t));
 
-		if (param_start.callMode != 0
+		if (param_start.callMode == MODEM_CALL
 			&& param_start.rate == AUDIO_SAMPLING_RATE_48000
 			&& param_start.pdev_prop->c.source != AUDIO_SOURCE_I2S
 			&& param_start.pdev_prop->c.drv_type
@@ -608,7 +652,7 @@ Result_t AUDIO_Ctrl_Trigger(BRCM_AUDIO_ACTION_en_t action_code,
 		memcpy((void *)&param_stop, arg_param,
 			sizeof(BRCM_AUDIO_Param_Stop_t));
 
-		if (param_stop.callMode != 0
+		if (param_stop.callMode == MODEM_CALL
 			&& param_stop.pdev_prop->c.source != AUDIO_SOURCE_I2S
 			&& param_stop.pdev_prop->c.drv_type
 				== AUDIO_DRIVER_CAPT_HQ
@@ -621,12 +665,19 @@ Result_t AUDIO_Ctrl_Trigger(BRCM_AUDIO_ACTION_en_t action_code,
 			*/
 			) {
 
-			aError("StopRecord failed.	48KHz in call");
 			record48K_in_call_is_blocked = 0;
 			return RESULT_ERROR;
 		}
 	}
 	/** EDN: not support 48KHz recording during voice call.*/
+
+	/*When multi blocking triggers (such as OpenPlay and ClosePlay) arrive
+	  at the same time, each would compete for action_complete semaphore,
+	  which may be intended for other trigger. As a result, incorrect
+	  parameters are returned.
+	*/
+	if (block & 1)
+		mutex_lock(&mutexBlock);
 
 	if (action_code == ACTION_AUD_DisableByPassVibra_CB) {
 		action_code = ACTION_AUD_DisableByPassVibra;
@@ -765,16 +816,18 @@ AUDIO_Ctrl_Trigger_Wait:
 			 *      sgThreadData.m_pkfifo_out.out);
 			 */
 			if (len == 0)	/* FIFO empty sleep */
-				return status;
+				break;
 			if (arg_param)
 				memcpy(arg_param, &msgAudioCtrl.param,
 				       params_size);
 		}
+		mutex_unlock(&mutexBlock);
 	}
 
 	return status;
 }
 
+/* This is message consumer of sgThreadData.m_pkfifo */
 static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			void *arg_param, void *callback, int block)
 {
@@ -797,7 +850,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			param_open->drv_handle =
 			    AUDIO_DRIVER_Open(param_open->pdev_prop->p[0].
 					      drv_type);
-
 			if (param_open->drv_handle == NULL)
 				aTrace(LOG_AUDIO_CNTLR,
 						"\n %lx:AUDIO_Ctrl_Process-"
@@ -812,15 +864,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			    (BRCM_AUDIO_Param_Close_t *) arg_param;
 
 			AUDIO_DRIVER_Close(param_close->drv_handle);
-
-			if (AUDCTRL_GetAudioApp() == AUDIO_APP_FM && AUDIO_Policy_GetState() == BRCM_STATE_FM) {
-				aTrace(LOG_AUDIO_CNTLR, "AUDIO_Ctrl_Process RestoreState if FM radio is not disabled\n");
-				AUDIO_Policy_RestoreState();
-
-				app_profile = AUDIO_Policy_Get_Profile(AUDIO_APP_MUSIC);
-				if (app_profile == AUDIO_APP_MUSIC)
-					AUDCTRL_SaveAudioApp(app_profile);
-			}
 		}
 		break;
 
@@ -835,11 +878,11 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			    (CTL_STREAM_PANEL_FIRST - 1)
 			    && param_start->stream <
 			    (CTL_STREAM_PANEL_LAST - 1));
-		sgpCaph_chip->streamCtl[param_start->stream].playback_prev_time = 0;
-		
+
 		sgpCaph_chip->streamCtl[param_start->stream].playback_stop = 0;
 
-		playbackIsEnabled = TRUE;
+		sgpCaph_chip->streamCtl[param_start->stream].playback_prev_time
+			= 0;
 
 		newmode = AUDIO_Policy_Get_Mode( \
 			param_start->pdev_prop->p[0].sink);
@@ -878,6 +921,11 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			AUDIO_DRIVER_Ctrl(param_start->drv_handle,
 					  AUDIO_DRIVER_START, NULL);
 		}
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+			AUDCTRL_TempGainCompInit(&sgTempGainComp);
+			schedule_delayed_work(&sgTempGainComp.temp_gain_comp,
+				0);
+#endif
 
 		}
 		break;
@@ -896,9 +944,7 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 
 			AUDIO_DRIVER_Ctrl(param_stop->drv_handle,
 					  AUDIO_DRIVER_STOP, NULL);
-#ifdef CONFIG_D2083_AUDIO
-			extern_pre_start_stop_playback(TRUE);
-#endif	
+
 			/* Remove secondary playback path if it's in use */
 			for (i = (MAX_PLAYBACK_DEV - 1); i > 0; i--) {
 				if (param_stop->pdev_prop->p[i].sink !=
@@ -908,8 +954,7 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 					if (param_stop->stream >=
 						 CAPH_MAX_PCM_STREAMS)
 						break;
-
-#ifdef CONFIG_D2083_AUDIO
+#ifdef THIRD_PARTY_PMU
 					AUDCTRL_RemovePlaySpk_InPMU(param_stop->
 							      pdev_prop->p[0]
 							      .source,
@@ -944,35 +989,31 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 
 				pathID[param_stop->stream] = 0;
 			}
-
-			playbackIsEnabled = FALSE;
-#ifdef CONFIG_D2083_AUDIO
-			extern_pre_start_stop_playback(FALSE);
-#endif	
-
-			if ((AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP || AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP_INCOMM)
-				&& (recordingIsEnabled == FALSE && playbackIsEnabled == FALSE)
-				&& (AUDIO_Policy_GetState() == BRCM_STATE_INCALL)) {
-				aTrace(LOG_AUDIO_CNTLR, "AUDIO_Ctrl_Process RestoreState after VoIP\n");
-#if defined(CONFIG_STEREO_SPEAKER)
-				aTrace(LOG_AUDIO_CNTLR, "ACTION_AUD_StopPlay: StIHF is restored at disabling call path.\n");
-				AUDCTRL_RestoreIHFmode();
-#endif
-				AUDIO_Policy_RestoreState();
-
-				app_profile = AUDIO_Policy_Get_Profile(AUDIO_APP_MUSIC);
-				if (app_profile == AUDIO_APP_MUSIC) {
-					AUDCTRL_SaveAudioApp(app_profile);
-					AUDCTRL_SetAudioMode_ForMusicPlayback(
-						AUDCTRL_GetAudioMode(),
-						pathID[CTL_STREAM_PANEL_PCMOUT1-1],
-						FALSE);
-				}
-			}
-
 			aTrace(LOG_AUDIO_CNTLR,
 					"AUDIO_Ctrl_Process Stop Playback"
 					" completed\n");
+		}
+		break;
+	case ACTION_AUD_BufferReady:
+		{
+			BRCM_AUDIO_Param_BufferReady_t *param_bufferready =
+			    (BRCM_AUDIO_Param_BufferReady_t *) arg_param;
+
+			/*aTrace(LOG_AUDIO_CNTLR,
+			       "\n %lx:AUDIO_Ctrl_Process-"
+			       "ACTION_AUD_BufferReady. stream=%d\n",
+			       jiffies, param_bufferready->stream);*/
+			CAPH_ASSERT(param_bufferready->stream >=
+				    (CTL_STREAM_PANEL_FIRST - 1)
+				    && param_bufferready->stream <
+				    (CTL_STREAM_PANEL_LAST - 1));
+
+			AUDIO_DRIVER_Ctrl(param_bufferready->drv_handle,
+					  AUDIO_DRIVER_BUFFER_READY, NULL);
+
+			/*aTrace(LOG_AUDIO_CNTLR,
+			"AUDIO_Ctrl_Process ACTION_AUD_BufferReady"
+			" completed. stream=%d\n", param_bufferready->stream);*/
 		}
 		break;
 	case ACTION_AUD_PausePlay:
@@ -1039,16 +1080,14 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			AudioMode_t  new_mode = AUDIO_MODE_SPEAKERPHONE;
 			AudioMode_t cur_mode;
 
-			recordingIsEnabled = TRUE;
-
 			cur_mode = AUDCTRL_GetAudioMode();
 
 			/*Audio app for Voip,GVS will be set from user side*/
 			app_prof = AUDCTRL_GetUserAudioApp();
 
 			/*use current mode based on mode earpiece or speaker*/
-			if (app_prof == AUDIO_APP_VOIP
-				|| app_prof == AUDIO_APP_VOIP_INCOMM)
+			if (app_prof == AUDIO_APP_VOIP ||
+				app_prof == AUDIO_APP_VOIP_INCOMM)
 				new_mode = cur_mode;
 
 			/*use mode headset for aux mic*/
@@ -1063,11 +1102,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 				/*keep the mode*/
 				new_mode = cur_mode;
 			}
-
-			aTrace(LOG_AUDIO_CNTLR,
-					"AUDIO_Ctrl_Process Start Record"
-					"- new_mode %d - cur_mode %d\n", new_mode, cur_mode);
-
 			app_profile = AUDIO_Policy_Get_Profile(app_prof);
 			new_mode = AUDIO_Policy_Get_Mode(new_mode);
 
@@ -1110,15 +1144,7 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 						  &voiceRecStr);
 			}
 
-			if (app_prof == AUDIO_APP_VOIP ||
-				app_prof == AUDIO_APP_VOIP_INCOMM) {
-				aTrace(LOG_AUDIO_CNTLR,
-					"AUDIO_Ctrl_Process Start Record - in VoIP\n");
-				if (AUDIO_Policy_GetState() != BRCM_STATE_INCALL)
-				AUDIO_Policy_SetState(BRCM_STATE_INCALL);
-			} else {
 			AUDIO_Policy_SetState(BRCM_STATE_RECORD);
-		}
 		}
 		break;
 	case ACTION_AUD_StopRecord:
@@ -1139,24 +1165,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 					param_stop->pdev_prop->c.sink,
 					pathID[param_stop->stream]);
 			pathID[param_stop->stream] = 0;
-
-			recordingIsEnabled = FALSE;
-
-			if (AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP || AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP_INCOMM)
-			{
-				if (recordingIsEnabled != FALSE || playbackIsEnabled != FALSE) {
-				aTrace(LOG_AUDIO_CNTLR, "AUDIO_Ctrl_Process Skip RestoreState while VoIP is running\n");
-				break;
-			}
-				else
-				{
-#if defined(CONFIG_STEREO_SPEAKER)
-					aTrace(LOG_AUDIO_CNTLR, "ACTION_AUD_StopRecord: StIHF is restored at disabling call path.\n");
-					AUDCTRL_RestoreIHFmode();
-#endif
-				}
-			}
-
 			AUDIO_Policy_RestoreState();
 
 			/* If we do start play before we stop rec,we do not
@@ -1212,10 +1220,10 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 
 			app_profile = AUDIO_Policy_Get_Profile(AUDIO_APP_MUSIC);
 			AUDCTRL_SaveAudioApp(app_profile);
-#ifdef CONFIG_D2083_AUDIO
+#ifdef THIRD_PARTY_PMU
 			/* coverity[overrun-local] */
-			AUDCTRL_AddPlaySpk_InPMU(parm_spkr->src, parm_spkr->sink,
-					   pathID[parm_spkr->stream]);
+			AUDCTRL_AddPlaySpk_InPMU(parm_spkr->src,
+				parm_spkr->sink, pathID[parm_spkr->stream]);
 #else
 			/* coverity[overrun-local] */
 			AUDCTRL_AddPlaySpk(parm_spkr->src, parm_spkr->sink,
@@ -1231,10 +1239,11 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 				    (CTL_STREAM_PANEL_FIRST - 1)
 				    && parm_spkr->stream <
 				    (CTL_STREAM_PANEL_LAST - 1));
-#ifdef CONFIG_D2083_AUDIO
+#ifdef THIRD_PARTY_PMU
+
 			/* coverity[overrun-local] */
-			AUDCTRL_RemovePlaySpk_InPMU(parm_spkr->src, parm_spkr->sink,
-					      pathID[parm_spkr->stream]);
+			AUDCTRL_RemovePlaySpk_InPMU(parm_spkr->src,
+				parm_spkr->sink, pathID[parm_spkr->stream]);
 #else
 			/* coverity[overrun-local] */
 			AUDCTRL_RemovePlaySpk(parm_spkr->src, parm_spkr->sink,
@@ -1253,7 +1262,7 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 
 			telephonyIsEnabled = TRUE; /*DSP is using mic path */
 
-			/*Consider VT-NB/WB case*/
+			/*Consider VT-NB case*/
 			if (AUDIO_APP_VT_CALL == AUDCTRL_GetUserAudioApp())
 				app_profile = AUDIO_APP_VT_CALL;
 
@@ -1267,20 +1276,15 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			AUDCTRL_SaveAudioApp(app_profile);
 			AUDCTRL_SaveAudioMode(audio_mode);
 
-			if (isTelephonySpkrVolumeStored)
-			{
-				AUDCTRL_SetTelephonySpkrVolume(storedTelephonySpkrVolume.sink,
-								   storedTelephonySpkrVolume.volume1,
-								   storedTelephonySpkrVolume.gain_format);
-
-				isTelephonySpkrVolumeStored = FALSE;
-				memset(&storedTelephonySpkrVolume, 0, sizeof(BRCM_AUDIO_Param_Volume_t));
-			}
-
 			AUDCTRL_EnableTelephony(parm_call->new_mic,
 						parm_call->new_spkr);
 
 			AUDIO_Policy_SetState(BRCM_STATE_INCALL);
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+			AUDCTRL_TempGainCompInit(&sgTempGainComp);
+			schedule_delayed_work(&sgTempGainComp.temp_gain_comp,
+				0);
+#endif
 		}
 		break;
 
@@ -1292,54 +1296,40 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 		if (AUDIO_APP_VT_CALL == AUDCTRL_GetUserAudioApp())
 			AUDCTRL_SetUserAudioApp(AUDIO_APP_MUSIC);
 		telephonyIsEnabled = FALSE;
-		isTelephonySpkrVolumeStored = FALSE;
-		memset(&storedTelephonySpkrVolume, 0, sizeof(BRCM_AUDIO_Param_Volume_t));
 		break;
 
 	case ACTION_AUD_SetTelephonyMicSpkr:
 		{
 			BRCM_AUDIO_Param_Call_t *parm_call =
 			    (BRCM_AUDIO_Param_Call_t *) arg_param;
-
 			AudioMode_t  audio_mode = GetAudioModeBySink(
 							parm_call->new_spkr);
-
-#ifdef	CONFIG_AUDIO_FEATURE_SET_DISABLE_ECNS
-			 /* when turning off EC and NS, we set mode to
-			  * AUDIO_MODE_HANDSFREE as customer's request, while
-			  * sink is till AUDIO_SINK_BTM. To avoid mode is reset to
-			  * AUDIO_MODE_BLUETOOTH base don sink, we keep using
-			  * AUDIO_MODE_HANDSFREE here.
-			  */
-			if (AUDCTRL_GetAudioMode() == AUDIO_MODE_HANDSFREE && audio_mode == AUDIO_MODE_BLUETOOTH)
-				audio_mode = AUDIO_MODE_HANDSFREE;
-#endif
-
 			AUDCTRL_SaveAudioMode(audio_mode);
 
 			AUDCTRL_SetTelephonyMicSpkr(parm_call->new_mic,
-						    parm_call->new_spkr,
-						    false);
+						    parm_call->new_spkr);
 		}
 		break;
 
 	case ACTION_AUD_MutePlayback:
 		{
-			BRCM_AUDIO_Param_Mute_t *parm_mute =
-			    (BRCM_AUDIO_Param_Mute_t *) arg_param;
-			CAPH_ASSERT(parm_mute->stream >=
-				    (CTL_STREAM_PANEL_FIRST - 1)
-				    && parm_mute->stream <
-				    (CTL_STREAM_PANEL_LAST - 1));
-			/*
-			 * currently driver doesnt handle Mute for left/right
-			 * channels
-			 */
-			/* coverity[overrun-local] */
-			AUDCTRL_SetPlayMute(parm_mute->source,
-					    parm_mute->sink,
-					    parm_mute->mute1,
-					    pathID[parm_mute->stream]);
+		BRCM_AUDIO_Param_Mute_t *parm_mute =
+		    (BRCM_AUDIO_Param_Mute_t *) arg_param;
+		CAPH_ASSERT(parm_mute->stream >=
+			    (CTL_STREAM_PANEL_FIRST - 1)
+			    && parm_mute->stream <
+			    (CTL_STREAM_PANEL_LAST - 1));
+		/*
+		 * currently driver doesnt handle Mute for left/right
+		 * channels
+		 */
+
+		if (parm_mute->stream >= CAPH_MAX_PCM_STREAMS)
+			break;
+		AUDCTRL_SetPlayMute(parm_mute->source,
+				    parm_mute->sink,
+				    parm_mute->mute1,
+				    pathID[parm_mute->stream]);
 		}
 		break;
 	case ACTION_AUD_MuteRecord:
@@ -1468,15 +1458,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 		{
 			BRCM_AUDIO_Param_Volume_t *parm_vol =
 			    (BRCM_AUDIO_Param_Volume_t *) arg_param;
-
-			if (!telephonyIsEnabled) // skip
-			{
-				aError("Skip SetTelephonySpkrVolume, as it's not in call state");
-				isTelephonySpkrVolumeStored = TRUE;
-				memcpy(&storedTelephonySpkrVolume, parm_vol, sizeof(BRCM_AUDIO_Param_Volume_t));
-				break;
-			}
-
 			AUDCTRL_SetTelephonySpkrVolume(parm_vol->sink,
 						       parm_vol->volume1,
 						       parm_vol->gain_format);
@@ -1546,6 +1527,11 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 			/* coverity[overrun-local] */
 			pathID[parm_FM->stream] = path;
 			AUDIO_Policy_SetState(BRCM_STATE_FM);
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+			AUDCTRL_TempGainCompInit(&sgTempGainComp);
+			schedule_delayed_work(&sgTempGainComp.temp_gain_comp,
+				0);
+#endif
 		}
 		break;
 	case ACTION_AUD_DisableFMPlay:
@@ -1646,22 +1632,36 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 
 			/*Consider VT-NB/WB case*/
 			if (AUDCTRL_InVoiceCall()) {
-				if (param_rate_change->codecID == 0x0A) {
-					if (AUDIO_APP_VT_CALL == AUDCTRL_GetUserAudioApp())
-						app_profile = AUDIO_APP_VT_CALL_WB;
+				if (AUDCTRL_IsBTMWB()) {
+					if (AUDIO_APP_VT_CALL ==
+						AUDCTRL_GetUserAudioApp())
+						app_profile =
+							AUDIO_APP_VT_CALL_WB;
 					else
-					app_profile = AUDIO_APP_VOICE_CALL_WB;
+						app_profile =
+							AUDIO_APP_VOICE_CALL_WB;
+				}
+				else if (param_rate_change->codecID == 0x0A) {
+					if (AUDIO_APP_VT_CALL ==
+						AUDCTRL_GetUserAudioApp())
+						app_profile =
+							AUDIO_APP_VT_CALL_WB;
+					else
+						app_profile =
+							AUDIO_APP_VOICE_CALL_WB;
 				} else if (param_rate_change->codecID == 0x06) {
-					if (AUDIO_APP_VT_CALL == AUDCTRL_GetUserAudioApp())
-						app_profile = AUDIO_APP_VT_CALL;
+					if (AUDIO_APP_VT_CALL ==
+						AUDCTRL_GetUserAudioApp())
+						app_profile =
+							AUDIO_APP_VT_CALL;
 					else
-					app_profile = AUDIO_APP_VOICE_CALL;
-					} else {
+						app_profile =
+							AUDIO_APP_VOICE_CALL;
+				} else {
 					aError("Invalid Telephony CodecID %d\n",
 						param_rate_change->codecID);
 						break;
 				}
-
 			app_profile = AUDIO_Policy_Get_Profile(app_profile);
 			AUDCTRL_SaveAudioMode(AUDCTRL_GetAudioMode());
 			AUDCTRL_SaveAudioApp(app_profile);
@@ -1676,34 +1676,6 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 		{
 			BRCM_AUDIO_Param_SetApp_t *parm_setapp =
 				(BRCM_AUDIO_Param_SetApp_t *)arg_param;
-
-			switch (parm_setapp->aud_app)
-			{
-				case AUDIO_APP_VOIP:
-				case AUDIO_APP_VOIP_INCOMM:
-					aTrace(LOG_AUDIO_CNTLR,
-						"AUDIO_Ctrl_Process Set Audio App with VoIP\n");
-#if defined(CONFIG_STEREO_SPEAKER)
-					AUDCTRL_SetIHFmode(FALSE);
-#endif
-					if (AUDIO_Policy_GetState() != BRCM_STATE_INCALL)
-					AUDIO_Policy_SetState(BRCM_STATE_INCALL);
-					break;
-				default:
-					if ((AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP || AUDCTRL_GetAudioApp() == AUDIO_APP_VOIP_INCOMM)
-						&& (AUDIO_Policy_GetState() == BRCM_STATE_INCALL)) {
-						aTrace(LOG_AUDIO_CNTLR,
-							"AUDIO_Ctrl_Process Set Audio App to escape from VoIP; setapp: %d currapp: %d\n",
-							parm_setapp->aud_app, AUDCTRL_GetAudioApp());
-#if defined(CONFIG_STEREO_SPEAKER)
-						aTrace(LOG_AUDIO_CNTLR, "ACTION_AUD_SetAudioApp: StIHF is restored at disabling call path.\n");
-						AUDCTRL_RestoreIHFmode();
-#endif
-						AUDIO_Policy_RestoreState();
-					}
-					break;
-			}
-
 			AUDIO_Ctrl_SetUserAudioApp(parm_setapp->aud_app);
 		}
 		break;
@@ -1726,12 +1698,24 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 	case ACTION_AUD_ConnectDL: /* PTT call */
 		AUDCTRL_ConnectDL();
 		break;
+	case ACTION_AUD_UpdateUserVolSetting:
+		{
+			BRCM_AUDIO_Param_Volume_t *parm_vol =
+				(BRCM_AUDIO_Param_Volume_t *) arg_param;
+			AUDCTRL_UpdateUserVolSetting(
+				parm_vol->sink,
+				parm_vol->volume1,
+				parm_vol->volume2,
+				parm_vol->app);
+		}
+		break;
 	case ACTION_AUD_AtCtl:
 		{
 			BRCM_AUDIO_Param_AtCtl_t parm_atctl;
 
 			memcpy((void *)&parm_atctl, arg_param,
 				sizeof(BRCM_AUDIO_Param_AtCtl_t));
+
 			if (parm_atctl.isGet)
 				AtAudCtlHandler_get(parm_atctl.cmdIndex,
 				parm_atctl.pChip,
@@ -1793,7 +1777,7 @@ static void AUDIO_Ctrl_Process(BRCM_AUDIO_ACTION_en_t action_code,
 				param_hwCtl->arg3,
 				param_hwCtl->arg4);
 		}
-		break;	
+		break;
 	default:
 		aError("Error AUDIO_Ctrl_Process Invalid action %d\n",
 			action_code);

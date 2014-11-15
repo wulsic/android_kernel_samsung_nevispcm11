@@ -211,6 +211,7 @@ static struct {
 	v3d_driver_t *v3d_driver;
 } v3d_state;
 
+v3d_driver_t *v3d_driver;
 
 /********************************************************
 	Imported stuff
@@ -571,6 +572,9 @@ int __init v3d_init(void)
 		goto err5;
 	}
 	v3d_driver_add_device(v3d_state.v3d_driver, v3d_state.v3d_device0);
+
+	v3d_driver = v3d_state.v3d_driver;
+
 	return 0;
 
 err5:
@@ -589,6 +593,7 @@ void __exit v3d_exit(void)
 {
 	KLOG_D("V3D driver exit\n");
 
+	v3d_driver = NULL;
 	v3d_driver_delete(v3d_state.v3d_driver);
 	v3d_device_delete(v3d_state.v3d_device0);
 

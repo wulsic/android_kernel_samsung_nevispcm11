@@ -45,7 +45,9 @@ struct v3d_device_tag {
 	struct {
 		void __iomem *base;
 	} registers;
-	v3d_driver_t *driver;
+	struct {
+		v3d_driver_t *instance;
+	} driver;
 
 	unsigned int irq;
 	v3d_mode_t mode;
@@ -56,10 +58,6 @@ struct v3d_device_tag {
 		struct {
 			unsigned int in_use;
 			unsigned int allocated;
-			struct {
-				unsigned int allocated;
-				unsigned int freed;
-			} total;
 		} index;
 		v3d_bin_memory_t         memory[BIN_BLOCKS];
 		struct workqueue_struct *work_queue;
@@ -68,6 +66,7 @@ struct v3d_device_tag {
 
 	struct {
 		v3d_driver_job_t   *job;
+		spinlock_t          lock;
 	} in_progress;
 
 	struct device      *device;
@@ -88,7 +87,6 @@ struct v3d_device_tag {
 	struct mutex power;
 	int          on;
 	struct delayed_work switch_off;
-	struct delayed_work free_bin_memory;
 
 	struct {
 		uint32_t physical;
@@ -118,9 +116,6 @@ extern void v3d_device_resume(v3d_device_t *instance);
 extern void v3d_device_counters_enable(v3d_device_t *instance, uint32_t enables);
 extern void v3d_device_counters_disable(v3d_device_t *instance);
 extern void v3d_device_counters_add(v3d_device_t *instance, uint32_t *counters);
-
-/* Reads n32 32b values from the 32b offset32 in the device's register space*/
-extern void v3d_device_register_read(v3d_device_t *instance, uint32_t *destination, unsigned int offset32, unsigned int n32);
 
 
 #endif /* ifndef V3D_DEVICE_H_ */

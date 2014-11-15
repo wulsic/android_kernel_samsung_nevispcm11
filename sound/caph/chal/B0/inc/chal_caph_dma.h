@@ -175,9 +175,9 @@ cVoid chal_caph_dma_free_channel(CHAL_HANDLE handle,
 *  @return cVoid
 *
 ****************************************************************************/
+
 cVoid chal_caph_dma_clear_register(CHAL_HANDLE handle,
 				  CAPH_DMA_CHANNEL_e channel);
-
 
 
 /**

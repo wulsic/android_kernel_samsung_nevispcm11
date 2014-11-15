@@ -24,11 +24,13 @@
 #include <linux/delay.h>
 #include <linux/mtd/mtd.h>
 #include <linux/proc_fs.h>
+#include <linux/interrupt.h>
 #include <linux/broadcom/ipcinterface.h>
 #include "cp_crash.h"
 
 #define BCMLOG_OUTDEV_SDCARD	2
 #define BCMLOG_OUTDEV_RNDIS	3
+#define BCMLOG_OUTDEV_ACM	5
 #define CP_SETTLE_TIME		300
 
 /* Prototypes */
@@ -42,12 +44,14 @@ static int do_cp_crash(struct notifier_block *this, unsigned long event,
 	/* SD card to trigger cp crash after kernel panic
 	 * is not supported as file operation in atomic context
 	 * is not possible. */
-	if (BCMLOG_OUTDEV_SDCARD == BCMLOG_GetCpCrashLogDevice() && cp_crashed)
+	if ((BCMLOG_OUTDEV_SDCARD == BCMLOG_GetCpCrashLogDevice() ||
+		BCMLOG_OUTDEV_RNDIS == BCMLOG_GetCpCrashLogDevice() ||
+		BCMLOG_OUTDEV_ACM == BCMLOG_GetCpCrashLogDevice())
+		&& cp_crashed)
 		return NOTIFY_DONE;
 
-#ifdef CONFIG_PREEMPT
-	/* Ensure that cond_resched() won't try to preempt anybody */
-	add_preempt_count(PREEMPT_ACTIVE);
+#ifdef CONFIG_CP_CRASH
+	disable_irq(IRQ_IPC_C2A);
 #endif
 	ipcs_get_ipc_state(&ipc_state);
 
@@ -60,12 +64,14 @@ static int do_cp_crash(struct notifier_block *this, unsigned long event,
 	it has crashed */
 	while (k++ < CP_SETTLE_TIME)
 		;
+#ifdef CONFIG_CP_CRASH
+	/* Trigger CP crash and wait for CP to process */
+	mdelay(3000);
+#else
 	ProcessCPCrashedDump(NULL);
+#endif
 
 out:
-#ifdef CONFIG_PREEMPT
-	sub_preempt_count(PREEMPT_ACTIVE);
-#endif
 
 	return NOTIFY_DONE;
 }

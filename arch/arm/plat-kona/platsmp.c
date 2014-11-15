@@ -18,6 +18,7 @@
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
 #include <linux/delay.h>
+#include <mach/memory.h>
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
@@ -44,7 +45,6 @@ void __init smp_init_cpus(void)
 {
 	unsigned int i, ncores = scu_get_core_count(scu_base);
 	
-
 	for (i = 0; i < ncores; i++)
 		set_cpu_possible(i, true);
 
@@ -78,6 +78,9 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 
 int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
+#ifdef CONFIG_A9_DORMANT_MODE
+	u32 boot_2nd_addr;
+#endif
 	unsigned long timeout;
 	/*
 
@@ -100,6 +103,27 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 #ifdef CONFIG_OUTER_CACHE
 	outer_flush_all();
 #endif
+
+#ifdef CONFIG_A9_DORMANT_MODE
+	/* Let go of the secondary core */
+	boot_2nd_addr =
+		readl_relaxed(KONA_CHIPREG_VA+CHIPREG_BOOT_2ND_ADDR_OFFSET);
+	boot_2nd_addr |= 1;
+	writel_relaxed(boot_2nd_addr,
+			KONA_CHIPREG_VA+CHIPREG_BOOT_2ND_ADDR_OFFSET);
+#endif
+
+	/*
+	 * Send the secondary CPU a soft interrupt. This will
+	 * wake it up in case the secondary CPU is in WFI state.
+	 */
+	gic_raise_softirq(cpumask_of(cpu), 1);
+
+
+	/* Sample code to wait till the second core acknowledges
+	 * while ( readl_relaxed(KONA_CHIPREG_VA+CHIPREG_BOOT_2ND_ADDR_OFFSET)
+	 *		& 1 );
+	 */
 
 	timeout = jiffies + (1 * HZ);
 	while (time_before(jiffies, timeout)) {
@@ -126,7 +150,13 @@ static void __init wakeup_secondary(void)
 
 	chipRegBase = IOMEM(KONA_CHIPREG_VA);
 
+	/* Chip-it FPGA has problems writing to this address hence
+	 * workaround */
+#ifdef CONFIG_MACH_HAWAII_FPGA
+	writel((virt_to_phys(kona_secondary_startup) & (~0x3))|0x1, chipRegBase + 0x1C4);
+#else
 	writel((virt_to_phys(kona_secondary_startup) & (~0x3))|0x1, chipRegBase + CHIPREG_BOOT_2ND_ADDR_OFFSET);
+#endif
 
 	smp_wmb();
 

@@ -15,7 +15,7 @@
 #include <linux/plist.h>
 #include <linux/version.h>
 #include <linux/notifier.h>
-#include <linux/pm_qos_params.h>
+#include <linux/pm_qos.h>
 #include <mach/pi_mgr.h>
 #include <asm/cputime.h>
 
@@ -34,6 +34,9 @@
 #ifndef MAX_CCU_PER_PI
 #define MAX_CCU_PER_PI 3
 #endif
+
+#define OPP_ID_MASK(id)	(1 << (id))
+#define IS_SUPPORTED_OPP(map, id)	(!!((map) & OPP_ID_MASK(id)))
 
 #define	PI_LOG_CONTROL_START_BIT	16
 
@@ -60,6 +63,7 @@ struct pi_ops;
 struct pi_mgr_qos_node;
 struct pi_mgr_dfs_node;
 
+
 enum {
 	SUB_DOMAIN_0,
 	SUB_DOMAIN_1,
@@ -84,6 +88,7 @@ enum {
 #ifdef	CONFIG_KONA_PI_DFS_STATS
 	ENABLE_DFS_STATS = (1 << 8),
 #endif
+	DEFER_DFS_UPDATE = (1 << 9),
 };
 
 enum {
@@ -134,8 +139,17 @@ struct pi_state {
 	u32 hw_wakeup_latency;
 };
 
+struct opp_info {
+	u32 freq_id;
+	u32 opp_id;
+	u32 ctrl_prms;
+};
+
 struct pi_opp {
-	u32 opp[PI_OPP_MAX];
+	struct opp_info **opp_info;
+	u32 *def_weightage;
+	u32 num_opp;
+	u32 opp_map;
 };
 
 #ifdef	CONFIG_KONA_PI_DFS_STATS
@@ -164,20 +178,18 @@ struct pi {
 	u32 usg_cnt;
 	u32 opp_lmt_max;
 	u32 opp_lmt_min;
-	u32 opp_active;
+	u32 opp_inx_act;
 	u32 qos_sw_event_id;
 #ifdef CONFIG_CHANGE_POLICY_FOR_DFS
 	u32 dfs_sw_event_id;
 #endif				/*CONFIG_CHANGE_POLICY_FOR_DFS */
 	struct pi_opp *pi_opp;
-	u32 opp_def_weightage[PI_OPP_MAX];
-	u32 num_opp;
 	struct pi_state *pi_state;
 	u32 num_states;
 	struct pm_pi_info pi_info;
 	u32 *dep_pi;
 	u32 num_dep_pi;
-	struct pm_qos_request_list pm_qos;
+	struct pm_qos_request pm_qos;
 	struct pi_ops *ops;
 	spinlock_t lock;
 #ifdef CONFIG_KONA_PI_DFS_STATS
@@ -196,7 +208,7 @@ struct pi_mgr_qos_node {
 struct pi_mgr_dfs_node {
 	char *name;
 	struct plist_node list;
-	u32 opp;
+	u32 opp_inx;
 	u32 weightage;
 	u32 req_active;
 	u32 pi_id;
@@ -263,6 +275,7 @@ int pi_mgr_register(struct pi *pi);
 int pi_mgr_init(void);
 u32 pi_get_active_qos(int pi_id);
 u32 pi_get_active_opp(int pi_id);
+u32 pi_get_dfs_lmt(u32 pi_id, bool max);
 int pi_get_use_count(int pi_id);
 
 int __pi_enable(struct pi *pi);
@@ -271,18 +284,19 @@ int __pi_disable(struct pi *pi);
 int pi_enable(struct pi *pi, int enable);
 int pi_init(struct pi *pi);
 int pi_init_state(struct pi *pi);
-void pi_mgr_print_active_pis(void);
+int pi_mgr_print_active_pis(void);
 #define pi_get_name(pi)	(pi)->name
 #else
+
 static inline struct pi *pi_mgr_get(int pi_id)
 {
-	return NULL;
+	return 0;
 }
 static inline int pi_mgr_qos_add_request(struct pi_mgr_qos_node *node,
 					 char *client_name, u32 pi_id,
 					 u32 lat_value)
 {
-	return NULL;
+	return 0;
 }
 static inline int pi_mgr_qos_request_update(struct pi_mgr_qos_node *node, u32
 					    lat_value)
@@ -302,10 +316,10 @@ static inline int pi_mgr_disable_policy_change(int pi_id, int disable)
 	return 0;
 }
 
-static inline int pi_mgr_dfs_add_request(struct pi_mgr_qos_node *node,
+static inline int pi_mgr_dfs_add_request(struct pi_mgr_dfs_node *node,
 					 char *client_name, u32 pi_id, u32 opp)
 {
-	return NULL;
+	return 0;
 }
 static inline int pi_mgr_dfs_request_update(struct pi_mgr_dfs_node *node,
 					    u32 opp)

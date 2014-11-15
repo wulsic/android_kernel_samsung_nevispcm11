@@ -68,18 +68,9 @@ the GPL, without Broadcom's express prior written consent.
 #define	NUM_CAPTURE_SUBDEVICE	2
 
 /* limitation for RHEA - only two blocks */
-
-#if 0
-//#define	PCM_MAX_PLAYBACK_BUF_BYTES			(64*1024)
-#define	PCM_MAX_PLAYBACK_BUF_BYTES			(128*1024) //22.05.2012
+#define	PCM_MAX_PLAYBACK_BUF_BYTES			(64*1024)
 #define	PCM_MIN_PLAYBACK_PERIOD_BYTES		(256)
 #define	PCM_MAX_PLAYBACK_PERIOD_BYTES		(PCM_MAX_PLAYBACK_BUF_BYTES/2)
-#else
-//#define	PCM_MAX_PLAYBACK_BUF_BYTES			(32*1024) //14.06.2012
-#define	PCM_MAX_PLAYBACK_BUF_BYTES			(64*1024) //27.07.2012
-#define	PCM_MIN_PLAYBACK_PERIOD_BYTES		(256)
-#define	PCM_MAX_PLAYBACK_PERIOD_BYTES		(PCM_MAX_PLAYBACK_BUF_BYTES/2)
-#endif
 
 #define	PCM_MAX_VOICE_PLAYBACK_BUF_BYTES		(65*1024)
 #define	PCM_MIN_VOICE_PLAYBACK_PERIOD_BYTES		(2560)
@@ -87,17 +78,9 @@ the GPL, without Broadcom's express prior written consent.
 #define	PCM_MAX_VOICE_PLAYBACK_PERIOD_BYTES		\
 (PCM_MAX_PLAYBACK_BUF_BYTES/2)
 
-
-#if 0
-//#define	PCM_MAX_CAPTURE_BUF_BYTES       (64 * 1024)
-#define	PCM_MAX_CAPTURE_BUF_BYTES       (16 * 1024)//22.05.2012
+#define	PCM_MAX_CAPTURE_BUF_BYTES       (16 * 1024)
 #define	PCM_MIN_CAPTURE_PERIOD_BYTES    (4 * 1024)	/*(16 * 1024) */
 #define	PCM_MAX_CAPTURE_PERIOD_BYTES    (PCM_MAX_CAPTURE_BUF_BYTES/2)
-#else
-#define	PCM_MAX_CAPTURE_BUF_BYTES       (8 * 1024) //14.06.2012
-#define	PCM_MIN_CAPTURE_PERIOD_BYTES    (2 * 1024)
-#define	PCM_MAX_CAPTURE_PERIOD_BYTES    (PCM_MAX_CAPTURE_BUF_BYTES/2)
-#endif
 
 #define	PCM_MAX_VOICE_CAPTURE_BUF_BYTES       (15360)
 #define	PCM_MIN_VOICE_CAPTURE_PERIOD_BYTES    (320 * 4)
@@ -514,7 +497,7 @@ static int PcmPlaybackTrigger(struct snd_pcm_substream *substream, int cmd)
 		struct snd_pcm_runtime *runtime = substream->runtime;
 
 		chip->streamCtl[substream->number].playback_prev_time = 0;
-		chip->streamCtl[substream->number].xrun_occured = 0;
+
 		param_start.drv_handle = drv_handle;
 		param_start.pdev_prop =
 		    &chip->streamCtl[substream_number].dev_prop;
@@ -553,26 +536,24 @@ static int PcmPlaybackTrigger(struct snd_pcm_substream *substream, int cmd)
 			}
 		}
 		AUDCTRL_SetSecondSink(param_second_spkr);
-
-		if (RESULT_OK != AUDIO_Ctrl_Trigger(ACTION_AUD_StartPlay, &param_start, NULL, 0))
-			ret = -EAGAIN;
+		AUDIO_Ctrl_Trigger(ACTION_AUD_StartPlay, &param_start, NULL, 0);
 
 		for (i = 1; i < MAX_PLAYBACK_DEV; i++) {
 			if (chip->streamCtl[substream_number].dev_prop.
 			    p[i].sink != AUDIO_SINK_UNDEFINED) {
 
-					param_spkr.src =
-					    chip->streamCtl[substream_number].
-					    dev_prop.p[i].source;
-					param_spkr.sink =
-					    chip->streamCtl[substream_number].
-					    dev_prop.p[i].sink;
-					param_spkr.stream = substream_number;
-					AUDIO_Ctrl_Trigger
-					    (ACTION_AUD_AddChannel, &param_spkr,
-					     NULL, 0);
-				}
+				param_spkr.src =
+				    chip->streamCtl[substream_number].
+				    dev_prop.p[i].source;
+				param_spkr.sink =
+				    chip->streamCtl[substream_number].
+				    dev_prop.p[i].sink;
+				param_spkr.stream = substream_number;
+				AUDIO_Ctrl_Trigger
+				    (ACTION_AUD_AddChannel, &param_spkr,
+				     NULL, 0);
 			}
+		}
 		}
 		break;
 
@@ -596,9 +577,8 @@ static int PcmPlaybackTrigger(struct snd_pcm_substream *substream, int cmd)
 			chip->streamCtl[substream_number].pStopCompletion
 				= compl_ptr;
 
-			if( RESULT_OK != AUDIO_Ctrl_Trigger(ACTION_AUD_StopPlay, &param_stop,
-					   CtrlStopCB, (int)compl_ptr))
-					   ret = -EAGAIN;
+			AUDIO_Ctrl_Trigger(ACTION_AUD_StopPlay, &param_stop,
+					   CtrlStopCB, (int)compl_ptr);
 
 		}
 		break;
@@ -611,9 +591,8 @@ static int PcmPlaybackTrigger(struct snd_pcm_substream *substream, int cmd)
 			param_pause.pdev_prop =
 			    &chip->streamCtl[substream_number].dev_prop;
 			param_pause.stream = substream_number;
-			if( RESULT_OK != AUDIO_Ctrl_Trigger(ACTION_AUD_PausePlay, &param_pause,
-					   NULL, 0))
-					   ret = -EAGAIN;
+			AUDIO_Ctrl_Trigger(ACTION_AUD_PausePlay, &param_pause,
+					   NULL, 0);
 
 		}
 		break;
@@ -630,9 +609,8 @@ static int PcmPlaybackTrigger(struct snd_pcm_substream *substream, int cmd)
 			param_resume.channels = runtime->channels;
 			param_resume.rate = runtime->rate;
 			param_resume.stream = substream_number;
-			if( RESULT_OK != AUDIO_Ctrl_Trigger(ACTION_AUD_ResumePlay, &param_resume,
-					   NULL, 0))
-					   ret = -EAGAIN;
+			AUDIO_Ctrl_Trigger(ACTION_AUD_ResumePlay, &param_resume,
+					   NULL, 0);
 
 		}
 		break;
@@ -678,6 +656,7 @@ static snd_pcm_uframes_t PcmPlaybackPointer(struct snd_pcm_substream *substream)
 				" hw_ptr = %d,dmaptr= %d, pos = %d\n",
 				(int)chip->streamCtl[substream->number].
 				stream_hw_ptr, dmaPointer, (int)pos);
+#if !defined(DYNAMIC_DMA_PLAYBACK)
 		whichbuffer = csl_audio_render_get_current_buffer(
 			StreamIdOfDriver(runtime->private_data));
 		if (whichbuffer != 1 && whichbuffer != 2) {
@@ -692,6 +671,11 @@ static snd_pcm_uframes_t PcmPlaybackPointer(struct snd_pcm_substream *substream)
 		else
 			pos = chip->streamCtl[substream->number].stream_hw_ptr;
 	} else
+#else
+		dmaPointer = 0;
+	}
+#endif
+
 	pos =
 	    chip->streamCtl[substream->number].stream_hw_ptr +
 	    bytes_to_frames(runtime, dmaPointer);
@@ -896,83 +880,89 @@ static int PcmCaptureTrigger(struct snd_pcm_substream *substream,
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		{
-			BRCM_AUDIO_Param_Start_t param_start;
+		BRCM_AUDIO_Param_Start_t param_start;
 
-			struct snd_pcm_runtime *runtime = substream->runtime;
+		struct snd_pcm_runtime *runtime = substream->runtime;
 
-			param_start.drv_handle = drv_handle;
-			param_start.pdev_prop =
-			    &chip->streamCtl[substream_number].dev_prop;
-			param_start.channels = runtime->channels;
-			param_start.stream = substream_number;
+		param_start.drv_handle = drv_handle;
+		param_start.pdev_prop =
+		    &chip->streamCtl[substream_number].dev_prop;
+		param_start.channels = runtime->channels;
+		param_start.stream = substream_number;
 
-			if (callMode == MODEM_CALL)
-				/*record Mode */
-				param_start.mixMode =
-				    chip->pi32SpeechMixOption[substream_number];
-			else	/* In Idle mode */
-				param_start.mixMode = 0;
+		if (callMode == MODEM_CALL)
+			/*record Mode */
+			param_start.mixMode =
+			    chip->pi32SpeechMixOption[substream_number];
+		else	/* In Idle mode */
+			param_start.mixMode = 0;
 
-			aTrace(LOG_ALSA_INTERFACE, "param_start.mixMode %ld\n",
-					param_start.mixMode);
+		aTrace(LOG_ALSA_INTERFACE, "param_start.mixMode %ld\n",
+				param_start.mixMode);
 
-			param_start.rate = runtime->rate;
-			param_start.callMode = callMode;
+		param_start.rate = runtime->rate;
+		param_start.callMode = callMode;
 
-			if ((substream_number + 1) == CTL_STREAM_PANEL_PCMIN)
-				chip->streamCtl[substream_number].dev_prop.c.
-				    sink = AUDIO_SINK_MEM;
-			else if ((substream_number + 1) ==
-				 CTL_STREAM_PANEL_SPEECHIN)
-				chip->streamCtl[substream_number].dev_prop.c.
-				    sink = AUDIO_SINK_DSP;
+		if ((substream_number + 1) == CTL_STREAM_PANEL_PCMIN)
+			chip->streamCtl[substream_number].dev_prop.c.
+			    sink = AUDIO_SINK_MEM;
+		else if ((substream_number + 1) ==
+			 CTL_STREAM_PANEL_SPEECHIN)
+			chip->streamCtl[substream_number].dev_prop.c.
+			    sink = AUDIO_SINK_DSP;
 
-			param_start.vol[0] =
-			    chip->streamCtl[substream_number].ctlLine[pSel[0]].
-			    iVolume[0];
-			param_start.vol[1] =
-			    chip->streamCtl[substream_number].ctlLine[pSel[0]].
-			    iVolume[1];
+		param_start.vol[0] =
+		    chip->streamCtl[substream_number].ctlLine[pSel[0]].
+		    iVolume[0];
+		param_start.vol[1] =
+		    chip->streamCtl[substream_number].ctlLine[pSel[0]].
+		    iVolume[1];
 
-			ret = AUDIO_Ctrl_Trigger(ACTION_AUD_StartRecord, &param_start,
-					   NULL, 0);
+		ret = AUDIO_Ctrl_Trigger(ACTION_AUD_StartRecord, &param_start,
+				   NULL, 0);
 
-			if (ret == RESULT_ERROR) {
-				if (chip->streamCtl[substream_number].pStopCompletion)
-					complete(chip->streamCtl[substream_number].pStopCompletion);
-				chip->streamCtl[substream_number].pStopCompletion = NULL;
+		if (ret == RESULT_ERROR) {
 
-				return -1;
-			}
+			if (chip->streamCtl[substream_number].
+			pStopCompletion)
+				complete(
+				chip->streamCtl[substream_number].
+				pStopCompletion);
+
+			chip->streamCtl[substream_number].pStopCompletion
+			= NULL;
+
+			return -1;
+		}
 
 		}
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
 		{
-			BRCM_AUDIO_Param_Stop_t param_stop;
-			struct completion *compl_ptr;
+		BRCM_AUDIO_Param_Stop_t param_stop;
+		struct completion *compl_ptr;
 
-			param_stop.drv_handle = drv_handle;
-			param_stop.pdev_prop =
-			    &chip->streamCtl[substream_number].dev_prop;
-			param_stop.stream = substream_number;
+		param_stop.drv_handle = drv_handle;
+		param_stop.pdev_prop =
+		    &chip->streamCtl[substream_number].dev_prop;
+		param_stop.stream = substream_number;
 
-			param_stop.callMode = callMode;
+		param_stop.callMode = callMode;
 
-			compl_ptr = &chip->streamCtl[substream_number]
-				.stopCompletion;
-			init_completion(compl_ptr);
+		compl_ptr = &chip->streamCtl[substream_number]
+			.stopCompletion;
+		init_completion(compl_ptr);
+		chip->streamCtl[substream_number].pStopCompletion
+			= compl_ptr;
+		ret = AUDIO_Ctrl_Trigger(ACTION_AUD_StopRecord, &param_stop,
+				   CtrlStopCB, (int)compl_ptr);
+
+		if (ret == RESULT_ERROR) {
+			complete(compl_ptr);
 			chip->streamCtl[substream_number].pStopCompletion
-				= compl_ptr;
-
-			ret = AUDIO_Ctrl_Trigger(ACTION_AUD_StopRecord, &param_stop,
-					   CtrlStopCB, (int)compl_ptr);
-
-			if (ret == RESULT_ERROR) {
-				complete(compl_ptr);
-				chip->streamCtl[substream_number].pStopCompletion = NULL;
-			}
+			= NULL;
+		}
 
 		}
 		break;
@@ -1010,6 +1000,80 @@ static snd_pcm_uframes_t PcmCapturePointer(struct snd_pcm_substream *substream)
 	return pos;
 }
 
+int PcmPlaybackCopy(struct snd_pcm_substream *substream, int channel,
+	    snd_pcm_uframes_t pos,
+	    void __user *buf, snd_pcm_uframes_t count)
+{
+	int periods_copied;
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	AUDIO_DRIVER_HANDLE_t drv_handle = substream->runtime->private_data;
+	char *buf_start = runtime->dma_area;
+	int period_bytes = frames_to_bytes(runtime, runtime->period_size);
+	char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, pos);
+	int bytes_to_copy = frames_to_bytes(runtime, count);
+	int not_copied = copy_from_user(hwbuf, buf, bytes_to_copy);
+	char *new_hwbuf = hwbuf + (bytes_to_copy - not_copied);
+
+	if (bytes_to_copy != period_bytes)
+		aError("%s: stream = %d,"
+		" buf_start = %p, hwbuf = %p, "
+		"new_hwbuf = %p,period_bytes = %d,"
+		" bytes_to_copy = %d, not_copied = %d, count %d\n",
+		__func__, substream->number, buf_start, hwbuf,
+		new_hwbuf, period_bytes, bytes_to_copy, not_copied,
+		(int)count);
+
+	if (not_copied) {
+		aError("%s: why didn't copy all the bytes?"
+			" not_copied = %d, to_copy = %d\n",
+			__func__, not_copied, bytes_to_copy);
+		aTrace(LOG_ALSA_INTERFACE, "%s: stream = %d,"
+		" buf_start = %p, hwbuf = %p, "
+		"new_hwbuf = %p,period_bytes = %d,"
+		" bytes_to_copy = %d, not_copied = %d\n",
+		__func__, substream->number, buf_start, hwbuf,
+		new_hwbuf, period_bytes, bytes_to_copy, not_copied);
+	}
+
+	/**
+	 * Set DMA engine ready bit according to pos and count
+	*/
+	periods_copied = bytes_to_copy/period_bytes;
+	while (periods_copied--) {
+		BRCM_AUDIO_Param_BufferReady_t param_bufferready;
+
+		param_bufferready.drv_handle = drv_handle;
+		param_bufferready.stream = substream->number;
+
+		/*aTrace(LOG_ALSA_INTERFACE, "%s: stream = %d, "
+			"ACTION_AUD_BufferReady\n",
+			__func__, param_bufferready.stream);*/
+
+		AUDIO_Ctrl_Trigger(ACTION_AUD_BufferReady, &param_bufferready,
+			NULL, 0);
+	}
+
+	return 0;
+
+}
+int PcmPlaybackSilence(struct snd_pcm_substream *substream, int channel,
+	       snd_pcm_uframes_t pos, snd_pcm_uframes_t count)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, pos);
+	snd_pcm_format_set_silence(runtime->format, hwbuf,
+		count * runtime->channels);
+	/**
+	 * Set DMA engine ready bit according to pos and count
+	 */
+
+	aTrace(LOG_ALSA_INTERFACE, "%s: stream = %d, Called\n",
+			__func__, substream->number);
+
+	return 0;
+}
+
+
 /* Playback device operator */
 static struct snd_pcm_ops brcm_alsa_omx_pcm_playback_ops = {
 	.open = PcmPlaybackOpen,
@@ -1020,6 +1084,10 @@ static struct snd_pcm_ops brcm_alsa_omx_pcm_playback_ops = {
 	.prepare = PcmPlaybackPrepare,
 	.trigger = PcmPlaybackTrigger,
 	.pointer = PcmPlaybackPointer,
+#if defined(DYNAMIC_DMA_PLAYBACK)
+	.copy = PcmPlaybackCopy,
+	/*.silence = PcmPlaybackSilence,*/
+#endif
 };
 
 /* Capture device operator*/
@@ -1078,34 +1146,17 @@ static void AUDIO_DRIVER_CaptInterruptPeriodCB(void *pPrivate)
 	case AUDIO_DRIVER_CAPT_VOICE:
 		{
 			/*update the PCM read pointer by period size */
-			pChip->streamCtl[substream_number].stream_hw_ptr += runtime->period_size;
-			if (pChip->streamCtl[substream_number].stream_hw_ptr > runtime->boundary)
-				pChip->streamCtl[substream_number].stream_hw_ptr -= runtime->boundary;
- 
-			if (runtime->status->state == SNDRV_PCM_STATE_DRAINING) { 
-				/* No more user space data is coming */ 
-				if (pChip->streamCtl[substream->number].stream_hw_ptr < runtime->control->appl_ptr) { 
-					snd_pcm_uframes_t validFrames = runtime->control->appl_ptr 
-						- pChip->streamCtl[substream->number].stream_hw_ptr; 
-					snd_pcm_uframes_t framesToClean = runtime->buffer_size - validFrames; 
-					snd_pcm_uframes_t writeOffset = runtime->control->appl_ptr % runtime->buffer_size; 
-
-					if ((writeOffset + framesToClean) > runtime->buffer_size) { 
-						snd_pcm_uframes_t partialSize = runtime->buffer_size - writeOffset; 
-						memset(runtime->dma_area + frames_to_bytes(runtime, writeOffset), 
-							0, frames_to_bytes(runtime, partialSize));
-						framesToClean -= partialSize;
-						memset(runtime->dma_area, 0, frames_to_bytes(runtime, framesToClean)); 
-					} else {
-						memset(runtime->dma_area, 0, frames_to_bytes(runtime, framesToClean));
-					}
-				}
-			}
-
+			pChip->streamCtl[substream_number].stream_hw_ptr +=
+			    runtime->period_size;
+			if (pChip->streamCtl[substream_number].stream_hw_ptr >
+			    runtime->boundary)
+				pChip->streamCtl[substream_number].
+				    stream_hw_ptr -= runtime->boundary;
 			/*send the period elapsed */
 			snd_pcm_period_elapsed(substream);
 
 			logmsg_ready(substream, AUD_LOG_PCMIN);
+
 		}
 		break;
 	default:
@@ -1154,18 +1205,10 @@ static void AUDIO_DRIVER_InterruptPeriodCB(void *pPrivate)
 	}
 	drv_handle = substream->runtime->private_data;
 
-	if(!drv_handle)
-	{
-		aError("Invalid drv_handle \n");
-		return;
-	}
 	if (pChip->streamCtl[substream->number].playback_stop) {
 		aWarn("Invalid DMA Callback\n");
 		return;
 	}
-	/* If xrun is already triggered do not call back, just return */
-	if(pChip->streamCtl[substream->number].xrun_occured == 1)
-		return;
 
 	if (pChip->streamCtl[substream->number].playback_prev_time != 0) {
 		int_period = int_time -
@@ -1182,7 +1225,7 @@ static void AUDIO_DRIVER_InterruptPeriodCB(void *pPrivate)
 
 		if (num_periods > 1) {
 			pChip->streamCtl[substream->number].xrun_occured = 1;
-			aError("dI-%ld %ld %ld\n",
+			aWarn("dI-%ld %ld %ld\n",
 				int_period, int_time,
 				pChip->streamCtl[substream->number].
 				playback_prev_time);
@@ -1190,17 +1233,13 @@ static void AUDIO_DRIVER_InterruptPeriodCB(void *pPrivate)
 	}
 	pChip->streamCtl[substream->number].playback_prev_time = int_time;
 
-	if(!runtime->private_data)
-	{
-		aError("Invalid runtime->private_data \n");
-		return;
-	}
-
 	whichbuffer = csl_audio_render_get_current_buffer(
 		StreamIdOfDriver(runtime->private_data));
 	if (whichbuffer == 0) {
+#if !defined(DYNAMIC_DMA_PLAYBACK)
 		pChip->streamCtl[substream->number].xrun_occured = 1;
-		aError("whichbuffer-%d\n", whichbuffer);
+		aWarn("whichbuffer-%d\n", whichbuffer);
+#endif
 	}
 
 	AUDIO_DRIVER_Ctrl(drv_handle, AUDIO_DRIVER_GET_DRV_TYPE,

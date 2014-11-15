@@ -15,23 +15,27 @@
 # use $(srctree) for kernel top (see below) and
 # use $(src) in a relative path which points to the directory
 
+KBUILD_CFLAGS += -Werror
+
 #the options below are used by dsp headers
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DMSP -DFUSE_DUAL_PROCESSOR_ARCHITECTURE -DDEVELOPMENT_ONLY -D_RHEA_
 #the options below are used by capi headers
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DUNDER_LINUX -DUNDER_LINUX_MODEM -DLINUX_RPC_KERNEL
-subdir-ccflags-$(CONFIG_ALLINONE_RCVSPK) += -DCONFIG_ENABLE_VOIF -DENABLE_DIAMOND_SOLUTION
 #the options below are used by audio
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DENABLE_DMA_VOICE
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DENABLE_BT16
+#subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DDYNAMIC_DMA_PLAYBACK
 #subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DVOLTE_SUPPORT
-#subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCONFIG_CAPH_DYNAMIC_SRC_CLK
-subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCAPH_NEW_SEQUENCE
+subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCONFIG_CAPH_DYNAMIC_SRC_CLK
 ifdef CONFIG_ARCH_RHEA_BX
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCAPH_48K_MONO_PASSTHRU
 endif
 # enable the SS multicast for Rhea Stone variant builds
 ifneq ($(filter y,$(CONFIG_MACH_RHEA_STONE) $(CONFIG_MACH_RHEA_STONE_EDN2X)),)
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCONFIG_ENABLE_SSMULTICAST
+endif
+ifdef CONFIG_ARCH_HAWAII
+subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -DCAPH_48K_MONO_PASSTHRU
 endif
 
 #Linux header files
@@ -54,6 +58,9 @@ subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -I$(src)/chal/B0/inc/
 else
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -I$(src)/chal/A0/inc/
 endif
+ifdef CONFIG_ARCH_HAWAII
+subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -I$(src)/chal/B0/inc/
+endif
 #RPC Header files
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -I./drivers/char/broadcom/modem/rpc/rpc_CIB/public/
 subdir-ccflags-$(CONFIG_BCM_ALSA_SOUND) += -I./drivers/char/broadcom/fuse_log
@@ -68,7 +75,10 @@ obj-$(CONFIG_BCM_ALSA_SOUND) += audio_controller/ audio_driver/
 ifdef CONFIG_ARCH_RHEA_BX
 obj-$(CONFIG_BCM_ALSA_SOUND) += chal/B0/src/
 else
-#obj-$(CONFIG_BCM_ALSA_SOUND) += chal/A0/src/
+obj-$(CONFIG_BCM_ALSA_SOUND) += chal/A0/src/
+endif
+ifdef CONFIG_ARCH_HAWAII
+obj-$(CONFIG_BCM_ALSA_SOUND) += chal/B0/src/
 endif
 obj-$(CONFIG_BCM_ALSA_SOUND) += csl/
 #obj-$(CONFIG_BCM_MODEM)    += dsp/

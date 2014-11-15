@@ -20,9 +20,6 @@
 #include <linux/syscalls.h> /* sys_sync */
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
-#ifdef CONFIG_ZRAM_FOR_ANDROID
-#include <asm/atomic.h>
-#endif /* CONFIG_ZRAM_FOR_ANDROID */
 
 #include "power.h"
 
@@ -31,15 +28,7 @@ enum {
 	DEBUG_SUSPEND = 1U << 2,
 	DEBUG_VERBOSE = 1U << 3,
 };
-static int debug_mask = DEBUG_USER_STATE | DEBUG_SUSPEND | DEBUG_VERBOSE;
-#ifdef CONFIG_ZRAM_FOR_ANDROID
-extern void need_soft_reclaim(void);
-extern void enable_soft_reclaim(void);
-extern void cancel_soft_reclaim(void);
-atomic_t early_suspended = ATOMIC_INIT(0);
-EXPORT_SYMBOL(early_suspended);
-#endif /* CONFIG_ZRAM_FOR_ANDROID */
-
+static int debug_mask = DEBUG_USER_STATE;
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
 static DEFINE_MUTEX(early_suspend_lock);
@@ -90,10 +79,6 @@ static void early_suspend(struct work_struct *work)
 
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
-#ifdef CONFIG_ZRAM_FOR_ANDROID
-	atomic_set(&early_suspended, 1);
-	need_soft_reclaim();
-#endif /* CONFIG_ZRAM_FOR_ANDROID */
 	if (state == SUSPEND_REQUESTED)
 		state |= SUSPENDED;
 	else
@@ -137,13 +122,6 @@ static void late_resume(struct work_struct *work)
 
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
-
-#ifdef CONFIG_ZRAM_FOR_ANDROID
-	atomic_set(&early_suspended, 0);
-	cancel_soft_reclaim();
-	enable_soft_reclaim();	
-#endif /* CONFIG_ZRAM_FOR_ANDROID */
-
 	if (state == SUSPENDED)
 		state &= ~SUSPENDED;
 	else
@@ -176,7 +154,6 @@ void request_suspend_state(suspend_state_t new_state)
 	unsigned long irqflags;
 	int old_sleep;
 
-	printk(KERN_ERR "we are doing inside %s \n", __func__);
 	spin_lock_irqsave(&state_lock, irqflags);
 	old_sleep = state & SUSPEND_REQUESTED;
 	if (debug_mask & DEBUG_USER_STATE) {

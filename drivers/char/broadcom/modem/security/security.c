@@ -45,6 +45,7 @@ the GPL, without Broadcom's express prior written consent
 #include <asm/pgtable.h>
 #include <linux/io.h>
 #include <linux/proc_fs.h>
+#include <linux/dma-mapping.h>
 
 #include <linux/broadcom/bcm_major.h>
 #include "bcmlog.h"
@@ -70,8 +71,7 @@ the GPL, without Broadcom's express prior written consent
 
 MODULE_LICENSE("GPL");
 
-//#define USE_BRCM_SIMCLOCK_SOLUTION
-//jseseo Samsung use BCM 2nd MEP solution.
+
 /**
  *  module data
  */
@@ -86,11 +86,26 @@ struct _SEC_Module_t {
 static SEC_Module_t sModule = { 0 };
 
 /**
+ * module device
+ */
+static struct device *drvdata;
+
+
+#define PAGE_SIZE_UP(addr)	(((addr)+((PAGE_SIZE)-1))&(~((PAGE_SIZE)-1)))
+#define IS_PAGE_ALIGNED(addr)	(!((addr) & (~PAGE_MASK)))
+
+/**
  *  private data for each session
  */
 struct _SEC_PrivData_t {
 	struct file *mUserfile;
+	/* Lock for the allocation list and ioctl/mmap */
+	struct mutex lock;
+	dma_addr_t handle;
+	void *dma_addr;
+	unsigned long size;
 	/* **FIXME** MAG - anything else needed? */
+
 };
 #define SEC_PrivData_t struct _SEC_PrivData_t
 
@@ -106,6 +121,7 @@ static ssize_t sec_write(struct file *filep, const char __user *buf, size_t len,
 		  loff_t *off);
 static long sec_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 static unsigned int sec_poll(struct file *filp, poll_table * wait);
+static int sec_mmap(struct file *filp, struct vm_area_struct *vma);
 
 /*****************************************************************/
 static long handle_is_lock_on_ioc(struct file *filp, unsigned int cmd,
@@ -125,6 +141,9 @@ static long handle_set_lock_state_ioc(struct file *filp, unsigned int cmd,
 				unsigned long param);
 static Boolean read_imei(UInt8 *imeiStr1, UInt8 *imeiStr2);
 
+static int handle_sec_mem_req(struct file *filp, unsigned int cmd,
+						 unsigned long param);
+
 /*****************************************************************/
 
 /**
@@ -137,6 +156,7 @@ static const struct file_operations sec_ops = {
 	.write = sec_write,
 	.unlocked_ioctl = sec_ioctl,
 	.poll = sec_poll,
+	.mmap = sec_mmap,
 	.release = sec_release,
 };
 
@@ -149,7 +169,7 @@ static int sec_open(struct inode *inode, struct file *file)
 
 	pr_info("sec_open begin file=%x\n", (int)file);
 
-	priv = kmalloc(sizeof(SEC_PrivData_t), GFP_KERNEL);
+	priv = kzalloc(sizeof(SEC_PrivData_t), GFP_KERNEL);
 
 	if (!priv) {
 		pr_info("rpcipc_open mem allocation fail file=%x\n", (int)file);
@@ -157,6 +177,7 @@ static int sec_open(struct inode *inode, struct file *file)
 	} else {
 		priv->mUserfile = file;
 		file->private_data = priv;
+		mutex_init(&priv->lock);
 	}
 
 	return ret;
@@ -171,6 +192,12 @@ static int sec_release(struct inode *inode, struct file *file)
 
 	pr_info("sec_release begin file=%x\n", (int)file);
 
+	if (!priv->size || !priv->dma_addr || !priv->handle)
+		goto out_free;
+
+	dma_free_coherent(drvdata, priv->size, priv->dma_addr, priv->handle);
+
+out_free:
 	kfree(priv);
 
 	return 0;
@@ -247,6 +274,10 @@ static long sec_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retVal = handle_set_lock_state_ioc(filp, cmd, arg);
 			break;
 		}
+
+	case SEC_MEM_ALLOC:
+			retVal = handle_sec_mem_req(filp, cmd, arg);
+			break;
 	default:
 		retVal = -ENOIOCTLCMD;
 		pr_err("sec_ioctl ERROR unhandled cmd=0x%x\n", cmd);
@@ -254,6 +285,48 @@ static long sec_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 
 	return retVal;
+}
+
+
+static int sec_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	int ret = 0;
+	SEC_PrivData_t *priv = (SEC_PrivData_t *)filp->private_data;
+	unsigned long vma_size;
+
+	BUG_ON(!priv);
+
+	if (!priv->size || !priv->dma_addr || !priv->handle) {
+		pr_err("sec_mmap - no memory to be mmaped for this file"\
+				"size(%lu), dma_addr(%p), handle(%u)\n",
+				priv->size, priv->dma_addr, priv->handle);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (vma->vm_pgoff) {
+		pr_err("sec_mmap - don't support mmaping from an offset\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	vma_size = vma->vm_end - vma->vm_start;
+	if (!IS_PAGE_ALIGNED(vma_size) || vma_size != priv->size) {
+		pr_err("sec_mmap - vma_size (%lu) is either not page aligned"\
+				"or not equal to allocation size (%lu)\n",
+				vma_size, priv->size);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	/* always create dma_coherent (uncached) mappings */
+	vma->vm_page_prot = pgprot_dmacoherent(vma->vm_page_prot);
+
+	ret = io_remap_pfn_range(vma, vma->vm_start,
+			virt_to_phys(priv->dma_addr) >> PAGE_SHIFT,
+			vma_size, vma->vm_page_prot);
+out:
+	return ret;
 }
 
 static long handle_is_lock_on_ioc(struct file *filp, unsigned int cmd,
@@ -497,10 +570,7 @@ static long handle_get_imei_ioc(struct file *filp, unsigned int cmd,
 static long handle_set_lock_state_ioc(struct file *filp, unsigned int cmd,
 				unsigned long param)
 {
-#ifdef USE_BRCM_SIMCLOCK_SOLUTION
-	pr_err("SET_LOCK_STATE_IOC is not allowed.\n");
-	return -EFAULT;
-#else
+#ifdef CONFIG_BCM_SET_CP_LOCK_STATE_SUPPORT
 /* To support customer implement SIMLOCK on user space*/
 	sec_simlock_state_t ioc_param = { 0 };
 	SYS_SIMLOCK_STATE_t sys_lock_status = { 0 };
@@ -536,7 +606,69 @@ static long handle_set_lock_state_ioc(struct file *filp, unsigned int cmd,
 	SIMLOCKApi_SetStatusEx(ioc_param.sim_id, &sys_lock_status);
 
 	return 0;
+#else
+	pr_err("SET_LOCK_STATE_IOC is not allowed.\n");
+	return -EFAULT;
 #endif
+}
+
+static int handle_sec_mem_req(struct file *filp, unsigned int cmd,
+						 unsigned long param)
+{
+	int ret = 0;
+	unsigned long kparam;
+	SEC_PrivData_t *priv = (SEC_PrivData_t *)filp->private_data;
+
+	BUG_ON(!priv);
+
+	mutex_lock(&priv->lock);
+
+	switch (cmd) {
+	case SEC_MEM_ALLOC:
+		/*
+		 * check if allocation is already done for this file descriptor
+		 */
+		if (priv->dma_addr || priv->handle || priv->size) {
+			pr_err("handle_sec_mem_Req - Allocation Exists\n");
+			ret = -EEXIST;
+			goto out_unlock;
+		}
+
+		if (copy_from_user(&kparam,
+			(unsigned long *)param, sizeof(unsigned long)) != 0) {
+			pr_err("handle_sec_mem_Req - copy_from_user() had error\n");
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		/* check if the size is valid */
+		if (!kparam) {
+			pr_err("handle_sec_mem_Req - invalid parameter passed\n");
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		/* Make sure size is page aligned */
+		kparam = PAGE_SIZE_UP(kparam);
+
+		priv->dma_addr = dma_alloc_coherent(drvdata, kparam,
+						&priv->handle, GFP_KERNEL);
+		if (priv->dma_addr == NULL) {
+			pr_err("handle_sec_mem_Req - dma allocation failed for size(%lukB)\n",
+					kparam/SZ_1K);
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+
+		priv->size = kparam;
+		break;
+	default:
+		ret = -ENOIOCTLCMD;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->lock);
+	return ret;
 }
 
 /***************************************************************************/
@@ -663,7 +795,6 @@ static int major;
  */
 static int __init bcm_sec_ModuleInit(void)
 {
-	struct device *drvdata;
 	pr_info("enter bcm_sec_ModuleInit()\n");
 
 	major = register_chrdev(0, BCM_SEC_NAME, &sec_ops);
@@ -685,8 +816,12 @@ static int __init bcm_sec_ModuleInit(void)
 	if (IS_ERR(drvdata)) {
 		pr_err("device_create_drvdata failed\n");
 		unregister_chrdev(major, BCM_SEC_NAME);
+		class_destroy(sModule.mDriverClass);
 		return PTR_ERR(drvdata);
 	}
+
+	/* Need to set this if we are going to dma allocations */
+	drvdata->coherent_dma_mask = ((u64)~0);
 
 	pr_info("exit bcm_sec_ModuleInit()\n");
 	return 0;

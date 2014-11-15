@@ -26,9 +26,7 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
-#ifdef CONFIG_HAS_WAKELOCK
 #include <linux/wakelock.h>
-#endif
 #include <linux/semaphore.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
@@ -50,6 +48,7 @@
 #include "ipcinterface.h"
 
 #include <mach/comms/platform_mconfig.h>
+#include <mach/memory.h>
 
 #include <mach/io_map.h>
 /* for BINTC register offsets */
@@ -87,9 +86,7 @@ static RAW_NOTIFIER_HEAD(cp_state_notifier_list);
 static DEFINE_SPINLOCK(cp_state_notifier_lock);
 
 extern void ipc_set_interrupt_mask(void);
-#ifdef CONFIG_HAS_WAKELOCK
 struct wake_lock ipc_wake_lock;
-#endif
 static IPC_PlatformSpecificPowerSavingInfo_T ipc_ps;
 
 extern int IpcCPCrashCheck(void);
@@ -161,6 +158,16 @@ static IPC_ReturnCode_T EventWait(void *Event, IPC_U32 MilliSeconds)
 	}
 }
 
+static IPC_ReturnCode_T EventDelete(void *Event)
+{
+	struct IPC_Evt_t *ipcEvt = (struct IPC_Evt_t *)Event;
+	if (ipcEvt) {
+		IPC_DEBUG(DBG_TRACE, "EventDelete: %p\n", ipcEvt);
+		kfree(ipcEvt);
+	}
+	return IPC_OK;
+}
+
 /**
    @fn Boolean is_CP_running(void);
 */
@@ -219,9 +226,7 @@ void ipcs_intr_tasklet_handler(unsigned long data)
 		IPC_ProcessEvents();
 	} else {
 		IPC_ProcessEvents();
-#ifdef CONFIG_HAS_WAKELOCK
 		wake_unlock(&ipc_wake_lock);
-#endif
 	}
 }
 
@@ -240,9 +245,7 @@ static irqreturn_t ipcs_interrupt(int irq, void *dev_id)
 
 	IPC_UpdateIrqStats();
 
-#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock(&ipc_wake_lock);
-#endif
 	tasklet_schedule(&g_ipc_info.intr_tasklet);
 
 	return IRQ_HANDLED;
@@ -251,21 +254,24 @@ static irqreturn_t ipcs_interrupt(int irq, void *dev_id)
 /**
    @fn int ipc_ipc_init(void *smbase, unsigned int size);
 */
-int __init ipc_ipc_init(void *smbase, unsigned int size)
+int ipc_ipc_init(void *smbase, unsigned int size)
 {
 	IPC_ControlInfo_T ipc_control;
 
 	memset(&ipc_control, 0, sizeof(IPC_ControlInfo_T));
 
 	ipc_control.RaiseEventFptr = bcm_raise_cp_int;
-	ipc_control.EnableReEntrancyFPtr = bcm_enable_reentrancy;
-	ipc_control.DisableReEntrancyFPtr = bcm_disable_reentrancy;
+	ipc_control.LockFunctions.CreateLock = bcm_create_lock;
+	ipc_control.LockFunctions.AcquireLock = bcm_aquire_lock;
+	ipc_control.LockFunctions.ReleaseLock = bcm_release_lock;
+	ipc_control.LockFunctions.DeleteLock = bcm_delete_lock;
 	ipc_control.PhyToOSAddrFPtr = bcm_map_phys_to_virt;
 	ipc_control.OSToPhyAddrFPtr = bcm_map_virt_to_phys;
 	ipc_control.EventFunctions.Create = EventCreate;
 	ipc_control.EventFunctions.Set = EventSet;
 	ipc_control.EventFunctions.Clear = EventClear;
 	ipc_control.EventFunctions.Wait = EventWait;
+	ipc_control.EventFunctions.Delete = EventDelete;
 	ipc_control.PowerSavingStruct = &ipc_ps;
 
 #if defined(CONFIG_BCM215X_PM) && defined(CONFIG_ARCH_BCM2153)
@@ -281,11 +287,14 @@ int __init ipc_ipc_init(void *smbase, unsigned int size)
 void WaitForCpIpc(void *pSmBase)
 {
 	int k = 0, ret = 0;
+	void __iomem *cp_boot_base;
+	u32 reg_val;
 
 	cp_running = 0;
 
 
-	IPC_DEBUG(DBG_WARN, "Waiting for CP IPC to init ...\n");
+	IPC_DEBUG(DBG_WARN, "Waiting for CP IPC to init 0x%x\n",
+		  (unsigned int)pSmBase);
 
 	/* Debug info to show is_ap_only_boot() status */
 	if (is_ap_only_boot())
@@ -328,6 +337,22 @@ void WaitForCpIpc(void *pSmBase)
 			  "*                                                                  *\n");
 		IPC_DEBUG(DBG_ERROR,
 			  "********************************************************************\n");
+		cp_boot_base = ioremap_nocache(MODEM_ITCM_ADDRESS, 0x20);
+		if (!cp_boot_base) {
+			IPC_DEBUG(DBG_ERROR,
+				  "ITCM Addr=0x%x, length=0x%x",
+				  MODEM_ITCM_ADDRESS, 0x20);
+			IPC_DEBUG(DBG_ERROR, "ioremap cp_boot_base error\n");
+			return;
+		}
+		reg_val = readl(cp_boot_base);
+		IPC_DEBUG(DBG_ERROR, "reset vector value is 0x%x\n", reg_val);
+
+		reg_val = readl(cp_boot_base + 0x20);
+		IPC_DEBUG(DBG_ERROR, "CP Boot flag 0x%x\n", reg_val);
+
+		iounmap(cp_boot_base);
+
 		/* SKIP reset is_ap_only_boot() non zero */
 		if (!is_ap_only_boot())
 			BUG_ON(ret == 0);
@@ -354,20 +379,19 @@ void WaitForCpIpc(void *pSmBase)
 			  "*                                                                  *\n");
 		IPC_DEBUG(DBG_ERROR,
 			  "********************************************************************\n");
-		//BUG_ON(ret);
+		/* BUG_ON(ret); */
 	}
 }
 
 void ipcs_cp_notifier_register(struct notifier_block *nb)
 {
-	if (nb != NULL) {
 	/* lock serializes against cp_running value changing */
 	spin_lock_bh(&cp_state_notifier_lock);
-	raw_notifier_chain_register(&cp_state_notifier_list, nb);
-		if (cp_running)
+	if(nb != NULL)
+		raw_notifier_chain_register(&cp_state_notifier_list, nb);
+	if (cp_running && nb != NULL)
 		nb->notifier_call(nb, IPC_CPSTATE_RUNNING, NULL);
 	spin_unlock_bh(&cp_state_notifier_lock);
-}
 }
 
 void ipcs_cp_notifier_unregister(struct notifier_block *nb)
@@ -388,9 +412,7 @@ static int ipcs_init(void *smbase, unsigned int size, int isReset)
 
 	/* Wait for CP to initialize */
 	WaitForCpIpc(smbase);
-	IPC_DEBUG(DBG_TRACE, "Calling ipc_set_interrupt_mask()\n");
-	ipc_set_interrupt_mask();
-	IPC_DEBUG(DBG_TRACE, "Done ipc_set_interrupt_mask()\n");
+	IPC_DEBUG(DBG_TRACE, "WaitForCpIpc done\n");
 
 	IPC_DEBUG(DBG_TRACE, "Calling ipc_set_interrupt_mask()\n");
 	ipc_set_interrupt_mask();
@@ -457,8 +479,9 @@ static int CP_Boot(void)
 		IPC_DEBUG(DBG_TRACE, "boot (R4 COMMS) - init code 0x%x ...\n",
 			  r4init);
 
-		/* Set the CP jump to address.
-		   CP must jump to DTCM offset 0x400 */
+		/* Set the CP jump to address.  CP must jump to DTCM offset
+		 * 0x400
+		 */
 		cp_boot_itcm = ioremap(MODEM_ITCM_ADDRESS, CP_ITCM_BASE_SIZE);
 		if (!cp_boot_itcm) {
 			IPC_DEBUG(DBG_ERROR,
@@ -471,11 +494,11 @@ static int CP_Boot(void)
 		 * cp_boot.img at 0x20400
 		 */
 		jump_instruction |=
-		    (0x00FFFFFFUL & (((0x10000 + RESERVED_HEADER) / 4) - 2));
-
-		IPC_DEBUG(DBG_TRACE, "cp_boot_itcm 0x%x jump_instruction 0x%x\n",
-				(unsigned int)cp_boot_itcm,
-				jump_instruction);
+		    (0x00FFFFFFUL & (((0x20000 + RESERVED_HEADER)
+				      / 4) - 2));
+		IPC_DEBUG(DBG_TRACE,
+			  "cp_boot_itcm 0x%x jump_instruction 0x%x\n",
+			  (unsigned int)cp_boot_itcm, jump_instruction);
 		/* write jump instruction to cp reset vector */
 		*(unsigned int *)(cp_boot_itcm) = jump_instruction;
 
@@ -483,8 +506,7 @@ static int CP_Boot(void)
 
 		/* start CP - should jump to 0x20400 and spin there */
 		*(unsigned int *)(cp_bmodem_r4cfg) = 0x5;
-	}
-	else {
+	} else {
 		IPC_DEBUG(DBG_TRACE,
 			"(R4 COMMS) already started - init code 0x%x ...\n",
 			r4init);
@@ -552,12 +574,16 @@ int cpStart(int isReset)
 }
 
 
+#ifndef CONFIG_MACH_HAWAII_FPGA
 static int __init Comms_Start(void)
 {
 	return cpStart(0);   /* Normal Comms_Start */
 }
+/* The FPGA block does not have the comms module and will hang
+	 * on attempt to access it
+	 */
 arch_initcall(Comms_Start);
-
+#endif
 
 struct device *ipcs_get_drvdata(void)
 {
@@ -584,6 +610,9 @@ static int __init ipcs_module_init(void)
 {
 	int rc = -1;
 	struct proc_dir_entry *dir;
+
+	if (ipc_crashsupport_init())
+		goto out;
 
 	dir =
 	    create_proc_read_entry("driver/bcmipc", 0, NULL, ipcs_read_proc,
@@ -648,9 +677,7 @@ static int __init ipcs_module_init(void)
 
 	IPC_DEBUG(DBG_TRACE, "ok\n");
 
-#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_init(&ipc_wake_lock, WAKE_LOCK_SUSPEND, "ipc_wake_lock");
-#endif
 
 	IPC_DEBUG(DBG_TRACE, "request_irq\n");
 	rc = request_irq(IRQ_IPC_C2A, ipcs_interrupt, IRQF_NO_SUSPEND,
@@ -666,8 +693,8 @@ static int __init ipcs_module_init(void)
 	return 0;
 
 out_irq_req_fail:
-	wake_lock_destroy(&ipc_wake_lock);
 
+	wake_lock_destroy(&ipc_wake_lock);
 out_ipc_init_fail:
 	iounmap(g_ipc_info.apcp_shmem);
 
@@ -690,9 +717,7 @@ static void __exit ipcs_module_exit(void)
 
 	free_irq(IRQ_IPC_C2A, &g_ipc_info);
 
-#ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_destroy(&ipc_wake_lock);
-#endif
 	device_destroy(g_ipc_info.mDriverClass, MKDEV(IPC_MAJOR, 0));
 	class_destroy(g_ipc_info.mDriverClass);
 

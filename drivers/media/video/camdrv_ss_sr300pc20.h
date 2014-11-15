@@ -9,15 +9,19 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  */
+
  
  /* ========== version info ==========*/
  //ver _ 30 Apr 2012 _#1
  /* ============================*/
 
+
 #ifndef __CAMDRV_SS_sr300pc20_H__
 #define __CAMDRV_SS_sr300pc20_H__
+
 #define START_BURST_MODE 0x0F12
 #define DELAY_SEQ 0xFF
+
 
 const regs_t sr300pc20_init_regs[]=
 {
@@ -17596,6 +17600,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    
    };
    
@@ -18373,6 +18378,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    
    };
    
@@ -18566,6 +18572,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    
    };
    
@@ -18953,6 +18960,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    };
    
    // ==========================================================
@@ -19150,6 +19158,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    };
    
    // ==========================================================
@@ -19342,6 +19351,7 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
    };
    
    const regs_t sr300pc20_fps_15_regs_60hz[] =
@@ -19469,7 +19479,9 @@ const regs_t sr300pc20_scene_none_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/ 
+
 };
+
 const regs_t sr300pc20_fps_25_regs_60hz[] =
 {
   0x0300,
@@ -19595,8 +19607,11 @@ const regs_t sr300pc20_fps_25_regs_60hz[] =
 	0x03c0,
 	0x3300,
 	0x3201, /*DMA On*/
+
   
+
 };
+
 const regs_t sr300pc20_fps_30_regs_60hz[] =
 {
   0x0300,
@@ -19726,5 +19741,6 @@ const regs_t sr300pc20_fps_30_regs_60hz[] =
 
   
 };
+
 
 #endif /* __CAMDRV_SS_sr300pc20_H__ */

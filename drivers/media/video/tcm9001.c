@@ -19,6 +19,7 @@
 #include <linux/log2.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/module.h>
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-chip-ident.h>
 #include <media/soc_camera.h>
@@ -98,6 +99,7 @@ struct tcm9001 {
 	int brightness;
 	int contrast;
 	int colorlevel;
+	int framerate;
 };
 
 static struct tcm9001 *to_tcm9001(const struct i2c_client *client)
@@ -194,6 +196,17 @@ static const struct v4l2_queryctrl tcm9001_controls[] = {
 	 .step = 1,
 	 .default_value = IMAGE_EFFECT_NONE,
 	 },
+	{
+	.id = V4L2_CID_CAMERA_FRAME_RATE,
+	.type = V4L2_CTRL_TYPE_INTEGER,
+	.name = "Framerate control",
+	.minimum = FRAME_RATE_AUTO,
+	.maximum = (1 << FRAME_RATE_AUTO | 1 << FRAME_RATE_5 |
+			1 << FRAME_RATE_10 | 1 << FRAME_RATE_15 |
+			1 << FRAME_RATE_25 | 1 << FRAME_RATE_30),
+			.step = 1,
+			.default_value = FRAME_RATE_AUTO,
+	},
 };
 static int tcm9001_init(struct i2c_client *client);
 static int tcm9001_s_stream(struct v4l2_subdev *sd, int enable)
@@ -215,7 +228,7 @@ static int tcm9001_s_stream(struct v4l2_subdev *sd, int enable)
 		tcm9001_reg_read(client, 0xFF, &val);
 		val = val | 0x30;
 		tcm9001_reg_write(client, 0xFF, val);
-		printk(KERN_INFO "Disabling !!!!! STREAM from TCM9001 client \n\n");
+		printk(KERN_INFO "Disabling !!!!! STREAM from TCM9001 client\n");
 		/* Nothing to do */
 	}
 	return ret;
@@ -342,6 +355,9 @@ static int tcm9001_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	case V4L2_CID_CAMERA_EFFECT:
 		ctrl->value = tcm9001->colorlevel;
 		break;
+	case V4L2_CID_CAMERA_FRAME_RATE:
+		ctrl->value = tcm9001->framerate;
+		break;
 	}
 	return 0;
 }
@@ -389,6 +405,22 @@ static int tcm9001_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 		   color |= 0x7; */
 		printk(KERN_INFO "Writing color value 0x%x\n", color);
 		tcm9001_reg_write(client, 0xB4, color);
+	case V4L2_CID_CAMERA_FRAME_RATE:
+		tcm9001->framerate = ctrl->value;
+		switch (tcm9001->framerate) {
+		case FRAME_RATE_5:
+		/* case FRAME_RATE_7: */
+		case FRAME_RATE_10:
+		case FRAME_RATE_15:
+		case FRAME_RATE_20:
+		case FRAME_RATE_25:
+		case FRAME_RATE_30:
+		case FRAME_RATE_AUTO:
+		default:
+		printk(KERN_INFO "Framerate %d\n", tcm9001->framerate);
+		break;
+		}
+		break;
 	default:
 		break;
 	}
@@ -459,12 +491,12 @@ static struct soc_camera_ops tcm9001_ops = {
 };
 
 /* Init section */
-typedef struct {
+struct tcm9001_set {
 	u8 addr;
 	u8 val;
-} tcm9001_set;
+};
 
-static tcm9001_set tcm9001_init_regset[] = {
+static struct tcm9001_set tcm9001_init_regset[] = {
 	{0x00, 0x48},
 	{0x01, 0x10},
 	{0x02, 0xD8},		/*alcint_sekiout[7:0];*/
@@ -734,11 +766,10 @@ static tcm9001_set tcm9001_init_regset[] = {
 
 static int tcm9001_init(struct i2c_client *client)
 {
-	struct tcm9001 *tcm9001 = to_tcm9001(client);
 	int ret = 0;
 	int i;
 	u32 count = 0;
-	tcm9001_set *set;
+	struct tcm9001_set *set;
 	for (i = 0; i < ARRAY_SIZE(tcm9001_init_regset); i++) {
 		set = &tcm9001_init_regset[i];
 		count += i;
@@ -783,6 +814,7 @@ static int tcm9001_video_probe(struct soc_camera_device *icd,
 	tcm9001->brightness = 0;
 	tcm9001->contrast = 0x5B;
 	tcm9001->colorlevel = 0;
+	tcm9001->framerate = FRAME_RATE_AUTO;
 	tcm9001->i_size = TCM9001_SIZE_QVGA;
 	return 0;
 }
@@ -884,8 +916,6 @@ static int tcm9001_g_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *param)
 }
 static int tcm9001_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *param)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct tcm9001 *tcm9001 = to_tcm9001(client);
 	struct v4l2_captureparm *cparm;
 
 	if (param->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)

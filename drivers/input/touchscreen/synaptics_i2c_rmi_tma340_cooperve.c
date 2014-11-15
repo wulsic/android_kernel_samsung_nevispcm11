@@ -105,9 +105,9 @@ struct synaptics_ts_data {
 	struct early_suspend early_suspend;
 };
 
-
+#if defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)
 static int8_t Synaptics_Connected = 0;
-
+#endif
 
 struct synaptics_ts_data *ts_global;
 
@@ -121,6 +121,11 @@ unsigned char tsp_special_update = 0;
 unsigned char touch_vendor_id;
 unsigned char touch_hw_ver;
 unsigned char touch_sw_ver;
+
+// need to verify
+//#define TSP_VENDER_ID	0x0A
+//#define TSP_HW_VER1		0x11
+//#define TSP_SW_VER1		0x08
 
 int tsp_irq_num = 0;
 int tsp_workqueue_num = 0;
@@ -157,17 +162,18 @@ static void synaptics_ts_early_suspend(struct early_suspend *h);
 static void synaptics_ts_late_resume(struct early_suspend *h);
 #endif
 
+extern int bcm_gpio_pull_up(unsigned int gpio, bool up);
+extern int bcm_gpio_pull_up_down_enable(unsigned int gpio, bool enable);
 extern int irq_set_type(unsigned int irq, unsigned int type);
 
 #if defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)
 extern int Is_MMS128_Connected(void);
-#endif
 
 int Is_Synaptics_Connected(void)
 {
     return (int) Synaptics_Connected;
 }
-
+#endif
 
 void touch_ctrl_regulator(int on_off)
 {
@@ -191,10 +197,12 @@ void touch_ctrl_regulator(int on_off)
 	}
 	else
 	{
+		#if 1
 		gpio_request(TOUCH_EN,"Touch_en");
 		gpio_direction_output(TOUCH_EN,0);
 		gpio_set_value(TOUCH_EN,0);
 		gpio_free(TOUCH_EN);
+		#endif
 	}
 	#endif
 }
@@ -326,6 +334,13 @@ static void synaptics_ts_work_func(struct work_struct *work)
 		//	fingerInfo[1].y = 480 - fingerInfo[1].y;
 	}
 ************************/
+	//	print message
+//	for ( i= 0; i<MAX_USING_FINGER_NUM; i++ )
+//		printk("[TSP] finger[%d].x = %d, finger[%d].y = %d, finger[%d].z = %x, finger[%d].id = %x\n", i, fingerInfo[i].x, i, fingerInfo[i].y, i, fingerInfo[i].z, i, fingerInfo[i].id);
+
+	/* check key event*/
+//	if(fingerInfo[0].status != 1 && fingerInfo[1].status != 1)	//
+//		process_key_event(buf[0]);								//HASHTSK
 	if(finger == 0)
 	{
 		process_key_event(buf_key[0]);
@@ -479,13 +494,17 @@ int synaptics_ts_check(void)
 	if (ret <= 0) 
 	{
 		printk("[TSP][Synaptics][%s] %s\n", __func__,"Failed synpatics i2c");
+#if defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)	
 		Synaptics_Connected = 0;
+#endif
 		ret = 0;
 	}
 	else 
 	{
 		printk("[TSP][Synaptics][%s] %s\n", __func__,"Passed synpatics i2c");
+#if defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)	
 		Synaptics_Connected = 1;
+#endif
 
 		printk("[TSP][Synaptics][%s][SlaveAddress : 0x%x][VendorID : 0x%x] [HW : 0x%x] [SW : 0x%x]\n", __func__,ts_global->client->addr, buf_tmp[0], buf_tmp[1], buf_tmp[2]);
 
@@ -556,7 +575,7 @@ static int synaptics_ts_probe(
 
 	tsp_irq=client->irq;
 
-#if 1 //defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)
+#if defined (CONFIG_TOUCHSCREEN_MMS128_TASSCOOPER)
 	#if USE_THREADED_IRQ
 	msleep(100);
 	#endif
@@ -659,14 +678,14 @@ static int synaptics_ts_probe(
 		ts->timer.function = synaptics_ts_timer_func;
 		hrtimer_start(&ts->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
 	}
-
+#if 1
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	ts->early_suspend.suspend = synaptics_ts_early_suspend;
 	ts->early_suspend.resume = synaptics_ts_late_resume;
 	register_early_suspend(&ts->early_suspend);
 #endif
-
+#endif
 	printk(KERN_INFO "synaptics_ts_probe: Start touchscreen %s in %s mode\n", ts->input_dev->name, ts->use_irq ? "interrupt" : "polling");
 
 	/* sys fs */
@@ -736,6 +755,8 @@ static int synaptics_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	gpio_direction_output( TSP_SCL , 0 ); 
 	gpio_direction_output( TSP_SDA , 0 ); 
 
+	bcm_gpio_pull_up(TSP_INT, false);
+	bcm_gpio_pull_up_down_enable(TSP_INT, true);
 	touch_ctrl_regulator(TOUCH_OFF);
     printk("[TSP] %s-\n", __func__ );
         
@@ -755,12 +776,14 @@ static int synaptics_ts_resume(struct i2c_client *client)
 			printk(KERN_ERR "synaptics_ts_resume power on failed\n");
 	}
 #endif
+	//synaptics_init_panel(ts);
 
 	gpio_direction_output( TSP_SCL , 1 ); 
 	gpio_direction_output( TSP_SDA , 1 ); 
 	//gpio_direction_output( TSP_INT , 1 ); 
 
 	gpio_direction_input(TSP_INT);
+	bcm_gpio_pull_up_down_enable(TSP_INT, false);
 
 	touch_ctrl_regulator(TOUCH_ON);
     
@@ -843,8 +866,14 @@ static int __devinit synaptics_ts_init(void)
 
 	gpio_request(TSP_INT, "ts_irq");
 	gpio_direction_input(TSP_INT);
+	//bcm_gpio_pull_up(TSP_INT, true);
+	//bcm_gpio_pull_up_down_enable(TSP_INT, true);
 	irq_set_irq_type(gpio_to_irq(TSP_INT), IRQ_TYPE_EDGE_FALLING);
 
+	//disable BB internal pulls for touch int, scl, sda pin
+	//bcm_gpio_pull_up_down_enable(TSP_INT, 0);
+	bcm_gpio_pull_up_down_enable(TSP_SCL, 0);
+	bcm_gpio_pull_up_down_enable(TSP_SDA, 0);
 
 	gpio_direction_output( TSP_SCL , 1 ); 
 	gpio_direction_output( TSP_SDA , 1 ); 		
@@ -857,11 +886,31 @@ static int __devinit synaptics_ts_init(void)
 		return -ENOMEM;
 #endif
 
+#if 0
+	touch_regulator = regulator_get(NULL,"touch_vcc");
+#if defined (__TOUCH_KEYLED__)
+	touchkeyled_regulator = regulator_get(NULL,"touch_keyled");
+#endif
+#endif
 	return i2c_add_driver(&synaptics_ts_driver);
 }
 
 static void __exit synaptics_ts_exit(void)
 {
+#if 0
+	if (touch_regulator) 
+	{
+       	 regulator_put(touch_regulator);
+		 touch_regulator = NULL;
+    	}
+#if defined (__TOUCH_KEYLED__)
+	if (touchkeyled_regulator) 
+	{
+       	 regulator_put(touchkeyled_regulator);
+		 touchkeyled_regulator = NULL;
+    	}
+#endif
+#endif
 	i2c_del_driver(&synaptics_ts_driver);
 
 	#if USE_THREADED_IRQ

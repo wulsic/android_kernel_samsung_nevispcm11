@@ -41,6 +41,7 @@
 
 #include "rpc_debug.h"
 #include "rpc_wakelock.h"
+#include "ipc_bufferpool.h"
 
 #if defined(CNEON_COMMON) && defined(FUSE_APPS_PROCESSOR)
 #include "ostask.h"
@@ -89,8 +90,8 @@ typedef struct {
 	/* Flow control callback */
 	RPC_FlowControlCallbackFunc_t *flowControlCb;
 
-	/* Callback for CP reset process */
-	RPC_PACKET_CPResetCallbackFunc_t *cpResetCb;
+	/* Callback for RPC Notification */
+	RPC_PACKET_NotificationFunc_t *rpcNotificationFunc;
 
 	/* is client ready for CP reset? */
 	Boolean readyForCPReset;
@@ -98,8 +99,8 @@ typedef struct {
 	/* Callback for	interface buffer delivery */
 	RPC_PACKET_DataIndCallBackFunc_t *filterPktIndCb;
 
-	/* Callback for CP reset process */
-	RPC_PACKET_CPResetCallbackFunc_t *cpFilterResetCb;
+	/* Callback for RPC Notification */
+	RPC_PACKET_NotificationFunc_t *rpcFilterNotificationFunc;
 
 	/* is client ready for CP reset? */
 	Boolean filterReadyForCPReset;
@@ -133,6 +134,9 @@ static void RPC_FlowCntrl(IPC_BufferPool Pool, IPC_FlowCtrlEvent_T Event);
 static void RPC_BufferDelivery(IPC_Buffer bufHandle);
 Boolean RPC_SetProperty(RPC_PropType_t type, UInt32 value);
 static void RPC_IPC_APEndPointInit(void);
+static void RPC_FreeBufferPools(PACKET_InterfaceType_t interfaceType);
+static void RPC_PACKET_HandleNotification(
+	struct RpcNotificationEvent_t inEvent);
 
 #ifdef FUSE_COMMS_PROCESSOR
 #define RPC_PROP_VER		RPC_PROP_CP_VERSION
@@ -164,8 +168,8 @@ RPC_Result_t RPC_PACKET_RegisterDataInd(UInt8 rpcClientID,
 					dataIndFunc,
 					RPC_FlowControlCallbackFunc_t
 					flowControlCb,
-					RPC_PACKET_CPResetCallbackFunc_t
-					cpResetCb)
+					RPC_PACKET_NotificationFunc_t
+					rpcNtfFn)
 {
 	if (rpcClientID) {
 		/* Do nothing */
@@ -179,7 +183,7 @@ RPC_Result_t RPC_PACKET_RegisterDataInd(UInt8 rpcClientID,
 		ipcInfoList[interfaceType].isInit = TRUE;
 		ipcInfoList[interfaceType].flowControlCb = flowControlCb;
 		ipcInfoList[interfaceType].pktIndCb = dataIndFunc;
-		ipcInfoList[interfaceType].cpResetCb = cpResetCb;
+		ipcInfoList[interfaceType].rpcNotificationFunc = rpcNtfFn;
 		RPC_UNLOCK;
 		return RPC_RESULT_OK;
 	}
@@ -190,7 +194,8 @@ RPC_Result_t RPC_PACKET_RegisterFilterCbk(UInt8 rpcClientID,
 			PACKET_InterfaceType_t interfaceType,
 			RPC_PACKET_DataIndCallBackFunc_t
 			dataIndFunc,
-			RPC_PACKET_CPResetCallbackFunc_t cpResetCb)
+			RPC_PACKET_NotificationFunc_t
+			rpcNtfFn)
 {
 	if (rpcClientID) {
 		/* Do nothing */
@@ -201,7 +206,7 @@ RPC_Result_t RPC_PACKET_RegisterFilterCbk(UInt8 rpcClientID,
 		RPC_LOCK;
 		ipcInfoList[interfaceType].isInit = TRUE;
 		ipcInfoList[interfaceType].filterPktIndCb = dataIndFunc;
-		ipcInfoList[interfaceType].cpFilterResetCb = cpResetCb;
+		ipcInfoList[interfaceType].rpcFilterNotificationFunc = rpcNtfFn;
 		RPC_UNLOCK;
 		return RPC_RESULT_OK;
 	}
@@ -310,9 +315,9 @@ static void RPC_CreateBufferPool(PACKET_InterfaceType_t type, int channel_index)
 	val = ((channel_index << 16) | (type & 0xFFFF));
 
 	_DBG_(RPC_TRACE
-	      ("RPC_CreateBufferPool(%c) type:%d, index:%d, pool:%x\r\n",
-	       (gRpcProcType == RPC_COMMS) ? 'C' : 'A', type, channel_index,
-	       ipcInfoList[type].ipc_buf_pool[channel_index]));
+		("RPC_CreateBufferPool(%c) type:%d, index:%d, pool:%x\r\n",
+		(gRpcProcType == RPC_COMMS) ? 'C' : 'A', type, channel_index,
+		ipcInfoList[type].ipc_buf_pool[channel_index]));
 
 	xassert((void *)(ipcInfoList[type].ipc_buf_pool[channel_index]) != NULL,
 		val);
@@ -660,16 +665,24 @@ void CheckReadyForCPReset(void)
 		_DBG_(RPC_TRACE("CheckReadyForCPReset done\n"));
 		/* ready for start CP reset, so notify IPC here */
 		IPCAP_ReadyForReset(sIPCResetClientId);
+
+		for (currIF = INTERFACE_START; currIF < INTERFACE_TOTAL;
+				currIF++) {
+			_DBG_(RPC_TRACE
+				("freeing buffer pools for IF%d\n",
+				currIF));
+			RPC_FreeBufferPools(currIF);
+		}
 	}
 }
 
 /* callback from IPC to indicate status of CP reset process */
-void RPC_PACKET_CPResetHandler(IPC_CPResetEvent_t inEvent)
+void RPC_PACKET_RPCNotificationHandler(IPC_CPResetEvent_t inEvent)
 {
-	RPC_CPResetEvent_t rpcEvent;
+	struct RpcNotificationEvent_t rpcEvent;
 	PACKET_InterfaceType_t currIF;
 
-	_DBG_(RPC_TRACE("RPC_PACKET_CPResetHandler\n"));
+	_DBG_(RPC_TRACE("RPC_PACKET_RPCNotificationHandler\n"));
 
 	sCPResetting = (inEvent == IPC_CPRESET_START);
 
@@ -695,39 +708,47 @@ void RPC_PACKET_CPResetHandler(IPC_CPResetEvent_t inEvent)
 
 	sIsNotifyingCPReset = TRUE;
 
-	rpcEvent = (inEvent == IPC_CPRESET_START) ?
+	rpcEvent.event = RPC_CPRESET_EVT;
+	rpcEvent.param = (inEvent == IPC_CPRESET_START) ?
 			RPC_CPRESET_START :
 			RPC_CPRESET_COMPLETE;
-	RPC_PACKET_HandleNotifyCPReset(rpcEvent);
+	RPC_PACKET_HandleNotification(rpcEvent);
 
 	sIsNotifyingCPReset = FALSE;
 
 	if (inEvent == IPC_CPRESET_START)
 		CheckReadyForCPReset();
 
-	_DBG_(RPC_TRACE("exit RPC_PACKET_CPResetHandler\n"));
+	_DBG_(RPC_TRACE("exit RPC_PACKET_RPCNotificationHandler\n"));
 }
 
 /* called to initiate notification of clients of start of CP reset */
-void RPC_PACKET_HandleNotifyCPReset(RPC_CPResetEvent_t inEvent)
+static void RPC_PACKET_HandleNotification(
+	struct RpcNotificationEvent_t inEvent)
 {
+	struct RpcNotificationEvent_t rpcNtfEvt;
 	PACKET_InterfaceType_t currIF;
 
+	rpcNtfEvt.event = inEvent.event;
+	rpcNtfEvt.param = inEvent.param;
 	for (currIF = INTERFACE_START; currIF < INTERFACE_TOTAL; currIF++)
 		if (ipcInfoList[currIF].isInit) {
-			if (ipcInfoList[currIF].cpResetCb) {
+			if (ipcInfoList[currIF].rpcNotificationFunc) {
 				_DBG_(RPC_TRACE
-				 ("RPC_PACKET_HandleNotifyCPReset\n"));
+				 ("RPC_PACKET_HandleNotification\n"));
 				_DBG_(RPC_TRACE("  notify IF %d\n", currIF));
-				ipcInfoList[currIF].cpResetCb(inEvent, currIF);
+				rpcNtfEvt.ifType = currIF;
+			ipcInfoList[currIF].rpcNotificationFunc(
+				rpcNtfEvt);
 			}
-			if (ipcInfoList[currIF].cpFilterResetCb) {
+			if (ipcInfoList[currIF].rpcFilterNotificationFunc) {
 				_DBG_(RPC_TRACE
-					("RPC_PACKET_HandleNotifyCPReset\n"));
+					("RPC_PACKET_HandleNotification\n"));
 				_DBG_(RPC_TRACE("  notify fltr IF %d\n",
 								 currIF));
-				ipcInfoList[currIF].cpFilterResetCb(inEvent,
-								    currIF);
+				rpcNtfEvt.ifType = currIF;
+			ipcInfoList[currIF].rpcFilterNotificationFunc(
+					rpcNtfEvt);
 			}
 		}
 }
@@ -735,7 +756,7 @@ void RPC_PACKET_HandleNotifyCPReset(RPC_CPResetEvent_t inEvent)
 /*
  * called when client of interfaceType is ready for silent CP reset;
  * expected to be called at some point after client's registered
- * RPC_PACKET_CPResetCallbackFunc_t is called.
+ * RPC_PACKET_NotificationFunc_t is called.
  */
 void RPC_PACKET_AckReadyForCPReset(UInt8 rpcClientID,
 				PACKET_InterfaceType_t interfaceType)
@@ -773,15 +794,15 @@ void RPC_PACKET_FilterAckReadyForCPReset(UInt8 rpcClientID,
 static void RPC_FlowCntrl(IPC_BufferPool Pool, IPC_FlowCtrlEvent_T Event)
 {
 	IPC_EndpointId_T epId = IPC_PoolSourceEndpointId(Pool);
-	PACKET_InterfaceType_t type = GetInterfaceType(epId);
+	Int8 type = GetInterfaceType(epId);
 	Int8 pool_index;
 
 	if (type != -1) {
 		pool_index =
 		    rpcGetPoolIndex((PACKET_InterfaceType_t) type, Pool);
 
-		if (ipcInfoList[type].flowControlCb != NULL)
-			ipcInfoList[type].
+		if (ipcInfoList[(int)type].flowControlCb != NULL)
+			ipcInfoList[(int)type].
 			    flowControlCb((Event ==
 					   IPC_FLOW_START) ? RPC_FLOW_START :
 					  RPC_FLOW_STOP,
@@ -795,6 +816,24 @@ static void RPC_FlowCntrl(IPC_BufferPool Pool, IPC_FlowCtrlEvent_T Event)
 
 }
 
+/* Frees all buffer pools for the interface type. */
+static void RPC_FreeBufferPools(PACKET_InterfaceType_t interfaceType)
+{
+	int index;
+	for (index = 0; index < MAX_CHANNELS; index++) {
+		if (ipcInfoList[interfaceType].ipc_buf_pool[index] != 0) {
+			IPC_PoolDelete(ipcInfoList
+						[interfaceType].
+						ipc_buf_pool[index]);
+		_DBG_(RPC_TRACE
+				("RPC_FreeBufferPools(%c) i=%d\n",
+				(gRpcProcType == RPC_COMMS) ? 'C' : 'A',
+				(int)interfaceType));
+		}
+	}
+
+}
+
 #ifdef USE_KTHREAD_HANDOVER
 static int rpcKthreadFn(MsgQueueHandle_t *mHandle, void *data)
 {
@@ -802,17 +841,17 @@ static int rpcKthreadFn(MsgQueueHandle_t *mHandle, void *data)
 	RPC_Result_t result = RPC_RESULT_ERROR;
 	UInt8 *pCid = (UInt8 *) IPC_BufferHeaderPointer(bufHandle);
 	IPC_EndpointId_T destId = IPC_BufferDestinationEndpointId(bufHandle);
-	PACKET_InterfaceType_t type = GetInterfaceType(destId);
+	Int8 type = GetInterfaceType(destId);
 
 /*	_DBG_(RPC_TRACE
 	      ("RPC_BufferDelivery PROCESS mHandle=%x event=%d\n", (int)mHandle,
 	       (int)data));*/
 
-	if (ipcInfoList[type].filterPktIndCb != NULL) {
+	if (ipcInfoList[(int)type].filterPktIndCb != NULL) {
 		RpcDbgUpdatePktState((int)bufHandle, PKT_STATE_RPC_PROCESS);
 
 		result =
-		    ipcInfoList[type].
+		    ipcInfoList[(int)type].
 		    filterPktIndCb((PACKET_InterfaceType_t)
 				   type, (UInt8) pCid[0], (PACKET_BufHandle_t)
 				   bufHandle);
@@ -881,17 +920,17 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 	RPC_Result_t result = RPC_RESULT_ERROR;
 	UInt8 *pCid = (UInt8 *) IPC_BufferHeaderPointer(bufHandle);
 	IPC_EndpointId_T destId = IPC_BufferDestinationEndpointId(bufHandle);
-	PACKET_InterfaceType_t type = GetInterfaceType(destId);
+	int type = GetInterfaceType(destId);
 	PACKET_BufHandle_t  pktBufHandle = (PACKET_BufHandle_t)bufHandle;
 
 	if (type == -1 || pCid == NULL) {
 		IPC_FreeBuffer(bufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery FAIL pkt=%d t=%d cid=%d",
-				pktBufHandle, (int)type, pCid));
+				pktBufHandle, type, pCid));
 		return;
 	}
 	pInfo = &ipcInfoList[type];
-	ifType = type;
+	ifType = (PACKET_InterfaceType_t)type;
 	if (pInfo->pktIndCb == NULL && pInfo->filterPktIndCb == NULL) {
 		IPC_FreeBuffer(bufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery FAIL No Cbk pkt=%d\r\n",
@@ -921,7 +960,7 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 	}
 
 	if (pInfo->pktIndCb != NULL && isReservedPkt == 0)
-		result = pInfo->pktIndCb(type,
+		result = pInfo->pktIndCb((PACKET_InterfaceType_t)type,
 					(UInt8) pCid[0], pktBufHandle);
 
 	if (result == RPC_RESULT_PENDING)
@@ -929,14 +968,14 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 
 	if (pInfo->filterPktIndCb == NULL) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket(type, pktBufHandle);
+		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
 		return;	/* net or vt interface pkt come here */
 	}
 #ifdef USE_KTHREAD_HANDOVER
 	if (isReservedPkt &&
 		MsgQueueCount(&rpcMQhandle) >= CFG_RPC_CMD_MAX_PACKETS) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket(type, pktBufHandle);
+		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery(rz) RpcQ FULL h=%d c=%d\n",
 		       (int)bufHandle, MsgQueueCount(&rpcMQhandle)));
 		return;
@@ -947,7 +986,7 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 
 	if (ret != 0) {
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket(type, pktBufHandle);
+		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery Queue FAIL h=%d r=%d\n",
 					       (int)bufHandle, ret));
 		return;
@@ -959,21 +998,23 @@ static void RPC_BufferDelivery(IPC_Buffer bufHandle)
 #else
 	/* If using workerqueue instead of tasklet,
 	filterPktIndCb can be called directly */
-	result = pInfo->filterPktIndCb(type,
+	result = pInfo->filterPktIndCb((PACKET_InterfaceType_t)type,
 					(UInt8) pCid[0],
 					(PACKET_BufHandle_t)
 					bufHandle);
+#endif
 
 	/* If Packet not consumed by secondary client then return */
 
 	if (result != RPC_RESULT_PENDING) {
+		/* Packet was never consumed */
+		/* coverity [dead_error_line] */
 		IPC_FreeBuffer(bufHandle);
-		rpcLogFreePacket(type, pktBufHandle);
+		rpcLogFreePacket((PACKET_InterfaceType_t)type, pktBufHandle);
 		_DBG_(RPC_TRACE("RPC_BufferDelivery filterCb FAIL h=%d r=%d\n",
 		       (int)bufHandle, ret));
 		return;
 	}
-#endif
 
 	_DBG_(RPC_TRACE("RPC_BufferDelivery filterCb OK h=%d\n",
 			(int)bufHandle));
@@ -1255,15 +1296,10 @@ for (itype = INTERFACE_START; itype < INTERFACE_TOTAL; itype++) {
 	sIsNotifyingCPReset = FALSE;
 	/* register notification handler for silent CP reset */
 	sIPCResetClientId = IPCAP_RegisterCPResetHandler(
-				RPC_PACKET_CPResetHandler);
+				RPC_PACKET_RPCNotificationHandler);
 
 	rpc_wake_lock_init();
 	recvRpcPkts = 0;
 	freeRpcPkts = 0;
 	return RPC_RESULT_OK;
-}
-
-void d2083_set_adc_rpc(UInt32 result)
-{
-	RPC_SetProperty(RPC_PROP_ADC_MEASUREMENT, result);
 }

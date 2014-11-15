@@ -23,5 +23,4 @@
  * HAL doesn't expect interrupt. Otherwise Android will hang */
 #undef AL3006_IRQ
 
-
 #endif /* _AL3006_I2C_SETTINGS_H_ */

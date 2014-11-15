@@ -2,7 +2,7 @@
 //--------------------------------------------------------
 //
 //
-//	Melfas MCS8000 Series Download base v1.0 2010.04.05
+//      Melfas MCS8000 Series Download base v1.0 2010.04.05
 //
 //
 //--------------------------------------------------------
@@ -10,11 +10,9 @@
 #ifndef __MELFAS_DOWNLOAD_PORTING_H_INCLUDED__
 #define __MELFAS_DOWNLOAD_PORTING_H_INCLUDED__
 
-
-
 //============================================================
 //
-//	Porting order
+//      Porting order
 //
 //============================================================
 /*
@@ -45,20 +43,19 @@
 
 //============================================================
 //
-//	Type define
+//      Type define
 //
 //============================================================
 
-typedef char				INT8;
-typedef unsigned char		UINT8;
-//typedef unsigned char		uint8_t;
-typedef short				INT16;
-typedef unsigned short		UINT16;
-//typedef unsigned short	uint16_t;
-typedef int					INT32;
-typedef unsigned int		UINT32;
-typedef unsigned char		BOOLEAN;
-
+typedef char INT8;
+typedef unsigned char UINT8;
+//typedef unsigned char         uint8_t;
+typedef short INT16;
+typedef unsigned short UINT16;
+//typedef unsigned short        uint16_t;
+typedef int INT32;
+typedef unsigned int UINT32;
+typedef unsigned char BOOLEAN;
 
 #ifndef TRUE
 #define TRUE 				(1==1)
@@ -75,11 +72,9 @@ typedef unsigned char		BOOLEAN;
 #define PRESS_KEY           1
 #define RELEASE_KEY         0
 
-
-
 //============================================================
 //
-//	Porting Download Options
+//      Porting Download Options
 //
 //============================================================
 
@@ -87,101 +82,91 @@ typedef unsigned char		BOOLEAN;
 #define MELFAS_ENABLE_DBG_PRINT											1
 #define MELFAS_ENABLE_DBG_PROGRESS_PRINT								1
 
-
-
 extern void touch_ctrl_regulator_mms128(int on_off);
-#define GPIO_TSP_LDO   //GPIO NUM
-#define GPIO_TOUCH_INT 121 //GPIO NUM
-#define GPIO_TSP_SCL   26 //GPIO NUM
-#define GPIO_TSP_SDA   27 //GPIO NUM
-#define GPIO_TOUCH_EN 22
+#define GPIO_TSP_LDO		//GPIO NUM
+#define GPIO_TOUCH_INT 121	//GPIO NUM
+#define GPIO_TSP_SCL   87	//GPIO NUM
+#define GPIO_TSP_SDA   86	//GPIO NUM
+#define TOUCH_EN 22
 
 //----------------
 // VDD
 //----------------
-#define mcsdl_vdd_on()                   /*HERE~!*/    /*example:  touch_ctrl_regulator_mms128(1)*/
-#define mcsdl_vdd_off()                  /*HERE~!*/   /*example:   touch_ctrl_regulator_mms128(0)*/
+#define mcsdl_vdd_on()                  touch_ctrl_regulator_mms128(1)
+#define mcsdl_vdd_off()                 touch_ctrl_regulator_mms128(0)
 
-#define MCSDL_VDD_SET_HIGH()             /*HERE~!*/   /*example:   mcsdl_vdd_on()*/
-#define MCSDL_VDD_SET_LOW()              /*HERE~!*/  /*example:  mcsdl_vdd_off()*/
-
+#define MCSDL_VDD_SET_HIGH()            mcsdl_vdd_on()
+#define MCSDL_VDD_SET_LOW()             mcsdl_vdd_off()
 
 //----------------
 // RESETB ==> Interrupt Signal
 //----------------
-#define MCSDL_RESETB_SET_HIGH()             		/*HERE~!*/  /*example: gpio_direction_output(GPIO_TOUCH_INT, 1)*/
-#define MCSDL_RESETB_SET_LOW()              		/*HERE~!*/  /*example: gpio_direction_output(GPIO_TOUCH_INT, 0)*/
-#define MCSDL_RESETB_SET_OUTPUT(n)           		/*HERE~!*/  /*example: gpio_direction_output(GPIO_TOUCH_INT, n)*/
-#define MCSDL_RESETB_SET_INPUT()            		/*HERE~!*/  /*example: gpio_direction_input(GPIO_TOUCH_INT)*/
-#define MCSDL_RESETB_SET_ALT()  	                // Nothing
+#define MCSDL_RESETB_SET_HIGH()             		gpio_direction_output(GPIO_TOUCH_INT, 1)
+#define MCSDL_RESETB_SET_LOW()              		gpio_direction_output(GPIO_TOUCH_INT, 0)
+#define MCSDL_RESETB_SET_OUTPUT(n)           		gpio_direction_output(GPIO_TOUCH_INT, n)
+#define MCSDL_RESETB_SET_INPUT()            		gpio_direction_input(GPIO_TOUCH_INT)
+#define MCSDL_RESETB_SET_ALT()	// Nothing
 
-#define MCSDL_GPIO_RESETB_IS_HIGH()		/*HERE~!*/  /*example: ((gpio_get_value(GPIO_TOUCH_INT) > 0) ? 1 : 0)*/
+#define MCSDL_GPIO_RESETB_IS_HIGH()		((gpio_get_value(GPIO_TOUCH_INT) > 0) ? 1 : 0)
 
-#define IRQ_TOUCH_INT     // Nothing  (IRQ_EINT_GROUP3_BASE+1)
-
+#define IRQ_TOUCH_INT		// Nothing  (IRQ_EINT_GROUP3_BASE+1)
 
 //------------------
 // I2C SCL & SDA
 //------------------
 
-#define MCSDL_GPIO_SCL_SET_HIGH()					/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SCL, 1)*/
-#define MCSDL_GPIO_SCL_SET_LOW()					/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SCL, 0)*/
+#define MCSDL_GPIO_SCL_SET_HIGH()					gpio_direction_output(GPIO_TSP_SCL, 1)
+#define MCSDL_GPIO_SCL_SET_LOW()					gpio_direction_output(GPIO_TSP_SCL, 0)
 
-#define MCSDL_GPIO_SDA_SET_HIGH()					/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SDA, 1)*/
-#define MCSDL_GPIO_SDA_SET_LOW()					/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SDA, 0)*/
+#define MCSDL_GPIO_SDA_SET_HIGH()					gpio_direction_output(GPIO_TSP_SDA, 1)
+#define MCSDL_GPIO_SDA_SET_LOW()					gpio_direction_output(GPIO_TSP_SDA, 0)
 
-#define MCSDL_GPIO_SCL_SET_OUTPUT(n)				/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SCL, n)*/
-#define MCSDL_GPIO_SCL_SET_INPUT()					/*HERE~!*/  /*example: gpio_direction_input(GPIO_TSP_SCL)*/
-#define MCSDL_GPIO_SCL_SET_ALT()		            // Nothing
+#define MCSDL_GPIO_SCL_SET_OUTPUT(n)				gpio_direction_output(GPIO_TSP_SCL, n)
+#define MCSDL_GPIO_SCL_SET_INPUT()					gpio_direction_input(GPIO_TSP_SCL)
+#define MCSDL_GPIO_SCL_SET_ALT()	// Nothing
 
-#define MCSDL_GPIO_SDA_SET_OUTPUT(n)				/*HERE~!*/  /*example: gpio_direction_output(GPIO_TSP_SDA, n)*/
-#define MCSDL_GPIO_SDA_SET_INPUT()					/*HERE~!*/  /*example: gpio_direction_input(GPIO_TSP_SDA)*/
-#define MCSDL_GPIO_SDA_SET_ALT()		            // Nothing
+#define MCSDL_GPIO_SDA_SET_OUTPUT(n)				gpio_direction_output(GPIO_TSP_SDA, n)
+#define MCSDL_GPIO_SDA_SET_INPUT()					gpio_direction_input(GPIO_TSP_SDA)
+#define MCSDL_GPIO_SDA_SET_ALT()	// Nothing
 
-#define MCSDL_GPIO_SDA_IS_HIGH()					/*HERE~!*/  /*example: ((gpio_get_value(GPIO_TSP_SDA) > 0) ? 1 : 0)*/
-
-
+#define MCSDL_GPIO_SDA_IS_HIGH()					((gpio_get_value(GPIO_TSP_SDA) > 0) ? 1 : 0)
 
 //============================================================
 //
-//	Defence External Effect
+//      Defence External Effect
 //
 //============================================================
-#define MELFAS_DISABLE_BASEBAND_ISR()				// Nothing
-#define MELFAS_DISABLE_WATCHDOG_TIMER_RESET()		// Nothing
+#define MELFAS_DISABLE_BASEBAND_ISR()	// Nothing
+#define MELFAS_DISABLE_WATCHDOG_TIMER_RESET()	// Nothing
 
-#define MELFAS_ROLLBACK_BASEBAND_ISR()				// Nothing
-#define MELFAS_ROLLBACK_WATCHDOG_TIMER_RESET()		// Nothing
-
-
-
-
+#define MELFAS_ROLLBACK_BASEBAND_ISR()	// Nothing
+#define MELFAS_ROLLBACK_WATCHDOG_TIMER_RESET()	// Nothing
 
 //============================================================
 //
-//	TSP Information
+//      TSP Information
 //
 //============================================================
 #define TS_MELFAS_VENDOR_NAME      "MELFAS"
 #define TS_MELFAS_VENDOR_CHIP_NAME "MMS100"
-#define TS_MELFAS_VENDOR_ID        0x00     /*HERE~!*/ 
-#define TS_MELFAS_MODULE_REV       0x00     /*HERE~!*/ 
-#define TS_MELFAS_FIRMWARE_VER     0x00     /*HERE~!*/ 
+#define TS_MELFAS_VENDOR_ID        0x00
+#define TS_MELFAS_MODULE_REV       0x00
+#define TS_MELFAS_FIRMWARE_VER     0x00
 
-#define TS_MAX_X_COORD 480  /*HERE~!*/  /*example: 320	*/
-#define TS_MAX_Y_COORD 800  /*HERE~!*/  /*example: 480	*/
-#define TS_MAX_Z_TOUCH 255  /*HERE~!*/  /*example: 255  */
-#define TS_MAX_W_TOUCH 30  /*HERE~!*/  /*example: 30   */
-#define TS_MAX_TOUCH 2   /*HERE~!*/  /*example:  5 */
+#define TS_MAX_X_COORD  320	//240
+#define TS_MAX_Y_COORD  480	//320
+#define TS_MAX_Z_TOUCH  255
+#define TS_MAX_W_TOUCH  30
+#define TS_MAX_TOUCH    2	//5
 
-#define TS_MELFAS_SENSING_CHANNEL_NUM  /*HERE~!*/  /*example: 10 */
-#define TS_MELFAS_EXCITING_CHANNEL_NUM /*HERE~!*/  /*example: 15	 */
+#define TS_MELFAS_SENSING_CHANNEL_NUM  10
+#define TS_MELFAS_EXCITING_CHANNEL_NUM 15	//14
 
 //============================================================
 //
-//	Delay parameter setting
+//      Delay parameter setting
 //
-//	These are used on 'mcsdl_delay()'
+//      These are used on 'mcsdl_delay()'
 //
 //============================================================
 
@@ -213,29 +198,21 @@ extern void touch_ctrl_regulator_mms128(int on_off);
 #define MCSDL_DELAY_80MS		80000
 #define MCSDL_DELAY_100MS		100000
 
-//#define __MMS128S_TEST__
-#ifdef __MMS128S_TEST__
-#define MCSDL_DELAY_500MS						   500000
-#endif
-
-
-
 /* Touch Screen Interface Specification Multi Touch (V0.5) */
 /* REGISTERS */
-#define MCSTS_STATUS_REG        0x00 //Status
-#define MCSTS_MODE_CONTROL_REG  0x01 //Mode Control
-#define MCSTS_RESOL_HIGH_REG    0x02 //Resolution(High Byte)
-#define MCSTS_RESOL_X_LOW_REG   0x08 //Resolution(X Low Byte)
-#define MCSTS_RESOL_Y_LOW_REG	 0x0A //Resolution(Y Low Byte)
-#define MCSTS_INPUT_INFO_REG    0x10 //Input Information
-#define MCSTS_POINT_HIGH_REG    0x11 //Point(High Byte)
-#define MCSTS_POINT_X_LOW_REG   0x12 //Point(X Low Byte)
-#define MCSTS_POINT_Y_LOW_REG   0x13 //Point(Y Low Byte)
+#define MCSTS_STATUS_REG        0x00	//Status
+#define MCSTS_MODE_CONTROL_REG  0x01	//Mode Control
+#define MCSTS_RESOL_HIGH_REG    0x02	//Resolution(High Byte)
+#define MCSTS_RESOL_X_LOW_REG   0x08	//Resolution(X Low Byte)
+#define MCSTS_RESOL_Y_LOW_REG	 0x0A	//Resolution(Y Low Byte)
+#define MCSTS_INPUT_INFO_REG    0x10	//Input Information
+#define MCSTS_POINT_HIGH_REG    0x11	//Point(High Byte)
+#define MCSTS_POINT_X_LOW_REG   0x12	//Point(X Low Byte)
+#define MCSTS_POINT_Y_LOW_REG   0x13	//Point(Y Low Byte)
 #define MCSTS_WIDTH_REG      0x14	//Width
 #define MCSTS_STRENGTH_REG      0x15	//Strength
-#define MCSTS_VENDOR_ID_REG    0x1B //Vendor ID
-#define MCSTS_MODULE_VER_REG    0x1C //H/W Module Revision
-#define MCSTS_FIRMWARE_VER_REG  0x1D //F/W Version
+#define MCSTS_VENDOR_ID_REG    0x1B	//Vendor ID
+#define MCSTS_MODULE_VER_REG    0x1C	//H/W Module Revision
+#define MCSTS_FIRMWARE_VER_REG  0x1D	//F/W Version
 
 #endif
-

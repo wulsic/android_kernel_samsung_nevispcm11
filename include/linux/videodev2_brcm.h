@@ -102,7 +102,6 @@ enum v4l2_photometry_mode {
 /* CID Extensions for camera sensor operations */
 #define V4L2_CID_CAM_PREVIEW_ONOFF		(V4L2_CID_PRIVATE_BASE + 30)
 #define V4L2_CID_CAM_CAPTURE			(V4L2_CID_PRIVATE_BASE + 31)
-#define V4L2_CID_CAM_SET_MODE			 V4L2_CID_CAM_CAPTURE
 #define V4L2_CID_CAM_JPEG_MEMSIZE		(V4L2_CID_PRIVATE_BASE + 32)
 
 #define V4L2_CID_CAM_DATE_INFO_YEAR		(V4L2_CID_PRIVATE_BASE + 33)
@@ -156,9 +155,9 @@ enum v4l2_jpeg_quality{
 #define V4L2_CID_CAMERA_VT_MODE			(V4L2_CID_PRIVATE_BASE + 61)
 enum cam_vt_mode {
 	CAM_VT_MODE_BASE = 0,
-	CAM_VT_MODE_NONE ,
 	CAM_VT_MODE_3G ,
 	CAM_VT_MODE_VOIP ,
+	CAM_VT_MODE_SMART_STAY ,
 	CAM_VT_MODE_MAX
 };
 
@@ -228,7 +227,7 @@ enum v4l2_ev_mode {
 	EV_PLUS_2,
 	EV_PLUS_3,
 	EV_PLUS_4,
-	EV_MINUS_1_5, //aska modify
+	EV_MINUS_1_5,
 	EV_MINUS_0_5,
 	EV_PLUS_0_5,
 	EV_PLUS_1_5,
@@ -354,19 +353,11 @@ enum v4l2_touch_af {
 	TOUCH_AF_MAX,
 };
 
-typedef struct
-{
-#ifdef CONFIG_MACH_RHEA_STONE_EDN2X
-    int  x;
-	int  y;
-	int  w;
-	int  h;           
-#else
+typedef struct {
 	int  leftTopX;
 	int  leftTopY;
 	int  rightBottomX;
-	int  rightBottomY;
-#endif
+	int  rightBottomY;           
 	int weight;
 }v4l2_touch_area;
 
@@ -446,9 +437,8 @@ enum v4l2_auto_focus {
 	AUTO_FOCUS_OFF,
 	AUTO_FOCUS_ON,
 	AUTO_FOCUS_MAX,
-	AUTO_FOCUS_1ST_CANCEL,
-	AUTO_FOCUS_2ND_CANCEL,
-	AUTO_FOCUS_STOP,
+	AUTO_FOCUS_1ST_CANCEL,/*  used in AF cancel */
+	AUTO_FOCUS_2ND_CANCEL,/*  used in AF cancel */
 };
 
 #define V4L2_CID_CAMERA_BEAUTY_SHOT		(V4L2_CID_PRIVATE_BASE + 96)
@@ -570,8 +560,7 @@ enum v4l2_slow_ae_mode {
 
 #define V4L2_CID_CAMERA_RESET			(V4L2_CID_PRIVATE_BASE + 112)
 #define V4L2_CID_CAMERA_CHECK_DATALINE		(V4L2_CID_PRIVATE_BASE + 113)
-enum v4l2_check_dataline
-{
+enum v4l2_check_dataline {
 	CHK_DATALINE_OFF =0,
 	CHK_DATALINE_ON,
 
@@ -592,8 +581,7 @@ enum v4l2_sensor_mode {
 #define V4L2_CID_CAMERA_RETURN_FOCUS		(V4L2_CID_PRIVATE_BASE + 120)
 #define V4L2_CID_CAMERA_FLASH_CONTROL		(V4L2_CID_PRIVATE_BASE + 121)
 
-enum v4l2_flash_control
-{
+enum v4l2_flash_control {
 	FLASH_CONTROL_BASE = 0,
 	FLASH_CONTROL_OFF,
 	FLASH_CONTROL_LOW_LEVEL,
@@ -610,8 +598,7 @@ enum v4l2_flash_control
 #define V4L2_CID_CAMERA_DEFAULT_FOCUS_POSITION	(V4L2_CID_PRIVATE_BASE + 127)
 #define V4L2_CID_CAMERA_SET_AF_PREFLASH		(V4L2_CID_PRIVATE_BASE + 128)
 
-enum v4l2_af_preflash
-{
+enum v4l2_af_preflash {
 	PREFLASH_OFF =0,
 	PREFLASH_ON,
 };
@@ -625,6 +612,7 @@ enum v4l2_af_preflash
 #define V4L2_CID_CAMERA_INITIALIZE			(V4L2_CID_PRIVATE_BASE + 134)
 
 #define V4L2_CID_CAMERA_READ_MODE_CHANGE_REG		(V4L2_CID_PRIVATE_BASE + 135)
+#define V4L2_CID_CAM_SET_MODE			 	(V4L2_CID_PRIVATE_BASE + 136)
 
 
 struct v4l2_exif_sensor_info {

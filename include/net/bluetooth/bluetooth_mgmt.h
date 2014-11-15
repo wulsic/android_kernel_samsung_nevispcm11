@@ -88,7 +88,6 @@ int bt_printk(const char *level, const char *fmt, ...);
 #define BT_INFO(fmt, arg...)   bt_printk(KERN_INFO, pr_fmt(fmt), ##arg)
 #define BT_ERR(fmt, arg...)    bt_printk(KERN_ERR, pr_fmt(fmt), ##arg)
 #define BT_DBG(fmt, arg...)    pr_debug(fmt "\n", ##arg)
-//#define BT_DBG(fmt, arg...)   bt_printk(KERN_ERR, "[%s]" pr_fmt(fmt),__FUNCTION__, ##arg)
 
 /* Connection and socket states */
 enum {
@@ -224,7 +223,7 @@ extern void bt_sysfs_cleanup(void);
 
 extern struct dentry *bt_debugfs;
 
-#ifdef CONFIG_BT_L2CAP
+#ifdef CONFIG_BT_MGMT
 int l2cap_init(void);
 void l2cap_exit(void);
 #else
@@ -238,7 +237,7 @@ static inline void l2cap_exit(void)
 }
 #endif
 
-#ifdef CONFIG_BT_SCO
+#ifdef CONFIG_BT_MGMT
 int sco_init(void);
 void sco_exit(void);
 #else

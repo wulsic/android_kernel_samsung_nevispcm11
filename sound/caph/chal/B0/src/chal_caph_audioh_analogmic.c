@@ -43,7 +43,6 @@
 #include <mach/rdb/brcm_rdb_aci.h>
 #include <mach/rdb/brcm_rdb_auxmic.h>
 #include <mach/rdb/brcm_rdb_padctrlreg.h>
-#include "audio_trace.h"
 
 /****************************************************************************
 *                        G L O B A L   S E C T I O N
@@ -154,10 +153,7 @@ cVoid chal_audio_mic_pga(CHAL_HANDLE handle, int gain)
 	cUInt32 reg_val;
 
 	reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-	aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [org] = 0x%lx\n", __func__, reg_val);
 	reg_val &= ~AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_GAINCTRL_MASK;
-
-	aTrace(LOG_AUDIO_CNTLR, "%s: mic_pga = 0x%02x\n", __func__, gain);
 
 	if (gain > 0x3f)
 		gain = 0x3f;
@@ -166,13 +162,7 @@ cVoid chal_audio_mic_pga(CHAL_HANDLE handle, int gain)
 
 	reg_val |= (gain << AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_GAINCTRL_SHIFT);
 
-	aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 / reg_val = 0x%lx\n", __func__, reg_val);
-
 	BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
-
-	reg_val = 0;
-	reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-	aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
 
 	return;
 }
@@ -208,9 +198,6 @@ cVoid chal_audio_vinpath_mute(CHAL_HANDLE handle, Boolean mute_ctrl)
 
 	BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
 
-	reg_val = 0;
-	reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-	aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
 }
 
 /*============================================================================
@@ -240,9 +227,6 @@ cVoid chal_audio_mic_mute(CHAL_HANDLE handle, Boolean mute_ctrl)
 
 	BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
 
-	reg_val = 0;
-	reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-	aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
 }
 
 /*============================================================================
@@ -325,31 +309,35 @@ cVoid chal_audio_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		remain '1' until N wants to use the 0.4V MIC bias feature to
 		further reduce current consumption.
 		*/
+
+		/* Set 'i_mic_en' t to (2.1V). */
+		reg_val = (AUDIOH_AUDIORX_VMIC_AUDIORX_MIC_EN_MASK);
+		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VMIC, reg_val);
+
 		/* Set i_VREF_pwrup(1), i_VREF_FastSettle (1) */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VREF);
 		reg_val |= (AUDIOH_AUDIORX_VREF_AUDIORX_VREF_PWRUP_MASK);
 		reg_val |= (AUDIOH_AUDIORX_VREF_AUDIORX_VREF_FASTSETTLE_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VREF, reg_val);
 
-		/* Set i_VRX_RCM(01111) */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
+		/* Power up the PGA and ADC path via i_VRX_pwrdn(0) and
+		i_VRX_cmbuf_pwrdn(0) */
+		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_PWRDN_MASK);
+		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_CMBUF_PWRDN_MASK);
+		/* Power up the clock generator via i_apmclk_pwrdn(0) */
+		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_APMCLK_PWRDN_MASK);
 		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_LDO_DIG_PWRDN_MASK);
-		reg_val |= 0x0F <<
-				AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_RCM_SHIFT;
+		/* Set i_VRX_RCM(01111) + i_mic_pwrdn(0) + Audio Rx PGA gain
+		control=0x20 */
+		reg_val |= 0x20 <<
+			AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_GAINCTRL_SHIFT;
+		reg_val |= 0x0F << AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_RCM_SHIFT;
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
 
 		/* Set i_Bias_pwrup(1) */
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_BIAS,
-			       AUDIOH_AUDIORX_BIAS_AUDIORX_BIAS_PWRUP_MASK);
-
-		/* Set i_mic_pwrdn(0) */
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_PWRDN_MASK);
-		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
-
-		reg_val = 0;
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-		aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
+			   AUDIOH_AUDIORX_BIAS_AUDIORX_BIAS_PWRUP_MASK);
 
 		/* a must (10ms) to remove bias glitch per asic sequence */
 		usleep_range(10000, 10500);
@@ -364,12 +352,7 @@ cVoid chal_audio_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_RCM_SHIFT);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
 
-		/* Set 'i_mic_en' t to (2.1V). */
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VMIC);
-		reg_val &= ~(AUDIOH_AUDIORX_VMIC_AUDIORX_MIC_PWRDN_MASK);
-		reg_val |= (AUDIOH_AUDIORX_VMIC_AUDIORX_MIC_EN_MASK);
-		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VMIC, reg_val);
-
+#if 0
 		/*
 		   Step 1.
 		   -Power up the mic bias circuits from scratch, this includes
@@ -387,13 +370,13 @@ cVoid chal_audio_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
 		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_APMCLK_PWRDN_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
-
 		/* Power up the PGA and ADC path via i_VRX_pwrdn(0) and
 		   i_VRX_cmbuf_pwrdn(0). */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
 		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_PWRDN_MASK);
 		reg_val &= ~(AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_CMBUF_PWRDN_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
+#endif
 	} else {
 		/* power down AUDIORX_REF, others "0" */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VREF);
@@ -414,10 +397,6 @@ cVoid chal_audio_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val |= (AUDIOH_AUDIORX_VRX1_AUDIORX_APMCLK_PWRDN_MASK);
 		reg_val |= (AUDIOH_AUDIORX_VRX1_AUDIORX_LDO_DIG_PWRDN_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
-
-		reg_val = 0;
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-		aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
 
 		/* 2. power down AUDIORX_REF, and fast settle */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VREF);
@@ -481,6 +460,7 @@ cVoid chal_audio_hs_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 	cUInt32 reg_val;
 
 	if (pwronoff == TRUE) {
+		kona_mic_bias_on();
 		/*
 		   Step 0.  Power up of the mic bias circuits from
 		   scratch needs to follow certain sequence on the control
@@ -526,10 +506,6 @@ cVoid chal_audio_hs_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val |=
 		    (AUDIOH_AUDIORX_VRX1_AUDIORX_VRX_SEL_MIC1B_MIC2_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
-
-		reg_val = 0;
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-		aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
 
 		/* a must (10ms) to remove bias glitch per asic sequence */
 		usleep_range(10000, 10500);
@@ -596,10 +572,6 @@ cVoid chal_audio_hs_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val |= (AUDIOH_AUDIORX_VRX1_AUDIORX_LDO_DIG_PWRDN_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_VRX1, reg_val);
 
-		reg_val = 0;
-		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VRX1);
-		aTrace(LOG_AUDIO_CNTLR, "%s: AUDIOH_AUDIORX_VRX1 [new] = 0x%lx\n", __func__, reg_val);
-
 		/*2. power down AUDIORX_REF, and fast settle */
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_VREF);
 		reg_val &= ~(AUDIOH_AUDIORX_VREF_AUDIORX_VREF_POWERCYCLE_MASK);
@@ -611,6 +583,7 @@ cVoid chal_audio_hs_mic_pwrctrl(CHAL_HANDLE handle, Boolean pwronoff)
 		reg_val = BRCM_READ_REG(base, AUDIOH_AUDIORX_BIAS);
 		reg_val &= ~(AUDIOH_AUDIORX_BIAS_AUDIORX_BIAS_PWRUP_MASK);
 		BRCM_WRITE_REG(base, AUDIOH_AUDIORX_BIAS, reg_val);
+		kona_mic_bias_off();
 
 	}
 

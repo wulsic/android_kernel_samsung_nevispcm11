@@ -9,15 +9,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #ifndef __U_ETHER_H
@@ -51,10 +42,6 @@ struct gether {
 	/* endpoints handle full and/or high speeds */
 	struct usb_ep			*in_ep;
 	struct usb_ep			*out_ep;
-
-	/* descriptors match device speed at gether_connect() time */
-	struct usb_endpoint_descriptor	*in;
-	struct usb_endpoint_descriptor	*out;
 
 	bool				is_zlp_ok;
 
@@ -115,18 +102,33 @@ int eem_bind_config(struct usb_configuration *c);
 
 #ifdef USB_ETH_RNDIS
 
-int rndis_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
+int rndis_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN]);
+int rndis_bind_config_vendor(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 				u32 vendorID, const char *manufacturer);
 
 #else
 
 static inline int
-rndis_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
+rndis_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN])
+{
+	return 0;
+}
+
+static inline int
+rndis_bind_config_vendor(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 				u32 vendorID, const char *manufacturer)
 {
 	return 0;
 }
 
+#endif
+
+#ifdef CONFIG_BRCM_NETCONSOLE
+extern void brcm_current_netcon_status(unsigned char status);
+extern unsigned char brcm_get_netcon_status(void);
+#endif
+#ifdef CONFIG_USB_ETH_SKB_ALLOC_OPTIMIZATION
+extern void ncm_ntb_out_size(u32 ntb_out_size);
 #endif
 
 #endif /* __U_ETHER_H */

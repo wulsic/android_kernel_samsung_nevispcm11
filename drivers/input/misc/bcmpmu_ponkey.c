@@ -58,12 +58,10 @@ static void bcmpmu_ponkey_isr(enum bcmpmu_irq irq, void *data)
 	switch (irq) {
 	case PMU_IRQ_PONKEYB_F:
 		ponkey->ponkey_state = 1;
-		pr_info("onkey pressed..\n");
 		break;
 
 	case PMU_IRQ_PONKEYB_R:
 		ponkey->ponkey_state = 0;
-		pr_info("onkey released..\n");
 		break;
 
 	default:
@@ -161,6 +159,16 @@ static int __devinit bcmpmu_ponkey_probe(struct platform_device *pdev)
 		bcmpmu->write_dev(bcmpmu, PMU_REG_PONKEY_RESTART_DEB,
 				  pdata->pok_restart_deb,
 				  bcmpmu->regmap[PMU_REG_PONKEY_RESTART_DEB].
+				  mask);
+	}
+	if (pdata->pok_turn_on_deb >= 0) {
+		pdata->pok_turn_on_deb <<=
+		    bcmpmu->regmap[PMU_REG_PONKEY_ONHOLD_DEB].shift;
+		pdata->pok_turn_on_deb &=
+		    bcmpmu->regmap[PMU_REG_PONKEY_ONHOLD_DEB].mask;
+		bcmpmu->write_dev(bcmpmu, PMU_REG_PONKEY_ONHOLD_DEB,
+				  pdata->pok_turn_on_deb,
+				  bcmpmu->regmap[PMU_REG_PONKEY_ONHOLD_DEB].
 				  mask);
 	}
 	/* set KEY_PAD_LOCK */

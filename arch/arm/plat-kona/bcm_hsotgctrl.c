@@ -26,13 +26,13 @@
 #include <linux/clk.h>
 #include <linux/pm_runtime.h>
 #include <linux/io.h>
-
 #include <mach/rdb/brcm_rdb_hsotg_ctrl.h>
 #include <mach/rdb/brcm_rdb_khub_clk_mgr_reg.h>
 #include <mach/rdb/brcm_rdb_chipreg.h>
 #include <plat/pi_mgr.h>
 #include <plat/clock.h>
 #include <linux/usb/bcm_hsotgctrl.h>
+#include <linux/usb/bcm_hsotgctrl_phy_mdio.h>
 
 #define	PHY_MODE_OTG		2
 #define BCCFG_SW_OVERWRITE_KEY 0x55560000
@@ -44,54 +44,6 @@
 #define USB_PHY_MDIO1 1
 #define USB_PHY_MDIO2 2
 #define USB_PHY_MDIO3 3
-#define USB_PHY_MDIO4 4
-#define USB_PHY_MDIO4_SQ_REF_Shift	4
-/*USB Receiver Sensitivity Table
-bit		VRefH	|	bit		VRefL
----------------	|-----------------
-111		118mV	|	01		75mV
-110		110mV	|	00		67mV
-0xx		102mV	|	11		55mV
-101		94mV	|	10		47mV
-100		79mV	|
-*/
-
-#define	USB_PHY_RENSITIVITY_118_75	0x1D//111 01
-#define	USB_PHY_RENSITIVITY_118_67	0x1C//111 00
-#define	USB_PHY_RENSITIVITY_118_55	0x1F//111 11
-#define	USB_PHY_RENSITIVITY_118_47	0x1E//111 10
-
-#define	USB_PHY_RENSITIVITY_110_75	0x19//110 01
-#define	USB_PHY_RENSITIVITY_110_67	0x18//110 00
-#define	USB_PHY_RENSITIVITY_110_55	0x1B//110 11
-#define	USB_PHY_RENSITIVITY_110_47	0x1A//110 10
-
-#define	USB_PHY_RENSITIVITY_102_75	0x1//0xx 01
-#define	USB_PHY_RENSITIVITY_102_67	0x0//0xx 00
-#define	USB_PHY_RENSITIVITY_102_55	0x3//0xx 11
-#define	USB_PHY_RENSITIVITY_102_47	0x2//0xx 10
-
-#define	USB_PHY_RENSITIVITY_94_75	0x15//101 01
-#define	USB_PHY_RENSITIVITY_94_67	0x14//101 00
-#define	USB_PHY_RENSITIVITY_94_55	0x17//101 11
-#define	USB_PHY_RENSITIVITY_94_47	0x16//101 10
-
-#define	USB_PHY_RENSITIVITY_79_75	0x11//100 01
-#define	USB_PHY_RENSITIVITY_79_67	0x10//100 00
-#define	USB_PHY_RENSITIVITY_79_55	0x13//100 11
-#define	USB_PHY_RENSITIVITY_79_47	0x12//100 10
-
-#if defined (CONFIG_MACH_RHEA_SS_CORIPLUS)
-#define USB_PHY_RENSITIVITY_OFFSET USB_PHY_RENSITIVITY_94_47
-#elif defined (CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP)|| defined(CONFIG_MACH_RHEA_SS_NEVISDS) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS)
-#define USB_PHY_RENSITIVITY_OFFSET USB_PHY_RENSITIVITY_102_47
-#elif defined (CONFIG_MACH_RHEA_SS_ZANIN)
-#define USB_PHY_RENSITIVITY_OFFSET USB_PHY_RENSITIVITY_118_75
-#else
-#define USB_PHY_RENSITIVITY_OFFSET USB_PHY_RENSITIVITY_94_67
-#endif
-
-
 #define MDIO_ACCESS_KEY 0x00A5A501
 #define PHY_MDIO_DELAY_IN_USECS 10
 #define PHY_MDIO_CURR_REF_ADJUST_VALUE 0x18
@@ -112,6 +64,7 @@ struct bcm_hsotgctrl_drv_data {
 	int hsotgctrl_irq;
 	bool irq_enabled;
 	bool allow_suspend;
+	bool usb_active;
 };
 
 static struct bcm_hsotgctrl_drv_data *local_hsotgctrl_handle;
@@ -123,12 +76,14 @@ static ssize_t dump_hsotgctrl(struct device *dev,
 {
 	struct bcm_hsotgctrl_drv_data *hsotgctrl_drvdata = dev_get_drvdata(dev);
 	void __iomem *hsotg_ctrl_base = hsotgctrl_drvdata->hsotg_ctrl_base;
+	int clk_cnt = clk_get_usage(hsotgctrl_drvdata->otg_clk);
 
 	/* This could be done after USB is unplugged
 	 * Turn on AHB clock so registers
 	 * can be read even when USB is unplugged
 	 */
-	bcm_hsotgctrl_en_clock(true);
+	if (!clk_cnt)
+		bcm_hsotgctrl_en_clock(true);
 
 	pr_info("\nusbotgcontrol: 0x%08X",
 		readl(hsotg_ctrl_base +
@@ -162,7 +117,8 @@ static ssize_t dump_hsotgctrl(struct device *dev,
 		    HSOTG_CTRL_USBPROBEN_OFFSET));
 
 	/* We turned on the clock so turn it off */
-	bcm_hsotgctrl_en_clock(false);
+	if (!clk_cnt)
+		bcm_hsotgctrl_en_clock(false);
 
 	return sprintf(buf, "hsotgctrl register dump\n");
 }
@@ -180,10 +136,22 @@ int bcm_hsotgctrl_en_clock(bool on)
 
 	if (on) {
 		bcm_hsotgctrl_handle->allow_suspend = false;
-		rc = clk_enable(bcm_hsotgctrl_handle->otg_clk);
+		pr_err("hsotgctrl_clk=on, clk_usage=%d\n",
+			clk_get_usage(bcm_hsotgctrl_handle->otg_clk));
+		if (!clk_get_usage(bcm_hsotgctrl_handle->otg_clk))
+			rc = clk_enable(bcm_hsotgctrl_handle->otg_clk);
 	} else {
-		clk_disable(bcm_hsotgctrl_handle->otg_clk);
-		bcm_hsotgctrl_handle->allow_suspend = true;
+		pr_err("hsotgctrl_clk=off, clk_usage=%d usb_active:%d\n",
+			clk_get_usage(bcm_hsotgctrl_handle->otg_clk),
+			bcm_hsotgctrl_handle->usb_active);
+		/*
+		* Only allow the clock to be shut off by the
+		* PMU if usb is not active
+		*/
+		if (!bcm_hsotgctrl_handle->usb_active) {
+			clk_disable(bcm_hsotgctrl_handle->otg_clk);
+			bcm_hsotgctrl_handle->allow_suspend = true;
+		}
 	}
 
 	if (rc)
@@ -194,175 +162,10 @@ int bcm_hsotgctrl_en_clock(bool on)
 }
 EXPORT_SYMBOL_GPL(bcm_hsotgctrl_en_clock);
 
-int bcm_hsotgctrl_phy_Update_MDIO(void)
-{
-	int val;
-
-	unsigned int set_val=0;
-
-	struct bcm_hsotgctrl_drv_data *bcm_hsotgctrl_handle =
-		local_hsotgctrl_handle;
-
-	if ((!bcm_hsotgctrl_handle->mdio_master_clk) ||
-		  (!bcm_hsotgctrl_handle->dev))
-		return -EIO;
-
-	/* Enable mdio. Just enable clk. Assume all other steps
-	 * are already done during clk init
-	 */
-	clk_enable(bcm_hsotgctrl_handle->mdio_master_clk);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/* Program necessary values */
-	/* data.set EAHB:0x3500403C %long 0x29000000 */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	/* *******MDIO REG 0::-->
-	 * Write to MDIO0 (to 0x18) as ASIC team suggested
-	 */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK | 0x18);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/* --------------------------------------------------------------*/
-	val =	(CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	/* *******MDIO REG 1:: -->
-	 * Write to MDIO1 (to 0x80) as ASIC team suggested
-	 */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO1 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK | 0x80);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/* ------------------------------------------------------------*/
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO1 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	/* ******* MDIO REG 3:: -->
-	 * Write to MDIO3 (to 0x2600) as ASIC team suggested
-	 */
-	val =
-	  (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-	    (USB_PHY_MDIO_ID <<
-	      CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-	    (USB_PHY_MDIO3 <<
-	      CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-	    CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK |
-	    0x2600);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO3 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_READ_START_MASK);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	val = readl(bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_RDDATA_OFFSET);
-
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	/* ******* MDIO REG 4:: -->Read to MDIO4****** */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO4 << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_READ_START_MASK);
-	printk("%s,Read MDIO4-->CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET:0x%x\n",__func__,val);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	val = readl(bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_RDDATA_OFFSET);
-	/*afe_tst_pc[24:20] = sq_ref[4:0]*/
-	printk("%s,current MDIO4-->:0x%x-->current sq_ref_val : 0x%x\n",__func__,val,(val&0x1F0)>>4);
-	/* ******* MDIO REG 4:: -->Write to MDIO4 (to 0x100) as ASIC team suggested ..Harold*/
-	val &= ~(0x1F0);
-	set_val = (val|(USB_PHY_RENSITIVITY_OFFSET<<USB_PHY_MDIO4_SQ_REF_Shift));
-	printk("%s,New MDIO4:0x%x, sq_ref_val:0x%x\n",__func__,set_val,(set_val & 0x1F0)>>USB_PHY_MDIO4_SQ_REF_Shift);
-
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-			(USB_PHY_MDIO_ID << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-			(USB_PHY_MDIO4 << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-			CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK | set_val);/*new Receiver Sensitivity*/
-	printk("%s,Write MDIO4:0x100-->CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET:0x%x\n",__func__,val);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/*read MDIO4 to check whether new setting value is written correctly or not*/
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO4 << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_READ_START_MASK);
-	printk("%s,Read MDIO4-->CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET:0x%x\n",__func__,val);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	val = readl(bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_RDDATA_OFFSET);
-	printk("%s,After Written, MDIO4-->:0x%x, sq_ref:0x%x\n",__func__,val,(val&0x1F0)>>USB_PHY_MDIO4_SQ_REF_Shift);
-
-	/* -----Complete MDIO REG4 setting-----------*/
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO4 << CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	printk("%s,Complete to CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET:0x%x\n",__func__,val);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	/* Disable mdio */
-	clk_disable(bcm_hsotgctrl_handle->mdio_master_clk);
-
-	return 0;
-
-}
-
 int bcm_hsotgctrl_phy_init(bool id_device)
 {
 	int val;
+	int rc=0;
 	struct bcm_hsotgctrl_drv_data *bcm_hsotgctrl_handle =
 		local_hsotgctrl_handle;
 
@@ -374,7 +177,14 @@ int bcm_hsotgctrl_phy_init(bool id_device)
 		  (!bcm_hsotgctrl_handle->dev))
 		return -EIO;
 
-	bcm_hsotgctrl_en_clock(true);
+	bcm_hsotgctrl_handle->usb_active = true;
+	rc = bcm_hsotgctrl_en_clock(true);
+	if(rc){
+		printk("%s-Fail to Enable CLK\n",__func__);
+		return -EBUSY;
+	}
+	
+	
 	mdelay(HSOTGCTRL_STEP_DELAY_IN_MS);
 	/* clear bit 15 RDB error */
 	val = readl(bcm_hsotgctrl_handle->hsotg_ctrl_base +
@@ -417,13 +227,7 @@ int bcm_hsotgctrl_phy_init(bool id_device)
 	/* Don't disable software control of PHY-PM
 	 * We want to control the PHY LDOs from software
 	 */
-
-#ifndef CONFIG_ARCH_RHEA_BX
-	/* Do MDIO init values after PHY is up */
-	bcm_hsotgctrl_phy_mdio_init();
-#endif
-
-	bcm_hsotgctrl_phy_Update_MDIO();
+	bcm_hsotgctrl_phy_mdio_initialization();
 
 	if (id_device) {
 		/* Set correct ID value */
@@ -437,6 +241,8 @@ int bcm_hsotgctrl_phy_init(bool id_device)
 		/* Clear non-driving */
 		bcm_hsotgctrl_phy_set_non_driving(false);
 	}
+
+	msleep(HSOTGCTRL_ID_CHANGE_DELAY_IN_MS);
 
 	return 0;
 
@@ -480,6 +286,7 @@ int bcm_hsotgctrl_phy_deinit(void)
 	bcm_hsotgctrl_phy_wakeup_condition(false);
 
 	/* Stay disconnected */
+	bcm_hsotgctrl_wakeup_core();
 	bcm_hsotgctrl_phy_set_non_driving(true);
 
 	/* Disable pad, internal PLL etc. */
@@ -501,80 +308,11 @@ int bcm_hsotgctrl_phy_deinit(void)
 	bcm_hsotgctrl_phy_set_vbus_stat(false);
 
 	/* Disable the OTG core AHB clock */
+	bcm_hsotgctrl_handle->usb_active = false;
 	bcm_hsotgctrl_en_clock(false);
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(bcm_hsotgctrl_phy_deinit);
-
-int bcm_hsotgctrl_phy_mdio_init(void)
-{
-	int val;
-	struct bcm_hsotgctrl_drv_data *bcm_hsotgctrl_handle =
-		local_hsotgctrl_handle;
-
-	if ((!bcm_hsotgctrl_handle->mdio_master_clk) ||
-		  (!bcm_hsotgctrl_handle->dev))
-		return -EIO;
-
-	/* Enable mdio */
-	clk_enable(bcm_hsotgctrl_handle->mdio_master_clk);
-
-	/* Program necessary values */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-
-	/* Write to MDIO0 (afe_pll_tst lower 16 bits) for
-	 * current reference adjustment
-	 */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK |
-		PHY_MDIO_CURR_REF_ADJUST_VALUE);
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-			CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/* Write to MDIO1 (afe_pll_tst upper 16 bits) for
-	 * voltage reference adjustment
-	 */
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO1 <<
-		  CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT) |
-		CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_WRITE_START_MASK |
-		PHY_MDIO_LDO_REF_VOLTAGE_ADJUST_VALUE);
-
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-			CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	val = (CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_SM_SEL_MASK |
-		(USB_PHY_MDIO_ID <<
-		    CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_ID_SHIFT) |
-		(USB_PHY_MDIO0 <<
-		    CHIPREG_MDIO_CTRL_ADDR_WRDATA_MDIO_REG_ADDR_SHIFT));
-
-	writel(val, bcm_hsotgctrl_handle->chipregs_base +
-			CHIPREG_MDIO_CTRL_ADDR_WRDATA_OFFSET);
-
-	msleep_interruptible(PHY_PM_DELAY_IN_MS);
-
-	/* Disable mdio */
-	clk_disable(bcm_hsotgctrl_handle->mdio_master_clk);
-
-	return 0;
-}
 
 int bcm_hsotgctrl_bc_reset(void)
 {
@@ -695,10 +433,10 @@ void bcm_hsotgctrl_wakeup_core(void)
 	if (NULL == local_hsotgctrl_handle)
 		return;
 
-	if (!clk_get_usage(bcm_hsotgctrl_handle->otg_clk)) {
-		/* Enable OTG AHB clock */
-		bcm_hsotgctrl_en_clock(true);
-	}
+	bcm_hsotgctrl_handle->usb_active = true;
+
+	/* Enable OTG AHB clock */
+	bcm_hsotgctrl_en_clock(true);
 
 	/* Disable wakeup interrupt */
 	bcm_hsotgctrl_phy_wakeup_condition(false);
@@ -727,6 +465,10 @@ void bcm_hsotgctrl_wakeup_core(void)
 	/* Request PHY clock */
 	bcm_hsotgctrl_set_phy_clk_request(true);
 	mdelay(PHY_PM_DELAY_IN_MS);
+
+	/* Do MDIO init values after PHY is up */
+	bcm_hsotgctrl_phy_mdio_initialization();
+
 	if (local_wakeup_core_cb) {
 		local_wakeup_core_cb();
 		local_wakeup_core_cb = NULL;
@@ -770,7 +512,6 @@ static irqreturn_t bcm_hsotgctrl_wake_irq(int irq, void *dev)
 	/* Disable the IRQ since already waking up */
 	disable_irq_nosync(bcm_hsotgctrl_handle->hsotgctrl_irq);
 	bcm_hsotgctrl_handle->irq_enabled = false;
-
 	schedule_delayed_work(&bcm_hsotgctrl_handle->wakeup_work,
 	  msecs_to_jiffies(BCM_HSOTGCTRL_WAKEUP_PROCESSING_DELAY));
 
@@ -828,6 +569,7 @@ int bcm_hsotgctrl_handle_bus_suspend(send_core_event_cb_t suspend_core_cb,
 	bcm_hsotgctrl_phy_wakeup_condition(true);
 
 	/* Disable OTG AHB clock */
+	bcm_hsotgctrl_handle->usb_active = false;
 	bcm_hsotgctrl_en_clock(false);
 
 	if (bcm_hsotgctrl_handle->irq_enabled == false) {
@@ -881,25 +623,28 @@ static int __devinit bcm_hsotgctrl_probe(struct platform_device *pdev)
 	hsotgctrl_drvdata->otg_clk = clk_get(NULL,
 		plat_data->usb_ahb_clk_name);
 
-	if (IS_ERR_OR_NULL(hsotgctrl_drvdata->otg_clk)) {
+	if (IS_ERR(hsotgctrl_drvdata->otg_clk)) {
+		error = PTR_ERR(hsotgctrl_drvdata->otg_clk);
 		dev_warn(&pdev->dev, "OTG clock allocation failed\n");
 		kfree(hsotgctrl_drvdata);
-		return -EIO;
+		return error;
 	}
 
 	hsotgctrl_drvdata->mdio_master_clk = clk_get(NULL,
 		plat_data->mdio_mstr_clk_name);
 
-	if (IS_ERR_OR_NULL(hsotgctrl_drvdata->mdio_master_clk)) {
+	if (IS_ERR(hsotgctrl_drvdata->mdio_master_clk)) {
+		error = PTR_ERR(hsotgctrl_drvdata->mdio_master_clk);
 		dev_warn(&pdev->dev, "MDIO Mst clk alloc failed\n");
 		kfree(hsotgctrl_drvdata);
-		return -EIO;
+		return error;
 	}
 
 	hsotgctrl_drvdata->allow_suspend = true;
 	platform_set_drvdata(pdev, hsotgctrl_drvdata);
 
 	/* Init the PHY */
+	hsotgctrl_drvdata->usb_active = true;
 	bcm_hsotgctrl_en_clock(true);
 
 	mdelay(HSOTGCTRL_STEP_DELAY_IN_MS);
@@ -961,7 +706,14 @@ static int __devinit bcm_hsotgctrl_probe(struct platform_device *pdev)
 		goto Error_bcm_hsotgctrl_probe;
 	}
 
+
 #ifndef CONFIG_USB_OTG_UTILS
+	/* Clear non-driving as default in case there
+	 * is no transceiver hookup */
+	bcm_hsotgctrl_phy_set_non_driving(false);
+#endif
+
+#ifdef CONFIG_NOP_USB_XCEIV
 	/* Clear non-driving as default in case there
 	 * is no transceiver hookup */
 	bcm_hsotgctrl_phy_set_non_driving(false);
@@ -1045,7 +797,6 @@ static int bcm_hsotgctrl_pm_suspend(struct platform_device *pdev,
 
 static int bcm_hsotgctrl_pm_resume(struct platform_device *pdev)
 {
-	printk("%s\n", __func__);
 	return 0;
 }
 
@@ -1430,6 +1181,8 @@ int bcm_hsotgctrl_is_suspend_allowed(bool *suspend_allowed)
 		    suspend_allowed) {
 		/* Return the status */
 		*suspend_allowed = local_hsotgctrl_handle->allow_suspend;
+		pr_info("bcm_hsotgctrl_is_suspend_allowed: %d\n",
+			local_hsotgctrl_handle->allow_suspend);
 	} else {
 		/* No device handle */
 		return -ENODEV;

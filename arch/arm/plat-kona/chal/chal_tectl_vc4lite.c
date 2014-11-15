@@ -109,11 +109,7 @@ cInt32 chal_te_cfg_input(UInt32 teIn, pCHAL_TE_CFG teCfg)
 	if (teCfg->te_mode == TE_VC4L_MODE_VSYNC_HSYNC) {
 		te_ctrl_reg_val |= TE_0C_MODE_MASK;
 
-		/* Fix coverity: TE_VSWIDTH_MAX is always 0xffffffff,
-		 * so the 'vsync_width > TE_VSWIDTH_MAX' will always
-		 * be "false". Changed '>' to '>='
-		 */
-		if (teCfg->vsync_width >= TE_VSWIDTH_MAX) {
+		if (teCfg->vsync_width > TE_VSWIDTH_MAX) {
 			chal_dprintf(CDBG_ERRO, "chal_te_cfg_input: "
 				     "VSYNC Width Value[0x%08X] Overflow, Max[0x%08X]\n",
 				     (unsigned int)teCfg->vsync_width,

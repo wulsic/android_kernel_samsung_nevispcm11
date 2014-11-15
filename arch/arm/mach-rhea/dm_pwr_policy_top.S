@@ -138,6 +138,7 @@
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/asm-offsets.h>
+#include <asm/memory.h>
 
 #include <mach/secure_api.h>
 #include <mach/pm.h>
@@ -166,7 +167,7 @@
 #define DORMANT_AUTOCONFIG 	1      /* Use ID registers to compute
                                      cache operation parameters etc. */
 
-/* Debug support only ?software interface
+/* Debug support only – software interface
 
    NOTE: the design style of the debug routines is derived from a
          source file that supports a wider range of features than
@@ -302,7 +303,6 @@ WarmStartContinue:      @ return here on exit from DORMANT_RESTORE2
     ISB
     POP {r1-r2}        @ restore 'temporary storage' from the correct stack
 PowerRestored:          @ return to the calling code
-    dormant_tracer_v DORMANT_DORMANT_ENTER, r3, r4
     POP {PC}           @ callee entry point: DormantStart
 
 DormantSave:
@@ -451,10 +451,6 @@ LateWakeupEventHandler: @ Secure routine returned without entering dormant here
     LDR	SP, [r0], #4  @ restore the stack pointer
     LDM	r0,{r1-r12,r14}	  @ restore other ARM registers
                           @ (except r0 and PC)
-    dormant_trace_restore_a9regs r0
-    PUSH {r1}
-    dormant_tracer_v DORMANT_WARM_STRT_CONT, r0, r1
-    POP {r1}
     MOV r0,#0             @ Indicate dormant entry failed
     MOV	pc,lr		          @ execution returns to WarmStartContinue
 
@@ -534,9 +530,6 @@ ContinueRestore:
 ContinueRestoreNoTEX:
 	dormant_tracer_v DORMANT_RESTORE2_START, r0, r1
 	DORMANT_RESTORE2
-	PUSH {r1}
-    	dormant_tracer_v DORMANT_WARM_STRT_CONT, r0, r1 
-	POP {r1}
 	MOV     r0,#1              @ Indicate dormant entry succeeded
 	MOV	pc,lr               @ execution returns to WarmStartContinue
 FullSystemReset:                   @ nothing to recover, execute a full reset

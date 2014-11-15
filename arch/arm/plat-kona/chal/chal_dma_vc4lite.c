@@ -80,7 +80,12 @@ typedef struct {
 	cUInt32 perMap : 5;
 	cUInt32 waits : 5;
 	cUInt32 noWideBurst : 1;
+#ifdef CONFIG_ARCH_HAWAII
+	cUInt32 burstWriteEnable32 : 1;
+	cUInt32 unused1 : 4;
+#else
 	cUInt32 unused1 : 5;
+#endif
 	cUInt32 srcAddr : 32;
 	cUInt32 dstAddr : 32;
 	cUInt32 xferLen : 32;
@@ -271,24 +276,27 @@ CHAL_DMA_VC4LITE_STATUS_t chal_dma_vc4lite_prepare_transfer(CHAL_HANDLE handle,
 	/* enable the interrupt bit for the last control block */
 	if (pDmaDev->intEnableFlag[channel]) {
 		/* search to the last control block */
-		while (pCtrlBlkList->nextCtrlBlk)
-			pCtrlBlkList = phys_to_virt(
-			    (ChalDmaVc4liteCtrlBlk_t *) pCtrlBlkList->
-			    nextCtrlBlk);
+		while (pCtrlBlkList->nextCtrlBlk) {
+			int offset, nxtCtlBlrList;
+			offset = (int)pCtrlBlkList->nextCtrlBlk;
+			offset -= (int)ctrlBlkListPHYS;
+			nxtCtlBlrList = (int)ctrlBlkList + offset;
+			pCtrlBlkList = (ChalDmaVc4liteCtrlBlk_t *)nxtCtlBlrList;
+		}
 		pCtrlBlkList->intEnable = CHAL_DMA_VC4LITE_ENABLE;
 	}
 	mb();
 
 	/* clean up the interrupt status */
+#ifndef UNDER_LINUX
 	BRCM_WRITE_REG_IDX(pDmaDev->baseAddr,
 			   DMA_CONBLK_AD, (channel * DMA_CHANNEL_ADDR_OFFSET),
-#ifndef UNDER_LINUX
-			   (cUInt32) (ctrlBlkList)
+			   (cUInt32) (ctrlBlkList));
 #else
-			   (cUInt32) (ctrlBlkListPHYS)
+	BRCM_WRITE_REG_IDX(pDmaDev->baseAddr,
+			   DMA_CONBLK_AD, (channel * DMA_CHANNEL_ADDR_OFFSET),
+			   (cUInt32) (ctrlBlkListPHYS));
 #endif
-	    );
-
 	return CHAL_DMA_VC4LITE_STATUS_SUCCESS;
 }
 
@@ -548,6 +556,8 @@ CHAL_DMA_VC4LITE_STATUS_t
 					    handle,
 					    cVoid *
 					    ctlBlkList,
+					    cVoid *
+					    ctlBlkListPhys,
 					    cUInt32
 					    ctlBlkItemNum,
 					    cUInt32
@@ -557,6 +567,10 @@ CHAL_DMA_VC4LITE_STATUS_t
 {
 	ChalDmaVc4liteCtrlBlk_t *pCurCtrlBlk =
 	    (ChalDmaVc4liteCtrlBlk_t *) ((cUInt32) ctlBlkList +
+					 ctlBlkItemNum *
+					 sizeof(ChalDmaVc4liteCtrlBlk_t));
+	ChalDmaVc4liteCtrlBlk_t *pCurCtrlBlkPhys =
+	    (ChalDmaVc4liteCtrlBlk_t *) ((cUInt32) ctlBlkListPhys +
 					 ctlBlkItemNum *
 					 sizeof(ChalDmaVc4liteCtrlBlk_t));
 	ChalDmaVc4liteCtrlBlk_t *pPrvCtrlBlk;
@@ -593,6 +607,9 @@ CHAL_DMA_VC4LITE_STATUS_t
 	for (i = 0; i < sizeof(ChalDmaVc4liteCtrlBlk_t) / 4; i++)
 		*(cUInt32 *) ((cUInt32) pCurCtrlBlk + i * 4) = 0;
 
+#ifdef CONFIG_ARCH_HAWAII
+	pCurCtrlBlk->burstWriteEnable32 = curCtrlBlkInfo->burstWriteEnable32;
+#endif
 	pCurCtrlBlk->noWideBurst = curCtrlBlkInfo->noWideBurst;
 	pCurCtrlBlk->waits = curCtrlBlkInfo->waitCycles;
 	pCurCtrlBlk->burstLength = curCtrlBlkInfo->burstLength;
@@ -663,7 +680,7 @@ CHAL_DMA_VC4LITE_STATUS_t
 						  1) *
 						 sizeof
 						 (ChalDmaVc4liteCtrlBlk_t));
-		pPrvCtrlBlk->nextCtrlBlk = (cUInt32)(virt_to_phys(pCurCtrlBlk));
+		pPrvCtrlBlk->nextCtrlBlk = (cUInt32)(pCurCtrlBlkPhys);
 	}
 
 	return CHAL_DMA_VC4LITE_STATUS_SUCCESS;

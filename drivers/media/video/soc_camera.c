@@ -36,6 +36,11 @@
 #include <media/videobuf-core.h>
 #include <media/videobuf2-core.h>
 #include <media/soc_mediabus.h>
+#include <linux/string.h>
+
+#include <linux/of.h>
+#include <linux/of_irq.h>
+#include <linux/of_platform.h>
 
 /* Default to VGA resolution */
 #define DEFAULT_WIDTH	640
@@ -50,6 +55,7 @@ static LIST_HEAD(hosts);
 static LIST_HEAD(devices);
 static DEFINE_MUTEX(list_lock);	/* Protects the list of hosts */
 
+
 static int soc_camera_power_set(struct soc_camera_device *icd,
 				struct soc_camera_link *icl, int power_on)
 {
@@ -62,7 +68,6 @@ static int soc_camera_power_set(struct soc_camera_device *icd,
 			dev_err(&icd->dev, "Cannot enable regulators\n");
 			return ret;
 		}
-
 		if (icl->power)
 			ret = icl->power(icd->pdev, power_on);
 		if (ret < 0) {
@@ -294,17 +299,32 @@ static int soc_camera_reqbufs(struct file *file, void *priv,
 
 	WARN_ON(priv != file->private_data);
 
+	dev_info(&icd->dev, "soc_camera_reqbufs\n");
 	if (icd->streamer && icd->streamer != file)
+	{
+		dev_err(&icd->dev,
+			"icd->streamer is not a file, returning error\n");
 		return -EBUSY;
+	}
 
 	if (ici->ops->init_videobuf) {
 		ret = videobuf_reqbufs(&icd->vb_vidq, p);
 		if (ret < 0)
+		{
+			dev_err(&icd->dev,
+				"videobuf_reqbufs failed, returning error\n");
 			return ret;
+		}
 
 		ret = ici->ops->reqbufs(icd, p);
 	} else {
 		ret = vb2_reqbufs(&icd->vb2_vidq, p);
+		if (ret < 0)
+		{
+			dev_err(&icd->dev,
+				"vb2_reqbufs failed, returning error\n");
+			return ret;
+		}
 	}
 
 	if (!ret && !icd->streamer)
@@ -522,8 +542,11 @@ static int soc_camera_open(struct file *file)
 		};
 
 		ret = soc_camera_power_set(icd, icl, 1);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(&icd->dev, "Camera already in use,return error: %d\n",
+				ret);
 			goto epower;
+		}
 
 		/* The camera could have been already on, try to reset */
 		if (icl->reset)
@@ -776,16 +799,24 @@ static int soc_camera_streamon(struct file *file, void *priv,
 {
 	struct soc_camera_device *icd = file->private_data;
 	struct soc_camera_host *ici = to_soc_camera_host(icd->dev.parent);
-//	struct v4l2_subdev *sd = soc_camera_to_subdev(icd); //aska removed for prevent issue
+	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	int ret;
 
 	WARN_ON(priv != file->private_data);
 
-	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
+	dev_info(&icd->dev, "soc_camera_streamon\n");
 
-	if (icd->streamer != file)
+	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
+		dev_err(&icd->dev,
+				"not V4L2_BUF_TYPE_VIDEO_CAPTURE, returning error\n");
+		return -EINVAL;
+	}
+
+	if (icd->streamer != file) {
+		dev_err(&icd->dev,
+				"streamer is not a file, returning error\n");
 		return -EBUSY;
+	}
 
 	/* This calls buf_queue from host driver's videobuf_queue_ops */
 	if (ici->ops->init_videobuf)
@@ -793,8 +824,8 @@ static int soc_camera_streamon(struct file *file, void *priv,
 	else
 		ret = vb2_streamon(&icd->vb2_vidq, i);
 
-	//if (!ret)
-	//	v4l2_subdev_call(sd, video, s_stream, 1);
+	if (!ret)
+		v4l2_subdev_call(sd, video, s_stream, 1);
 
 	return ret;
 }
@@ -808,11 +839,19 @@ static int soc_camera_streamoff(struct file *file, void *priv,
 
 	WARN_ON(priv != file->private_data);
 
-	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
+	dev_info(&icd->dev, "soc_camera_streamoff\n");
 
-	if (icd->streamer != file)
+	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
+		dev_err(&icd->dev,
+			"not V4L2_BUF_TYPE_VIDEO_CAPTURE, returning error\n");
+		return -EINVAL;
+	}
+
+	if (icd->streamer != file) {
+		dev_err(&icd->dev,
+				"streamer is not a file, returning error\n");
 		return -EBUSY;
+	}
 
 	/*
 	 * This calls buf_release from host driver's videobuf_queue_ops for all
@@ -1160,10 +1199,8 @@ static int soc_camera_probe(struct device *dev)
 	}
 
 	sd = soc_camera_to_subdev(icd);
-	if (!sd) { ////aska added for prevent issue
-		
-		return -EINVAL;
-	}
+	if (!sd)
+		goto eiufmt;
 	sd->grp_id = (long)icd;
 
 	/* At this point client .probe() should have run already */
@@ -1588,14 +1625,124 @@ static int __devinit soc_camera_pdrv_probe(struct platform_device *pdev)
 {
 	struct soc_camera_link *icl = pdev->dev.platform_data;
 	struct soc_camera_device *icd;
-	int ret;
+	struct i2c_board_info *i2c_camera;
+	static struct v4l2_subdev_sensor_interface_parms *parms;
+	struct regulator_bulk_data *regulators;
 
+	int ret;
+	u32 val;
+	const char *prop;
 	if (!icl)
 		return -EINVAL;
-
 	icd = kzalloc(sizeof(*icd), GFP_KERNEL);
 	if (!icd)
 		return -ENOMEM;
+
+	if (pdev->dev.of_node)	 {
+		int reg_count = 0, count;
+
+		i2c_camera = kzalloc(sizeof(struct i2c_board_info),
+			GFP_ATOMIC);
+		if (!i2c_camera) {
+			kfree(icd);
+			return -ENOMEM;
+		}
+		parms = kzalloc(sizeof(struct
+			v4l2_subdev_sensor_interface_parms),
+			GFP_ATOMIC);
+		if (!parms) {
+			kfree(i2c_camera);
+			kfree(icd);
+			return -ENOMEM;
+		}
+
+		if (of_property_read_u32(pdev->dev.of_node, "bus-id", &val))
+			goto out;
+		icl->bus_id = val;
+		if (of_property_read_string(pdev->dev.of_node,
+			"i2c-type", &prop))
+			goto out;
+		if (strlen(prop) < I2C_NAME_SIZE)
+		strcpy(i2c_camera->type, prop);
+		else {
+			pr_debug("i2c_camera->type lenght overflow\n");
+			goto out;
+		}
+		if (of_property_read_u32(pdev->dev.of_node, "i2c-addr", &val))
+			goto out;
+		i2c_camera->addr = val;
+		icl->board_info = i2c_camera;
+		if (of_property_read_u32(pdev->dev.of_node,
+			"i2c-adapter-id", &val))
+			goto out;
+		icl->i2c_adapter_id = val;
+		if (of_property_read_string(pdev->dev.of_node,
+			"module-name", &prop))
+			goto out;
+		icl->module_name = (char *)prop;
+		if (of_property_read_u32(pdev->dev.of_node, "if-type", &val))
+			goto out;
+		parms->if_type = val;
+		if (of_property_read_u32(pdev->dev.of_node, "if-mode", &val))
+			goto out;
+		parms->if_mode = val;
+		if (of_property_read_u32(pdev->dev.of_node,
+			"orientation", &val))
+			goto out;
+		parms->orientation = val;
+		if (of_property_read_u32(pdev->dev.of_node, "facing", &val))
+			goto out;
+		parms->facing = val;
+		if (of_property_read_u32(pdev->dev.of_node, "lanes", &val))
+			goto out;
+		parms->parms.serial.lanes = val;
+		if (of_property_read_u32(pdev->dev.of_node, "channel", &val))
+			goto out;
+		parms->parms.serial.channel = val;
+		if (of_property_read_u32(pdev->dev.of_node, "phy-rate", &val))
+			goto out;
+		parms->parms.serial.phy_rate = val;
+		if (of_property_read_u32(pdev->dev.of_node, "pix-clk", &val))
+			goto out;
+		parms->parms.serial.pix_clk = val;
+		if (of_property_read_u32(pdev->dev.of_node,
+					"hs_term_time", &val))
+			goto out;
+		parms->parms.serial.hs_term_time = val;
+		if (of_property_read_u32(pdev->dev.of_node,
+					"hs_settle_time", &val))
+			goto out;
+		parms->parms.serial.hs_settle_time = val;
+		icl->priv = parms;
+
+		reg_count = of_property_count_strings(pdev->dev.of_node,
+				"regulators");
+		if (reg_count <= 0) {
+			pr_debug("regulator count read failed with error %d",
+				reg_count);
+			goto out;
+		}
+
+		regulators = kzalloc(reg_count *
+			sizeof(struct regulator_bulk_data), GFP_KERNEL);
+		if (!regulators) {
+			kfree(icd);
+			return -ENOMEM;
+		}
+
+		for (count = 0; count < reg_count; count++) {
+			if (of_property_read_string_index(pdev->dev.of_node,
+				"regulators", count, &prop)) {
+				pr_debug("regulator name could not be read" \
+					"from DT");
+				goto reg_out;
+			}
+			regulators[count].supply = prop;
+		}
+
+		icl->regulators = regulators;
+		pdev->dev.platform_data = icl;
+	}
 
 	icd->iface = icl->bus_id;
 	icd->pdev = &pdev->dev;
@@ -1612,10 +1759,21 @@ static int __devinit soc_camera_pdrv_probe(struct platform_device *pdev)
 
 	return 0;
 
-      escdevreg:
+escdevreg:
 	kfree(icd);
-
 	return ret;
+
+reg_out:
+	if (pdev->dev.of_node)
+		kfree(regulators);
+
+out:
+	if (pdev->dev.of_node) {
+		kfree(i2c_camera);
+		kfree(parms);
+	}
+	kfree(icd);
+	return -EINVAL;
 }
 
 /*
@@ -1626,22 +1784,38 @@ static int __devinit soc_camera_pdrv_probe(struct platform_device *pdev)
 static int __devexit soc_camera_pdrv_remove(struct platform_device *pdev)
 {
 	struct soc_camera_device *icd = platform_get_drvdata(pdev);
-
+	struct soc_camera_link *icl;
 	if (!icd)
 		return -EINVAL;
 
+	icl = to_soc_camera_link(icd);
+	if (!icl)
+		return -EINVAL;
 	soc_camera_device_unregister(icd);
-
 	kfree(icd);
+	if (pdev->dev.of_node)	 {
+		if (icl->board_info != NULL)
+			kfree(icl->board_info);
+		if (icl->priv != NULL)
+			kfree(icl->priv);
+		if (icl->regulators != NULL)
+			kfree(icl->regulators);
+	}
 
 	return 0;
 }
+static const struct of_device_id soc_camera_of_match[] = {
+	{ .compatible = "bcm,soc-camera", },
+	{},
+}
+MODULE_DEVICE_TABLE(of, soc_camera_of_match);
 
 static struct platform_driver __refdata soc_camera_pdrv = {
 	.remove = __devexit_p(soc_camera_pdrv_remove),
 	.driver = {
 		   .name = "soc-camera-pdrv",
 		   .owner = THIS_MODULE,
+		   .of_match_table = soc_camera_of_match,
 		   },
 };
 

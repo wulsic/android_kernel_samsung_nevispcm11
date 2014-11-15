@@ -228,14 +228,15 @@ int AtMaudMode(brcm_alsa_chip_t *pChip, Int32 ParamCount, Int32 *Params)
 			(UInt32)(app * AUDIO_MODE_NUMBER + mode));
 
 		AUDCTRL_SetUserAudioApp(app);	/* for PCG to set new app */
-		if (app == AUDIO_APP_VOICE_CALL || app == AUDIO_APP_VOICE_CALL_WB
-			|| app == AUDIO_APP_VT_CALL || app == AUDIO_APP_VT_CALL_WB) {
-			AUDCTRL_SetTelephonyMicSpkr(mic, spk, false);
+		if ((app <= AUDIO_APP_VOICE_CALL_WB) ||
+		(app == AUDIO_APP_VT_CALL || app == AUDIO_APP_VT_CALL_WB)) {
+			AUDCTRL_SetTelephonyMicSpkr(mic, spk);
 			AUDCTRL_SetAudioMode(mode, app);
 		} else if (app == AUDIO_APP_MUSIC) {
 			if (AUDCTRL_InVoiceCall() == FALSE) {
 				AUDCTRL_SwitchPlaySpk_forTuning(mode);
 				AUDCTRL_SaveAudioMode(mode);
+				AUDCTRL_SaveAudioApp(app);
 			}
 		} else if (app > AUDIO_APP_MUSIC) {
 			AUDCTRL_SetAudioMode(mode, app);
@@ -311,6 +312,23 @@ int AtMaudMode(brcm_alsa_chip_t *pChip, Int32 ParamCount, Int32 *Params)
 		}	/* if (Params[1] == 3) */
 		}		/* case 100 */
 
+		break;
+	case 121:
+		{
+			int param_id;
+			int param_value;
+			param_id = Params[1];
+			param_value = Params[2]; /*gain*/
+			/*Params[3] => right or left channel for headset gain*/
+
+			setExternalParameter(param_id, param_value, Params[3]);
+			aTrace(LOG_AUDIO_DRIVER,
+					"Tuning Dialog PMU "
+					"param_id = %d ,"
+					"param_value = %d ,"
+					"channel = %d\n",
+					param_id, param_value, (int)Params[3]);
+			}
 		break;
 
 	default:
@@ -419,6 +437,7 @@ int AtMaudTst(brcm_alsa_chip_t *pChip, Int32 ParamCount, Int32 *Params)
 		if (voip_running) {
 			AUDTST_VoIP_Stop();
 			voip_running = FALSE;
+			pChip->iCallMode = CALL_MODE_NONE;
 		}
 		break;
 
@@ -433,6 +452,11 @@ int AtMaudTst(brcm_alsa_chip_t *pChip, Int32 ParamCount, Int32 *Params)
 			AUDTST_VoIP(Params[1],
 				    Params[2], Params[3], Params[4], Params[5]);
 			voip_running = TRUE;
+		/*In Loopback mode all playback should go to one sink
+		setting the iCallMode to MODEM will make the tone playback
+		on same sync as Voicecall
+		(Set in PCMPlaybackTrigger() method) */
+			pChip->iCallMode = MODEM_CALL;
 		}
 		break;
 
@@ -1104,23 +1128,7 @@ int AtMaudTst(brcm_alsa_chip_t *pChip, Int32 ParamCount, Int32 *Params)
 				hs_ds_delay, hs_ds_polarity, hs_ds_thres);
 		}
 		break;
-	case 121:
-		{
-			int param_id;
-			int param_value;
-			param_id = Params[1];
-			param_value = Params[2]; /*gain*/
-			/*Params[3] => right or left channel for headset gain*/
 
-			setExternalParameter(param_id, param_value, Params[3]);
-			aTrace(LOG_AUDIO_DRIVER,
-					"Tuning Dialog PMU "
-					"param_id = %d ,"
-					"param_value = %d ,"
-					"channel = %d\n",
-					param_id, param_value, (int)Params[3]);
-			}
-		break;
 	default:
 		aTrace(LOG_AUDIO_DRIVER,
 			"%s Not supported command\n", __func__);

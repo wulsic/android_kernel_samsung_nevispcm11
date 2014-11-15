@@ -47,18 +47,6 @@
 #define DORMANT_RESTORE2_START      0xF3
 #define DORMANT_CTRL_PROG_START     0xE0
 #define DORMANT_CTRL_PROG_END       0xE1
-#define DORMANT_DBG_REGS_RESTORE    0xE2
-#define DORMANT_PMON_REGS_RESTORE   0xE3
-#define DORMANT_WARM_STRT_CONT	    0xE4
-#define DORMANT_DORMANT_ENTER	    0xE5
-#define DORMANT_RETURN		    0xE6
-#define DORMANT_RESTORE_PROC	    0xE7
-#define DORMANT_DISABLE_ENG_START	0xE8
-#define DORMANT_DISABLE_ENG_END		0xE9
-#define DORMANT_PLLARM_OFFSET_SAVE	0xEA
-#define DORMANT_POLICY_CTRL_GO		0xEB
-#define DORMANT_FREQ_CHANGE_START	0xEC
-#define DORMANT_FREQ_CHANGE_END		0xED
 
 #ifndef __ASSEMBLY__
 /**
@@ -66,27 +54,28 @@
  */
 
 enum {
-	RHEA_STATE_C1, /* suspend */
-	RHEA_STATE_C2, /* suspend-rtn */
-	RHEA_STATE_C3, /* ds-rtn */
-	RHEA_STATE_C4, /* suspend-drmt */
-	RHEA_STATE_C5, /* ds-drmt */
+	CSTATE_SIMPLE_WFI, /* Simple WFI */
+	CSTATE_SUSPEND_RETN, /* suspend retention */
+	CSTATE_SUSPEND_DRMT, /* suspend dormant */
+	CSTATE_DS_DRMT, /* deep sleep dormant */
 };
 
+/*Cstate Exit latency*/
 enum {
-	RHEA_C1_EXIT_LATENCY = 0,
-	RHEA_C2_EXIT_LATENCY = 200,
-	RHEA_C3_EXIT_LATENCY = 300,
-	RHEA_C4_EXIT_LATENCY = 2000,	/* Worst case dormant sequence delay */
-	RHEA_C5_EXIT_LATENCY = 10000,	/* 8ms crystal warmup + c4 latency */
+	EXIT_LAT_SIMPLE_WFI = 0,
+	EXIT_LAT_SUSPEND_RETN = 200,
+	/* Worst case dormant sequence delay */
+	EXIT_LAT_SUSPEND_DRMT = 2000,
+	/*dormant latency + xtal warmup delay*/
+	EXIT_LAT_DS_DRMT = DEEP_SLEEP_LATENCY + 2000,
 };
 
+/*CState target residency values*/
 enum {
-	RHEA_C1_TARGET_RESIDENCY = 0,
-	RHEA_C2_TARGET_RESIDENCY = 200,
-	RHEA_C3_TARGET_RESIDENCY = 300,
-	RHEA_C4_TARGET_RESIDENCY = RHEA_C4_EXIT_LATENCY + 2000,
-	RHEA_C5_TARGET_RESIDENCY = RHEA_C5_EXIT_LATENCY + 5000,
+	TRGT_RESI_SIMPLE_WFI = 0,
+	TRGT_RESI_SUSPEND_RETN = 200,
+	TRGT_RESI_SUSPEND_DRMT = EXIT_LAT_SUSPEND_DRMT + 2000,
+	TRGT_RESI_DS_DRMT = EXIT_LAT_DS_DRMT + 5000,
 };
 #endif
 
@@ -110,21 +99,6 @@ enum {
 };
 
 
-/*
- * Any change in this structure should reflect in the definition
- * in the asm file (arch/arm/mach-rhea/dm_pwr_policy_top.S).
- */
-struct dormant_gpio_data {
-	s32 enable;
-	u32 gpio_set_p;
-	u32 gpio_set_v;
-	u32 gpio_clr_p;
-	u32 gpio_clr_v;
-	u32 gpio_bit;
-};
-
-extern u32 dormant_start(void);
-
 #ifdef DORMANT_PROFILE
 /* Vars exported by dm_pwr_policy_top.S for dormant profiling */
 extern u32 dormant_profile_on;
@@ -141,7 +115,6 @@ extern void dbg_gpio_set(u32 gpio);
 extern void dbg_gpio_clr(u32 gpio);
 extern int rhea_force_sleep(suspend_state_t state);
 extern void request_suspend_state(suspend_state_t state);
-extern void instrument_dormant_trace(u32 trace);
 extern void instrument_dormant_entry(void);
 extern void instrument_dormant_exit(void);
 extern void instrument_wfi(int trace_path);

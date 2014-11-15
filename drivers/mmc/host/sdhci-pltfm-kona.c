@@ -34,7 +34,15 @@
 #include <linux/gpio.h>
 #include <linux/clk.h>
 #include <linux/regulator/consumer.h>
+#include <linux/pm_runtime.h>
 #include <mach/sdio_platform.h>
+
+#include <linux/of.h>
+#include <linux/of_irq.h>
+#include <linux/of_platform.h>
+
+#include <plat/clock.h>
+
 #ifdef CONFIG_APANIC_ON_MMC
 #include <linux/mmc-poll/mmc_poll_stack.h>
 #endif
@@ -71,9 +79,24 @@
 #define SD_DETECT_GPIO_DEBOUNCE_128MS	128
 
 #define KONA_SDMMC_DISABLE_DELAY	(100)
-#define KONA_SDMMC_OFF_TIMEOUT		(180000) /* (8000) */
-unsigned int sdmmc_off_timeout=KONA_SDMMC_OFF_TIMEOUT;
+#ifdef CONFIG_MACH_BCM_FPGA
+#define KONA_SDMMC_OFF_TIMEOUT		(800000)
+#else
+#define KONA_SDMMC_OFF_TIMEOUT		(180000)
+#endif
 
+#define KONA_SD_CONTRLR_REG_LPCNT	(50)
+
+#define KONA_MMC_AUTOSUSPEND_DELAY	(200)
+#define KONA_MMC_WIFI_AUTOSUSPEND_DELAY	(250)
+
+/* Enable this quirk if regulators are always ON
+ * but the regulator framework is not funtional.
+ * In such a case, we dont want our probe to fail.
+ */
+#if 0
+#define BCM_REGULATOR_SKIP_QUIRK
+#endif
 
 enum {ENABLED = 0, DISABLED, OFF};
 
@@ -89,15 +112,18 @@ struct sdio_dev {
 	unsigned long clk_hz;
 	enum sdio_devtype devtype;
 	int cd_gpio;
-	/* Dynamic Power Managment State */
-	int dpm_state;
 	int suspended;
+	int runtime_pm_enabled;
 	struct sdio_wifi_gpio_cfg *wifi_gpio;
 	struct procfs proc;
 	struct clk *peri_clk;
 	struct clk *sleep_clk;
 	struct regulator *vddo_sd_regulator;
 	struct regulator *vdd_sdxc_regulator;
+	struct wake_lock cd_int_wake_lock;
+	struct mutex regulator_lock;
+	int sdio_regulator_enable;
+	unsigned char *cd_int_wake_lock_name;
 };
 
 #ifdef CONFIG_MACH_BCM2850_FPGA
@@ -112,24 +138,25 @@ static struct sdio_dev *gDevs[SDIO_DEV_TYPE_MAX];
 static int sdhci_pltfm_regulator_init(struct sdio_dev *dev, char *reg_name);
 static int sdhci_pltfm_regulator_sdxc_init(struct sdio_dev *dev,
 					   char *reg_name);
-static int sdhci_kona_off_to_enabled(struct sdio_dev *dev);
-
-static int sdhci_pltfm_clk_enable(struct sdhci_host *host, int enable);
+static int
+sdhci_set_regulator_power(struct sdhci_host *host, int power_state);
+static int kona_sdio_regulator_power(struct sdio_dev *dev,
+		int power_state);
+static int sdhci_pltfm_clk_enable(struct sdio_dev *dev, int enable);
 static int sdhci_pltfm_set_signalling(struct sdhci_host *host, int sig_vol);
 static int sdhci_pltfm_set_3v3_signalling(struct sdhci_host *host);
 static int sdhci_pltfm_set_1v8_signalling(struct sdhci_host *host);
-static int sdhci_pltfm_set(struct sdhci_host *host, int enable, int lazy);
-static int sdhci_pltfm_enable(struct sdhci_host *host);
-static int sdhci_pltfm_disable(struct sdhci_host *host, int lazy);
-void sdhci_pltfm_send_init_74_clocks (struct sdhci_host *host,u8 power_mode);
 static void sdhci_pltfm_init_74_clocks(struct sdhci_host *host,
 							u8 power_mode);
-
+static int sdhci_pltfm_rpm_enabled(struct sdio_dev *dev);
+static int sdhci_rpm_enabled(struct sdhci_host *host);
+static int sdhci_clk_enable(struct sdhci_host *host, int enable);
+static void sdhci_print_critical(struct sdhci_host *host);
 /*
  * Get the base clock. Use central clock source for now. Not sure if different
  * clock speed to each dev is allowed
  */
-static unsigned long sdhci_get_max_clk(struct sdhci_host *host)
+static unsigned int sdhci_get_max_clk(struct sdhci_host *host)
 {
 	unsigned int i;
 
@@ -147,87 +174,16 @@ static unsigned int sdhci_get_timeout_clock(struct sdhci_host *host)
 	return sdhci_get_max_clk(host);
 }
 
-int	sdhci_pltfm_set_timeout(struct sdhci_host *host, unsigned int timeout)
-{
-	struct sdio_dev *dev = sdhci_priv(host);
-
-
-	if(dev->devtype ==SDIO_DEV_TYPE_SDMMC ){
-		sdmmc_off_timeout = timeout;
-		return 0;
-	}
-	else{
-		printk("%s - No SD Card Type, Can Not Set Timeout\n",__func__);
-		return -EPERM;
-	}
-
-}
-int	sdhci_pltfm_get_timeout(struct sdhci_host *host,bool def_val,unsigned int *timeout)
-{
-	struct sdio_dev *dev = sdhci_priv(host);
-
-	if(dev->devtype ==SDIO_DEV_TYPE_SDMMC ){
-		if(def_val)
-			*timeout = KONA_SDMMC_OFF_TIMEOUT;
-		else
-			*timeout = sdmmc_off_timeout;
-		return 0;
-	}
-	else{
-		printk("%s - No SD Card Type, Can Not Set Timeout\n",__func__);
-		return -EPERM;
-	}
-}
-
-
 static struct sdhci_ops sdhci_pltfm_ops = {
-	.get_max_clk = sdhci_get_max_clk,
+	.get_max_clock = sdhci_get_max_clk,
 	.get_timeout_clock = sdhci_get_timeout_clock,
-	.clk_enable = sdhci_pltfm_clk_enable,
+	.set_regulator = sdhci_set_regulator_power,
+	.clk_enable = sdhci_clk_enable,
+	.rpm_enabled = sdhci_rpm_enabled,
 	.set_signalling = sdhci_pltfm_set_signalling,
-	.platform_set = sdhci_pltfm_set,
 	.platform_send_init_74_clocks = sdhci_pltfm_init_74_clocks,
-	.platform_set_timeout = sdhci_pltfm_set_timeout,
-	.platform_get_timeout = sdhci_pltfm_get_timeout,
+	.sdhci_debug = sdhci_print_critical,
 };
-
-void sdhci_pltfm_send_init_74_clocks (struct sdhci_host *host,u8 power_mode)
-{
-	u16 clk, ctrl_2;
-	unsigned int clock,pwr;
-	bool	sd_bus_power_off=0;
-	
-	switch(power_mode){
-		case  MMC_POWER_OFF:
-			break;
-		case MMC_POWER_UP:
-		case MMC_POWER_ON:	
-			clock = host->clock;
-			host->clock = 0;
-			sdhci_set_clock(host, clock);
-			pwr = sdhci_readb(host,SDHCI_POWER_CONTROL);
-			if(!(pwr&SDHCI_POWER_ON)){
-				pwr |= SDHCI_POWER_ON;
-				sdhci_writeb(host, pwr, SDHCI_POWER_CONTROL);
-				sd_bus_power_off = 1;
-			}
-			mdelay(1);
-			clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
-			clk &= ~SDHCI_CLOCK_CARD_EN;
-			sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);			
-			if(sd_bus_power_off){
-				pwr = sdhci_readb(host,SDHCI_POWER_CONTROL);
-				pwr &= ~SDHCI_POWER_ON;
-				sdhci_writeb(host, pwr, SDHCI_POWER_CONTROL);
-				sd_bus_power_off = 0;
-			}
-				
-			break;
-		default:
-			break;
-	}
-}
-
 
 static int bcm_kona_sd_reset(struct sdio_dev *dev)
 {
@@ -304,13 +260,52 @@ static int bcm_kona_sd_card_emulate(struct sdio_dev *dev, int insert)
 	struct sdhci_host *host = dev->host;
 	uint32_t val;
 	unsigned long flags;
+	int ret = 0;
 
+	if(strcmp("mmc2", mmc_hostname(host->mmc)) == 0)
+		printk ("PNN: [%s]sd_card_emulate : %s\n",mmc_hostname(host->mmc), insert ? "insert" : "removal");
+#ifndef CONFIG_ARCH_ISLAND
+	/*
+	 * The clock enabled here will be disabled in
+	 * sdhci_tasklet_card
+	 */
+	if (sdhci_pltfm_rpm_enabled(dev)) {
+		/*
+		 * The code below can be executed just
+		 * after a device resume. pm core
+		 * enables the runtime pm for the device
+		 * when the resume callback returns.
+		 * It is possible that we reach here before
+		 * that. One option is to wait for the RPM
+		 * to be enabled, but this can create an
+		 * obvious issue when we perform card
+		 * insert/removal during the probe. We cant
+		 * remove the pm_runtime_get_sync with a
+		 * direct clock enable here, because the
+		 * sdhci_irq will complain about "interrupt
+		 * while runtime suspened". We cant even check
+		 * for pm_runtime status and take an appropriate
+		 * action, because if the status changes by the
+		 * time the clcok disable is done in card tasklet,
+		 * it will result in unbalanced RPM usage. Moreover
+		 * why to wait for something in an ISR when we have
+		 * an option.
+		 * So a better option is to do both.
+		 */
+		pm_runtime_get_sync(dev->dev);
+	}
+
+	/* Enable clock once irrespective of RPM state */
+	ret = sdhci_pltfm_clk_enable(dev, 1);
+	if (ret) {
+		dev_err(dev->dev,
+			"enable clock during card emulate failed\n");
+		return -EAGAIN;
+	}
+#endif
 	/* this function can be called from various contexts including ISR */
 	spin_lock_irqsave(&host->lock, flags);
 
-#ifndef CONFIG_ARCH_ISLAND
-	sdhci_pltfm_clk_enable(host, 1);
-#endif
 	/* Ensure SD bus scanning to detect media change */
 	host->mmc->rescan_disable = 0;
 
@@ -329,17 +324,6 @@ static int bcm_kona_sd_card_emulate(struct sdio_dev *dev, int insert)
 	}
 
 	spin_unlock_irqrestore(&host->lock, flags);
-
-	/* mmc_detect_change(host->mmc, msecs_to_jiffies(10)); */
-
-	if(dev->devtype == SDIO_DEV_TYPE_SDMMC)
-	{
-		if (insert) {
-			pr_info("%s, %s inserted.", __func__, mmc_hostname(host->mmc));
-		}else{
-			pr_info("%s, %s removed.", __func__, mmc_hostname(host->mmc));		
-		}	
-	}
 
 	return 0;
 }
@@ -447,38 +431,83 @@ static void proc_term(struct platform_device *pdev)
 static irqreturn_t sdhci_pltfm_cd_interrupt(int irq, void *dev_id)
 {
 	struct sdio_dev *dev = (struct sdio_dev *)dev_id;
+	struct sdhci_host *host = dev->host;
+	int gpio_status;
+
+	wake_lock(&dev->cd_int_wake_lock);
+
+	if(strcmp("mmc2", mmc_hostname(host->mmc)) == 0)
+		printk ("PNN:[%s] cd_interrupt\n",mmc_hostname(host->mmc));
+
+
+	gpio_status = gpio_get_value_cansleep(dev->cd_gpio);
+
+	/* If suspended, wait for the device to be resumed.
+	 * It is important that we get the gpio status first
+	 * and then go for sleep. Otherwise a state change can
+	 * happen during the sleep, and we end up passing consecutive
+	 * card insert or removal indications to uppper layer.
+	 */
+	while (dev->suspended)
+		usleep_range(1000, 5000);
 
 	/* card insert */
-	if (gpio_get_value_cansleep(dev->cd_gpio) == 0)
-		bcm_kona_sd_card_emulate(dev, 1);
-	else	/* card removal */
-		bcm_kona_sd_card_emulate(dev, 0);
+	if (!gpio_status) {
 
+		/* Turn ON the SD controller regulator.
+		 * The card regulator will be truned on
+		 * during set_ios.
+		 */
+		if(strcmp("mmc2", mmc_hostname(host->mmc)) == 0)
+			printk ("PNN:[%s] cd_interrupt insert\n",mmc_hostname(host->mmc));
+		kona_sdio_regulator_power(dev, 1);
+		host->flags &= ~SDHCI_DEVICE_DEAD;
+		bcm_kona_sd_card_emulate(dev, 1);
+	} else {	/* card removal */
+		if(strcmp("mmc2", mmc_hostname(host->mmc)) == 0)
+			printk ("PNN:[%s] cd_interrupt removal\n",mmc_hostname(host->mmc));
+
+		/* Set the device as dead, so that
+		 * set_ios will turn off the regulator.
+		 */
+		host->flags |= SDHCI_DEVICE_DEAD;
+		bcm_kona_sd_card_emulate(dev, 0);
+	}
+
+	wake_unlock(&dev->cd_int_wake_lock);
 	return IRQ_HANDLED;
 }
 
-static int sdhci_pltfm_clk_enable(struct sdhci_host *host, int enable)
+static int sdhci_pltfm_clk_enable(struct sdio_dev *dev, int enable)
 {
-#ifdef CONFIG_ARCH_SAMOA
+#if defined(CONFIG_ARCH_SAMOA) || defined(CONFIG_MACH_BCM_FPGA)
 	return 0;
 #else
 	int ret = 0;
-	struct sdio_dev *dev = sdhci_priv(host);
+
 	BUG_ON(!dev);
 	if (enable) {
 		/* peripheral clock */
 		ret = clk_enable(dev->peri_clk);
-		if (ret)	{
-		pr_err("\n<%s> %s: clk_enable failed! Error %d\n",
-			mmc_hostname(host->mmc), __func__, ret);
-
+		if (ret)
 			return ret;
-		}
 	} else {
 		clk_disable(dev->peri_clk);
 	}
 	return ret;
 #endif
+}
+
+static int sdhci_clk_enable(struct sdhci_host *host, int enable)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+	int ret = 0;
+
+	ret = sdhci_pltfm_clk_enable(dev, enable);
+	if (ret)
+		dev_err(dev->dev,
+			"clock %s failed\n", enable ? "enable" : "disable");
+	return ret;
 }
 
 #ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
@@ -515,16 +544,8 @@ static void kona_sdio_status_notify_cb(int card_present, void *dev_id)
 	 * TODO: The required implementtion to check the status of the card
 	 * etc
 	 */
-
-	/* Call the core function to rescan on the given host controller */
-	pr_debug("%s: MMC_DETECT_CHANGE\n", __func__);
-
-	mmc_detect_change(host->mmc, 100);
-
-	pr_debug("%s: MMC_DETECT_CHANGE DONE\n", __func__);
 }
 #endif
-
 
 extern struct class *sec_class;
 static struct device *sd_detection_cmd_dev;
@@ -535,25 +556,35 @@ static ssize_t sd_detection_cmd_show(struct device *dev,
 	unsigned int	detect;
 	unsigned int	slot;
 
-
 	for( slot = 0; slot < SDIO_DEV_TYPE_MAX; slot++ ) {
 		if( gDevs[slot] && (gDevs[slot]->devtype == SDIO_DEV_TYPE_SDMMC) )
 				break;
 	}
 
+    if(gDevs[slot]->devtype !=SDIO_DEV_TYPE_SDMMC){
+		pr_info("%s - there is No SD card\n",__func__);
+		return sprintf(buf, "Error\n");
+	}
+	
+	if(gDevs[slot]->cd_gpio >= 0){
 
-	if( (slot < SDIO_DEV_TYPE_MAX) && gDevs[slot] && gDevs[slot]->cd_gpio ) {
+	if( (slot < SDIO_DEV_TYPE_MAX) && gDevs[slot] && (gDevs[slot]->cd_gpio!= -1) ) {
 		//detect = sdhci_readl(gDevs[SDIO_DEV_TYPE_SDMMC]->host, KONA_SDHOST_CORESTAT) & KONA_SDHOST_CD_SW ? 1 /*INSERTED*/ : 0 /*NOT INSERTED*/;		
 		detect = gpio_get_value(gDevs[slot]->cd_gpio);
 		pr_info("%s : External SD detect pin number : %d, value : %d \n", __func__, gDevs[slot]->cd_gpio, detect);
 	} else {
-		pr_info("%s : External SD detect pin Error\n", __func__);
-		return  sprintf(buf, "Error\n");
+			pr_info("%s : External SD detect pin Error\n", __func__);
+			return  sprintf(buf, "Error\n");
 	}
 
-	// Low active, pull up in the schemetic.
-	detect = !detect;
+		// Low active, pull up in the schemetic.
+		detect = !detect;
+	} else {
+		struct sdio_dev *sdio_dev = gDevs[slot];
+		struct sdhci_host *host = sdio_dev->host;
+		detect = host->pwr;
 
+	}
 	/* File Location : /sys/class/sec/sdcard/status */
 	pr_info("%s : detect = %d.\n", __func__,  detect);
 	if (detect) {
@@ -567,29 +598,274 @@ static ssize_t sd_detection_cmd_show(struct device *dev,
 
 static DEVICE_ATTR(status, 0444, sd_detection_cmd_show, NULL);
 
+#ifdef CONFIG_PM_RUNTIME
+
+static int sdhci_pltfm_runtime_suspend(struct device *device)
+{
+	int ret = 0;
+	unsigned long flags;
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
+	struct sdhci_host *host = dev->host;
+
+	/* This is never going to happen, but still */
+	if (!sdhci_pltfm_rpm_enabled(dev)) {
+		dev_err(dev->dev,
+			"Spurious rpm suspend call\n");
+		/* But no meaning in returning error */
+		return 0;
+	}
+
+	spin_lock_irqsave(&host->lock, flags);
+	host->runtime_suspended = true;
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	ret = sdhci_pltfm_clk_enable(dev, 0);
+	if (ret) {
+		dev_err(dev->dev,
+			"Failed to disable clock during run time suspend\n");
+		sdhci_runtime_resume_host(host);
+		return -EAGAIN;
+	}
+
+	return 0;
+}
+
+static int sdhci_pltfm_runtime_resume(struct device *device)
+{
+	int ret = 0;
+	unsigned long flags;
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
+	struct sdhci_host *host = dev->host;
+
+	/* This is never going to happen, but still */
+	if (!sdhci_pltfm_rpm_enabled(dev)) {
+		dev_err(dev->dev, "Spurious rpm resume call\n");
+		/* But no menaing in returning error */
+		return 0;
+	}
+
+	spin_lock_irqsave(&host->lock, flags);
+	host->runtime_suspended = false;
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	ret = sdhci_pltfm_clk_enable(dev, 1);
+	if (ret) {
+		dev_err(dev->dev,
+			"Failed to enable clock during run time resume\n");
+		return -EAGAIN;
+	}
+
+	return 0;
+}
+
+static int sdhci_pltfm_runtime_idle(struct device *device)
+{
+	/*
+	 * Make sure we return 0 here.
+	 * When the device resume returns
+	 * the pm_runtime_put_sync is called instead
+	 * of pm_runtime_put_sync suspend, which means
+	 * first the idle will be called (this function).
+	 * If idle returns zero, the runtime suspend
+	 * will be initiated, otherwise not.
+	 */
+	return 0;
+}
+
+static void __devinit sdhci_pltfm_runtime_pm_init(struct device *device)
+{
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
+
+	if (!sdhci_pltfm_rpm_enabled(dev))
+		return;
+
+	pm_runtime_irq_safe(device);
+	pm_runtime_enable(device);
+
+	if (dev->devtype == SDIO_DEV_TYPE_WIFI)
+		pm_runtime_set_autosuspend_delay(device,
+				KONA_MMC_WIFI_AUTOSUSPEND_DELAY);
+	else
+		pm_runtime_set_autosuspend_delay(device,
+				KONA_MMC_AUTOSUSPEND_DELAY);
+
+	pm_runtime_use_autosuspend(device);
+}
+
+static void __devexit sdhci_pltfm_runtime_pm_forbid(struct device *device)
+{
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
+
+	if (!sdhci_pltfm_rpm_enabled(dev))
+		return;
+
+	pm_runtime_forbid(device);
+	pm_runtime_get_noresume(device);
+	pm_runtime_disable(device);
+}
+
+#else
+
+#define sdhci_pltfm_runtime_suspend      NULL
+#define sdhci_pltfm_runtime_resume       NULL
+#define sdhci_pltfm_runtime_idle         NULL
+
+#endif
 
 static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
 	struct sdio_dev *dev;
 	struct resource *iomem;
-	struct sdio_platform_cfg *hw_cfg;
+	struct sdio_platform_cfg *hw_cfg = NULL;
 	char devname[MAX_DEV_NAME_SIZE];
-	int ret;
+	int ret = 0;
+	char *emmc_regulator = NULL;
 
 	pr_debug("%s: ENTRY\n", __func__);
 
 	BUG_ON(pdev == NULL);
 
-	if (pdev->dev.platform_data == NULL) {
-		dev_err(&pdev->dev, "platform_data missing\n");
-		ret = -EFAULT;
-		goto err;
+	hw_cfg = (struct sdio_platform_cfg *)pdev->dev.platform_data;
+	if (pdev->dev.of_node) {
+		u32 val;
+		const char *prop;
+		if (!pdev->dev.platform_data)
+			hw_cfg = kzalloc(sizeof(struct sdio_platform_cfg),
+				GFP_KERNEL);
+
+		if (!hw_cfg) {
+			dev_err(&pdev->dev,
+				"unable to allocate mem for private data\n");
+			ret = -ENOMEM;
+			goto err;
+		}
+		if (of_property_read_u32(pdev->dev.of_node, "id", &val)) {
+			dev_err(&pdev->dev, "id read failed in %s\n", __func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->id = val;
+		pdev->id = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "data-pullup",
+			&val)) {
+			dev_err(&pdev->dev, "data-pullup read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->data_pullup = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "devtype", &val)) {
+			dev_err(&pdev->dev, "devtype read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->devtype = val;
+
+		if (of_property_read_u32(pdev->dev.of_node, "flags", &val)) {
+			dev_err(&pdev->dev, "flags read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->flags = val;
+
+		if (of_property_read_string(pdev->dev.of_node, "peri-clk-name",
+			&prop)) {
+			dev_err(&pdev->dev, "peri-clk-name read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->peri_clk_name = (char *)prop;
+
+		if (of_property_read_string(pdev->dev.of_node, "ahb-clk-name",
+			&prop)) {
+			dev_err(&pdev->dev, "ahb-clk-name read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->ahb_clk_name = (char *)prop;
+
+		if (of_property_read_string(pdev->dev.of_node, "sleep-clk-name",
+			&prop)) {
+			dev_err(&pdev->dev, "sleep-clk-name read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->sleep_clk_name = (char *)prop;
+
+		if (of_property_read_u32(pdev->dev.of_node, "peri-clk-rate",
+			&val)) {
+			dev_err(&pdev->dev, "peri-clk-rate read failed in %s\n",
+			__func__);
+			goto err_free_priv_data_mem;
+		}
+
+		hw_cfg->peri_clk_rate = val;
+
+		if (hw_cfg->devtype == SDIO_DEV_TYPE_SDMMC) {
+			if (of_property_read_string(pdev->dev.of_node,
+				"vddo-regulator-name", &prop)) {
+				dev_err(&pdev->dev, "vddo-regulator-name read "\
+				"failed in %s\n", __func__);
+				goto err_free_priv_data_mem;
+			}
+
+			hw_cfg->vddo_regulator_name = (char *)prop;
+
+			if (of_property_read_string(pdev->dev.of_node,
+				"vddsdxc-regulator-name", &prop)) {
+				dev_err(&pdev->dev, "vddsdxc-regulator-name"\
+				"read failed in %s\n", __func__);
+				goto err_free_priv_data_mem;
+			}
+
+			hw_cfg->vddsdxc_regulator_name = (char *)prop;
+
+
+			if (of_property_read_u32(pdev->dev.of_node,
+				"cd-gpio", &val)) {
+				dev_err(&pdev->dev, "cd-gpio read failed in %s\n",
+				__func__);
+				hw_cfg->cd_gpio = -1;
+			}
+
+			hw_cfg->cd_gpio = val;
+		}
+
+		else if (hw_cfg->devtype == SDIO_DEV_TYPE_EMMC) {
+
+			if (of_property_read_u32(pdev->dev.of_node,
+				"is-8bit", &val)) {
+				dev_err(&pdev->dev, "is-8bit read failed in %s\n",
+				__func__);
+				goto err_free_priv_data_mem;
+			}
+
+			hw_cfg->is_8bit = val;
+			if (!(of_property_read_string(pdev->dev.of_node,
+					"vddsdmmc-regulator-name", &prop)))
+				emmc_regulator = (char *)prop;
+		}
+
+		pdev->dev.platform_data = hw_cfg;
+	}
+	if (!hw_cfg) {
+			dev_err(&pdev->dev, "hw_cfg is NULL\n");
+			ret = -ENOMEM;
+			goto err;
 	}
 
-	pr_debug("%s: GET PLATFORM DATA\n", __func__);
-
-	hw_cfg = (struct sdio_platform_cfg *)pdev->dev.platform_data;
 	if (hw_cfg->devtype >= SDIO_DEV_TYPE_MAX) {
 		dev_err(&pdev->dev, "unknown device type\n");
 		ret = -EFAULT;
@@ -622,12 +898,14 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	host->quirks = SDHCI_QUIRK_NO_CARD_NO_RESET
 	    | SDHCI_QUIRK_BROKEN_TIMEOUT_VAL
 	    | SDHCI_QUIRK_32BIT_DMA_ADDR
+#ifdef CONFIG_MACH_HAWAII_FPGA_MM_V1
+	    | SDHCI_QUIRK_BROKEN_ADMA
+#endif
 	    | SDHCI_QUIRK_32BIT_DMA_SIZE | SDHCI_QUIRK_32BIT_ADMA_SIZE;
 
 #ifdef CONFIG_MACH_RHEA_DALTON2_EB30
         host->quirks |= SDHCI_QUIRK_NO_MULTIBLOCK;
 #endif
-       
         pr_debug("%s: GET IRQ\n", __func__);
 
 	if (hw_cfg->flags & KONA_SDIO_FLAGS_DEVICE_NON_REMOVABLE)
@@ -654,33 +932,13 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	dev->host = host;
 	dev->devtype = hw_cfg->devtype;
 	dev->cd_gpio = hw_cfg->cd_gpio;
+	host->mmc->parent = dev->dev;
 	if (dev->devtype == SDIO_DEV_TYPE_WIFI)
 		dev->wifi_gpio = &hw_cfg->wifi_gpio;
-	/*
-	 * In the corresponding mmc_host->caps filed, need to
-	 * expose the MMC_CAP_DISABLE capability only for SD Card interface.
-	 * Note that for now we are exposing Dynamic Power Management
-	 * capability on the interface that suppors SD Card.
-	 *
-	 * When we finally decide to do away with managing clocks from sdhci.c
-	 * and when we enable the DISABLED state management, we need to
-	 * enable this capability for ALL SDIO interfaces. For WLAN interface
-	 * we should ensure that the regulator is NOT turned OFF so that the
-	 * handshakes need not happen again.
-	 */
-	if (dev->devtype == SDIO_DEV_TYPE_SDMMC) {
-		host->mmc->caps |= MMC_CAP_DISABLE;
-		/*
-		 * There are multiple paths that can trigger disable work.
-		 * One common path is from
-		 * mmc/card/block.c function,  mmc_blk_issue_rq after the
-		 * transfer is done.
-		 * mmc_release_host-->mmc_host_lazy_disable, this starts the
-		 * mmc disable work only if host->disable_delay is non zero.
-		 * So we need to set disable_delay otherwise the work will never
-		 * get scheduled.
-		 */
-		mmc_set_disable_delay(host->mmc, KONA_SDMMC_DISABLE_DELAY);
+	if (dev->devtype == SDIO_DEV_TYPE_EMMC && emmc_regulator) {
+		dev->vdd_sdxc_regulator = regulator_get(NULL, emmc_regulator);
+		if (IS_ERR(dev->vdd_sdxc_regulator))
+			dev->vdd_sdxc_regulator = NULL;
 	}
 
 	pr_debug("%s: DEV TYPE %x\n", __func__, dev->devtype);
@@ -690,7 +948,6 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dev);
 
 	snprintf(devname, sizeof(devname), "%s%d", DEV_NAME, pdev->id);
-	pr_info("%s: DEV_TYPE=%x(0-sdmmc, 1-wifi, 2-emmc), DEV_NAME=%s \n", __func__, dev->devtype, devname);
 
 	/* enable clocks */
 #ifdef CONFIG_MACH_BCM2850_FPGA
@@ -699,6 +956,8 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	} else {
 		dev->clk_hz = gClock[dev->devtype];
 	}
+#elif defined(CONFIG_MACH_BCM_FPGA)
+	dev->clk_hz =  hw_cfg->peri_clk_rate;
 #else
 	/* peripheral clock */
 	dev->peri_clk = clk_get(&pdev->dev, hw_cfg->peri_clk_name);
@@ -724,12 +983,13 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		goto err_sleep_clk_put;
 	}
 
-	ret = sdhci_pltfm_clk_enable(host, 1);
+	ret = sdhci_pltfm_clk_enable(dev, 1);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to initialize core clock for %s\n",
 			devname);
 		goto err_sleep_clk_disable;
 	}
+
 	dev->clk_hz = clk_get_rate(dev->peri_clk);
 #endif
 
@@ -739,16 +999,21 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		ret =
 		    sdhci_pltfm_regulator_init(dev,
 					       hw_cfg->vddo_regulator_name);
+#ifndef BCM_REGULATOR_SKIP_QUIRK
 		if (ret < 0)
 			goto err_term_clk;
+#endif
 	}
 
-	if (hw_cfg->vddsdxc_regulator_name) {
+	if (hw_cfg->vddsdxc_regulator_name &&
+			dev->devtype == SDIO_DEV_TYPE_SDMMC) {
 		ret =
 		    sdhci_pltfm_regulator_sdxc_init(dev,
 					       hw_cfg->vddsdxc_regulator_name);
+#ifndef BCM_REGULATOR_SKIP_QUIRK
 		if (ret < 0)
 			goto err_term_clk;
+#endif
 	}
 	if (sd_detection_cmd_dev == NULL){
 	sd_detection_cmd_dev =
@@ -760,23 +1025,14 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	if (device_create_file(sd_detection_cmd_dev,
 				&dev_attr_status) < 0)
 		pr_err("Fail to create sysfs file\n");
-	}	
+	}
 
-	/*
-	 * Regulators are NOT turned ON in the above functions.
-	 * So leave them in OFF state and they'll be handled
-	 * appropriately in enable path.
-	 */
-	dev->dpm_state = OFF;
+	mutex_init(&dev->regulator_lock);
+	kona_sdio_regulator_power(dev, 1);
 
 	ret = bcm_kona_sd_reset(dev);
 	if (ret)
 		goto err_term_clk;
-
-	if((hw_cfg->devtype==SDIO_DEV_TYPE_SDMMC)&&(hw_cfg->configure_sdio_pullup)){
-		dev_err(dev->dev, "During Booting before power on -->Pull-Down CMD/DAT Line  \r\n");
-		hw_cfg->configure_sdio_pullup(0);
-	}
 
 	ret = bcm_kona_sd_init(dev);
 	if (ret)
@@ -810,6 +1066,25 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	if (dev->devtype == SDIO_DEV_TYPE_EMMC)
 		host->mmc->caps |= MMC_CAP_1_8V_DDR;
 
+	/* Don't issue SLEEP command to e.MMC device */
+	if (dev->devtype == SDIO_DEV_TYPE_EMMC)
+		host->mmc->caps2 |= MMC_CAP2_NO_SLEEP_CMD;
+
+	/*
+	 * This has to be done before sdhci_add_host.
+	 * As soon as we add the host, request
+	 * starts. If we dont enable this here, the
+	 * runtime get and put of sdhci will fallback to
+	 * clk_enable and clk_disable which will conflict
+	 * with the PM runtime when it gets enabled just
+	 * after sdhci_add_host. Now with this, the RPM
+	 * calls will fail until RPM is enabled, but things
+	 * will work well, as we have clocks enabled till the
+	 * probe ends.
+	 */
+
+	dev->runtime_pm_enabled = 1;
+
 	ret = sdhci_add_host(host);
 	if (ret)
 		goto err_reset;
@@ -817,6 +1092,14 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	ret = proc_init(pdev);
 	if (ret)
 		goto err_rm_host;
+
+	/* Should be done only after sdhci_add_host */
+	sdhci_pltfm_runtime_pm_init(dev->dev);
+
+	if (dev->devtype == SDIO_DEV_TYPE_SDMMC) {
+		/* support SD card detect interrupts for insert/removal */
+		host->mmc->card_detect_cap = true;
+	}
 
 	/* if device is eMMC, emulate card insert right here */
 	if (dev->devtype == SDIO_DEV_TYPE_EMMC) {
@@ -828,6 +1111,20 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		}
 		pr_info("%s: card insert emulated!\n", devname);
 	} else if (dev->devtype == SDIO_DEV_TYPE_SDMMC && dev->cd_gpio >= 0) {
+
+		dev->cd_int_wake_lock_name = kasprintf(GFP_KERNEL,
+				"%s_cd_int", devname);
+
+		if (!dev->cd_int_wake_lock_name) {
+			dev_err(&pdev->dev,
+				"error allocating mem for wake_lock_name\n");
+			goto err_proc_term;
+		}
+
+		wake_lock_init(&dev->cd_int_wake_lock, WAKE_LOCK_SUSPEND,
+				dev->cd_int_wake_lock_name);
+
+
 		ret = gpio_request(dev->cd_gpio, "sdio cd");
 
 		if (ret < 0) {
@@ -884,14 +1181,18 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		 * only if the card is present
 		 */
 		if (gpio_get_value_cansleep(dev->cd_gpio) == 0)		{
-			if (hw_cfg->configure_sdio_pullup)	{
-				dev_info(dev->dev,
-				"Pull-up SD CMD/DAT line before detection\n");
-				hw_cfg->configure_sdio_pullup(1);
-			}
+			printk("%s - external SD Card is detected by GPIO\n",__func__);
 			bcm_kona_sd_card_emulate(dev, 1);
+		} else {
+			printk("%s - SD Card is Not detected by GPIO-->Disable SDXLDO\n",__func__);
+			/* If card is not present disable the regulator */
+			kona_sdio_regulator_power(dev, 0);
 		}
 	}
+	/* Force insertion interrupt, in case of no card detect registered.
+	 */
+	if (dev->cd_gpio < 0)
+		bcm_kona_sd_card_emulate(dev, 1);
 #ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
 	if ((dev->devtype == SDIO_DEV_TYPE_WIFI) &&
 	    (hw_cfg->register_status_notify != NULL)) {
@@ -903,7 +1204,7 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 #endif
 
 	atomic_set(&dev->initialized, 1);
-	sdhci_pltfm_clk_enable(host, 0);
+	sdhci_pltfm_clk_enable(dev, 0);
 
 	pr_info("%s: initialized properly\n", devname);
 
@@ -923,9 +1224,9 @@ err_reset:
 	bcm_kona_sd_reset(dev);
 
 err_term_clk:
-	sdhci_pltfm_clk_enable(host, 0);
+	sdhci_pltfm_clk_enable(dev, 0);
 
-#ifndef CONFIG_MACH_BCM2850_FPGA
+#if !defined(CONFIG_MACH_BCM2850_FPGA) && !defined(CONFIG_MACH_BCM_FPGA)
 err_sleep_clk_disable:
 	clk_disable(dev->sleep_clk);
 
@@ -946,6 +1247,11 @@ err_free_mem_region:
 err_free_host:
 	sdhci_free_host(host);
 
+err_free_priv_data_mem:
+	if (pdev->dev.of_node) {
+		ret = -EFAULT;
+		kfree(hw_cfg);
+	}
 err:
 	pr_err("Probing of sdhci-pltfm %d failed: %d\n", pdev->id,
 	       ret);
@@ -959,23 +1265,17 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 	struct resource *iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	int dead;
 	u32 scratch;
+	int ret = 0;
 
 	atomic_set(&dev->initialized, 0);
 	gDevs[dev->devtype] = NULL;
-
+	printk("%s",__func__);
 	if (dev->devtype == SDIO_DEV_TYPE_SDMMC && dev->cd_gpio >= 0) {
 		free_irq(gpio_to_irq(dev->cd_gpio), dev);
 		gpio_free(dev->cd_gpio);
 	}
 
-	if (dev->vddo_sd_regulator) {
-		/* Playing safe- if regulator is enabled, disable it first */
-		if (regulator_is_enabled(dev->vddo_sd_regulator) > 0)
-			regulator_disable(dev->vddo_sd_regulator);
-
-		regulator_put(dev->vddo_sd_regulator);
-	}
-	if (dev->vdd_sdxc_regulator) {
+	if (dev->vdd_sdxc_regulator && dev->devtype == SDIO_DEV_TYPE_SDMMC) {
 		/* Playing safe- if regulator is enabled, disable it first */
 		if (regulator_is_enabled(dev->vdd_sdxc_regulator) > 0)
 			regulator_disable(dev->vdd_sdxc_regulator);
@@ -985,22 +1285,45 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 
 	proc_term(pdev);
 
-	sdhci_pltfm_clk_enable(host, 1);
+	if (sdhci_pltfm_rpm_enabled(dev)) {
+		pm_runtime_get_sync(dev->dev);
+	} else {
+		ret = sdhci_pltfm_clk_enable(dev, 1);
+		if (ret)
+			dev_err(dev->dev,
+				"enable clock during pltfm remove failed\n");
+	}
+
 	dead = 0;
 	scratch = readl(host->ioaddr + SDHCI_INT_STATUS);
 	if (scratch == (u32)-1)
 		dead = 1;
 	sdhci_remove_host(host, dead);
 
-	sdhci_pltfm_clk_enable(host, 0);
+	if (sdhci_pltfm_rpm_enabled(dev)) {
+		pm_runtime_put_sync_suspend(dev->dev);
+	} else {
+		ret = sdhci_pltfm_clk_enable(dev, 0);
+		if (ret)
+			dev_err(dev->dev,
+				"disable clock during pltfm remove failed\n");
+	}
 
-#ifndef CONFIG_MACH_BCM2850_FPGA
+#if !defined(CONFIG_MACH_BCM2850_FPGA) && !defined(CONFIG_MACH_BCM_FPGA)
 	clk_disable(dev->sleep_clk);
 	clk_put(dev->sleep_clk);
 	clk_put(dev->peri_clk);
 #endif
 
+	sdhci_pltfm_runtime_pm_forbid(dev->dev);
+	kfree(dev->cd_int_wake_lock_name);
+	wake_lock_destroy(&dev->cd_int_wake_lock);
 	platform_set_drvdata(pdev, NULL);
+	if (dev->devtype == SDIO_DEV_TYPE_EMMC ||
+		dev->devtype == SDIO_DEV_TYPE_SDMMC) {
+		kfree(pdev->dev.platform_data);
+		pdev->dev.platform_data = NULL;
+	}
 	kfree(dev);
 	iounmap(host->ioaddr);
 	release_mem_region(iomem->start, resource_size(iomem));
@@ -1010,67 +1333,95 @@ static int __devexit sdhci_pltfm_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int sdhci_pltfm_suspend(struct platform_device *pdev, pm_message_t state)
+static int sdhci_pltfm_suspend(struct device *device)
 {
-	struct sdio_dev *dev = platform_get_drvdata(pdev);
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
 	struct sdhci_host *host = dev->host;
+	int ret = 0;
 
-	if (dev->devtype == SDIO_DEV_TYPE_WIFI) {
-		host->mmc->pm_flags |= host->mmc->pm_caps;
-		printk(KERN_DEBUG "%s: pm_flags=0x%08x\n",
-			__FUNCTION__, host->mmc->pm_flags);
-		sdhci_suspend_host(host, state);
+	if (!sdhci_pltfm_rpm_enabled(dev)) {
+		ret = sdhci_pltfm_clk_enable(dev, 1);
+		if (ret) {
+			dev_err(dev->dev,
+				"Failed to enable clock during suspend\n");
+			return -EAGAIN;
+		}
 	}
 
-	flush_work_sync(&host->wait_erase_work);
-	/*
-	 *   Move Dynamic Power Management State machine to OFF state to
-	 *   ensure the SD card regulators are turned-off during suspend.
-	 *
-	 * State Machine:
-	 *
-	 *   ENABLED -> DISABLED ->  OFF
-	 *     ^___________|          |
-	 *     |______________________|
-	 *
-	 *  Delayed workqueue host->mmc->disable (mmc_host_deeper_disable) is
-	 *  scheduled twice:
-	 *  mmc_host_lazy_disable queues host->mmc->disable for 100ms delay
-	 *  1st Entry(after 100ms):  work function(mmc_host_deeper_disable)
-	 *  moves the DPM state: ENABLED -> DISABLED [lazy disable] and
-	 *  and queues the workqueue host->mmc->disable again for 8s delay
-	 *
-	 * 2nd Entry(after 8s): work function(mmc_host_deeper_disable) moves
-	 * the DPM state: DISABLED ->  OFF [deeper disable] this time to
-	 * turn-off the SD card/IO regulators.
-	 *
-	 * We need to call flush_delayed_work_sync twice to ensure the SD card
-	 * DPM is moved to OFF state.
-	 *
-	 */
-	flush_delayed_work_sync(&host->mmc->disable);
-	flush_delayed_work_sync(&host->mmc->disable);
+	if (dev->devtype == SDIO_DEV_TYPE_WIFI)
+		host->mmc->pm_flags |= host->mmc->pm_caps;
 
+	ret = sdhci_suspend_host(host);
+	if (ret) {
+		dev_err(dev->dev, "Unable to suspend sdhci host err=%d\n",
+			ret);
+		return ret;
+	}
+
+	if (sdhci_pltfm_rpm_enabled(dev)) {
+		/*
+		 * Note that we havent done a get_sync. The
+		 * pm core takes care of that.
+		 */
+		pm_runtime_put_sync_suspend(dev->dev);
+	} else {
+		ret = sdhci_pltfm_clk_enable(dev, 0);
+		if (ret) {
+			dev_err(dev->dev,
+				"Failed to disable clock during suspend\n");
+			/* Not really a big error to cry and return */
+		}
+	}
 	if(dev->devtype == SDIO_DEV_TYPE_SDMMC)
 	{
-		mdelay(50);// this is Samsung internal specification.		
+		printk(KERN_ERR "mmc regulator off.. delay 50ms added\n");
+		mdelay(50);// this is Samsung internal specification.
 	}
 
 	dev->suspended = 1;
 	return 0;
 }
 
-static int sdhci_pltfm_resume(struct platform_device *pdev)
+static int sdhci_pltfm_resume(struct device *device)
 {
-	struct sdio_dev *dev = platform_get_drvdata(pdev);
+	struct sdio_dev *dev =
+		platform_get_drvdata(to_platform_device(device));
 	struct sdhci_host *host = dev->host;
+	int ret = 0;
+
+	if (sdhci_pltfm_rpm_enabled(dev)) {
+		/*
+		 * Note that we havent done a put_sync. The
+		 * pm core takes care of that.
+		 */
+		pm_runtime_get_sync(dev->dev);
+	} else {
+		ret = sdhci_pltfm_clk_enable(dev, 1);
+		if (ret) {
+			dev_err(dev->dev,
+				"Failed to enable clock during resume\n");
+			return -EAGAIN;
+		}
+	}
+
+	ret = sdhci_resume_host(host);
+	if (ret) {
+		dev_err(dev->dev,
+		 "Unable to resume sdhci host err=%d\n", ret);
+		return ret;
+	}
+
+	if (!sdhci_pltfm_rpm_enabled(dev)) {
+		ret = sdhci_pltfm_clk_enable(dev, 0);
+		if (ret) {
+			dev_err(dev->dev,
+				"Failed to disable clock during resume\n");
+			/* Not really a big error to cry and return*/
+		}
+	}
 
 	dev->suspended = 0;
-
-	if (dev->devtype == SDIO_DEV_TYPE_WIFI) {
-		printk(KERN_DEBUG "%s: WiFi resume\n", __FUNCTION__);
-		sdhci_resume_host(host);
-	}
 	return 0;
 }
 #else
@@ -1078,15 +1429,42 @@ static int sdhci_pltfm_resume(struct platform_device *pdev)
 #define sdhci_pltfm_resume NULL
 #endif /* CONFIG_PM */
 
+static inline int sdhci_pltfm_rpm_enabled(struct sdio_dev *dev)
+{
+	return dev->runtime_pm_enabled;
+}
+
+static int sdhci_rpm_enabled(struct sdhci_host *host)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+
+	return sdhci_pltfm_rpm_enabled(dev);
+}
+
+static const struct dev_pm_ops sdhci_pltfm_pm_ops = {
+	.runtime_suspend = sdhci_pltfm_runtime_suspend,
+	.runtime_resume = sdhci_pltfm_runtime_resume,
+	.runtime_idle = sdhci_pltfm_runtime_idle,
+	.suspend = sdhci_pltfm_suspend,
+	.resume = sdhci_pltfm_resume,
+};
+
+static const struct of_device_id sdhci_of_match[] = {
+	{ .compatible = "bcm,sdhci", },
+	{},
+}
+
+MODULE_DEVICE_TABLE(of, sdhci_of_match)
+;
 static struct platform_driver sdhci_pltfm_driver = {
 	.driver = {
 		   .name = "sdhci",
 		   .owner = THIS_MODULE,
+		   .pm = &sdhci_pltfm_pm_ops,
+		   .of_match_table = sdhci_of_match,
 		   },
 	.probe = sdhci_pltfm_probe,
 	.remove = __devexit_p(sdhci_pltfm_remove),
-	.suspend = sdhci_pltfm_suspend,
-	.resume = sdhci_pltfm_resume,
 };
 
 static int __init sdhci_drv_init(void)
@@ -1183,26 +1561,6 @@ int sdio_card_emulate(enum sdio_devtype devtype, int insert)
 }
 EXPORT_SYMBOL(sdio_card_emulate);
 
-int sdio_stop_clk(enum sdio_devtype devtype, int insert)
-{
-	int rc;
-	struct sdio_dev *dev;
-	struct sdhci_host *host;
-
-	rc = sdio_dev_is_initialized(devtype);
-	if (rc <= 0)
-		return -EFAULT;
-
-#ifndef CONFIG_ARCH_ISLAND
-	dev = gDevs[devtype];
-	host = dev->host;
-
-	sdhci_pltfm_clk_enable(host, insert);
-#endif
-	return 0;
-}
-EXPORT_SYMBOL(sdio_stop_clk);
-
 static int sdhci_pltfm_regulator_sdxc_init(struct sdio_dev *dev, char *reg_name)
 {
 	int ret;
@@ -1218,7 +1576,7 @@ static int sdhci_pltfm_regulator_sdxc_init(struct sdio_dev *dev, char *reg_name)
 				   reg_name);
 			ret = -1;
 		} else {
-			printk("%s: set to 3.0V\n",
+			pr_debug("%s: set to 3.0V\n",
 				reg_name);
 			ret = 0;
 		}
@@ -1248,7 +1606,7 @@ static int sdhci_pltfm_regulator_init(struct sdio_dev *dev, char *reg_name)
 				   reg_name);
 			ret = -1;
 		} else {
-			printk("%s: set to 3.0V\n",
+			pr_debug("%s: set to 3.0V\n",
 				reg_name);
 			ret = 0;
 		}
@@ -1278,7 +1636,8 @@ static int sdhci_pltfm_set_3v3_signalling(struct sdhci_host *host)
 	struct sdio_dev *dev = sdhci_priv(host);
 	int ret = 0;
 
-	if (dev->vdd_sdxc_regulator) {
+	if (dev->vdd_sdxc_regulator &&
+			dev->devtype == SDIO_DEV_TYPE_SDMMC) {
 		ret =
 		    regulator_set_voltage(dev->vdd_sdxc_regulator, 3000000,
 					  3000000);
@@ -1295,7 +1654,8 @@ static int sdhci_pltfm_set_1v8_signalling(struct sdhci_host *host)
 	struct sdio_dev *dev = sdhci_priv(host);
 	int ret = 0;
 
-	if (dev->vdd_sdxc_regulator) {
+	if (dev->vdd_sdxc_regulator &&
+			dev->devtype == SDIO_DEV_TYPE_SDMMC) {
 		ret =
 		    regulator_set_voltage(dev->vdd_sdxc_regulator, 1800000,
 					  1800000);
@@ -1307,13 +1667,23 @@ static int sdhci_pltfm_set_1v8_signalling(struct sdhci_host *host)
 	return ret;
 }
 
-int sdhci_kona_sdio_regulator_power(struct sdio_dev *dev, int power_state)
+static int
+sdhci_set_regulator_power(struct sdhci_host *host, int power_state)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+
+	return kona_sdio_regulator_power(dev, power_state);
+}
+
+static int
+kona_sdio_regulator_power(struct sdio_dev *dev, int power_state)
 {
 	int ret = 0;
 	struct device *pdev = dev->dev;
 	struct sdio_platform_cfg *hw_cfg =
 		(struct sdio_platform_cfg *)pdev->platform_data;
 
+	mutex_lock(&dev->regulator_lock);
 	/*
 	 * Note that from the board file the appropriate regualtor names are
 	 * populated. For example, in SD Card case there are two regulators to
@@ -1325,233 +1695,53 @@ int sdhci_kona_sdio_regulator_power(struct sdio_dev *dev, int power_state)
 	 * regulator need not be switched OFF then from the board file do not
 	 * populate the regulator names.
 	 */
-	if (dev->vdd_sdxc_regulator) {
-		if (power_state) {
-			if ((hw_cfg->devtype == SDIO_DEV_TYPE_SDMMC) &&
-				(hw_cfg->configure_sdio_pullup))	{
-				dev_info(dev->dev, "Pull Up CMD/DAT Line\n");
+	if (dev->devtype == SDIO_DEV_TYPE_SDMMC && dev->vddo_sd_regulator &&
+			dev->vdd_sdxc_regulator) {
+		if (power_state && !dev->sdio_regulator_enable) {
+			dev_dbg(dev->dev, "Turning ON sdldo and sdxldo\r\n");
+				ret = regulator_enable(dev->vddo_sd_regulator);
+				if (ret) {
+					pr_err("FAIL:regulator_enable(ldo): %d\n", ret);
+					goto end;
+				}
+
+				ret = regulator_enable(dev->vdd_sdxc_regulator);
+				if (ret) {
+					pr_err("FAIL:regulator_enable(xldo):%d\n", ret);
+					goto end;
+				}
+
+				mdelay(2);
+				if (hw_cfg->configure_sdio_pullup){
+					dev_dbg(dev->dev, "Pull Up CMD/DAT Line\n");
 				/* Pull-up SDCMD, SDDAT[0:3] */
 				hw_cfg->configure_sdio_pullup(1);
-				mdelay(2); /* wait before power-on */
+					mdelay(2); 
 			}
-			dev_err(dev->dev, "Turning ON sdxc sd \r\n");
-			ret = regulator_enable(dev->vdd_sdxc_regulator);
-			if(ret)	{
-				pr_err("sdxc regulator_enable failed err=%d\n", ret);
+				dev->sdio_regulator_enable = 1;
+		} else if (!power_state && dev->sdio_regulator_enable) {
+			dev_dbg(dev->dev, "Turning OFF sdldo and sdxldo\r\n");
+				ret = regulator_disable(dev->vddo_sd_regulator);
+				if (ret) {
+					pr_err("FAIL:regulator_disable(ldo):%d\n", ret);
+					goto end;
+				}
+				if (hw_cfg->configure_sdio_pullup){
+					dev_dbg(dev->dev, "Pull down CMD/DAT Line\n");
+				/* Pull-down SDCMD, SDDAT[0:3] */
+				hw_cfg->configure_sdio_pullup(0);
 			}
-			mdelay(2); /* wait after regulator turned ON */
-		} else {
-			if((hw_cfg->devtype==SDIO_DEV_TYPE_SDMMC)&&(hw_cfg->configure_sdio_pullup)){
-				dev_err(dev->dev, "Pull Down CMD/DAT Line\r\n");
-				hw_cfg->configure_sdio_pullup(0);//set SD CMD and DAT as pull-down.
-				mdelay(1);
-			}
-			dev_err(dev->dev, "Turning OFF sdxc sd \r\n");
-			ret = regulator_disable(dev->vdd_sdxc_regulator);
-			if(ret)
-				pr_err("sdxc regulator_disable failed err=%d\n", ret);
+				ret = regulator_disable(dev->vdd_sdxc_regulator);
+				if (ret) {
+					pr_err("FAIL:regulator_disable(xldo)%d\n", ret);
+					goto end;
+				}
+				dev->sdio_regulator_enable = 0;
 		}
-	 }
-
-	 if (dev->vddo_sd_regulator) {
-		if (power_state) {
-			dev_err(dev->dev, "Turning ON vddo sd \r\n");
-			ret = regulator_enable(dev->vddo_sd_regulator);
-			if(ret)	{
-				pr_err("vddo regulator_enable failed err=%d\n", ret);
-			}
-			
-			if((hw_cfg->devtype==SDIO_DEV_TYPE_SDMMC)&&(hw_cfg->configure_sdio_pullup)){
-			    dev_err(dev->dev, "Pull-Up CMD/DAT Line  \r\n");
-				mdelay(1);
-				hw_cfg->configure_sdio_pullup(1);//set SD CMD and DAT as pull-up.
-				mdelay(1);	//Add delay for pins to pull-up.
-			}
-		
-		} else{
-			dev_err(dev->dev, "Turning OFF vddo sd \r\n");
-			ret = regulator_disable(dev->vddo_sd_regulator);
-			if(ret)
-				pr_err("vddo regulator_disable failed err=%d\n", ret);
-		}
-	 }
+	}
+end:	mutex_unlock(&dev->regulator_lock);
 
 	return ret;
-}
-
-/* Dynamic Power Management Implementation */
-/*
- *   State machine
- *
- *   ENABLED -> DISABLED ->  OFF
- *     ^___________|          |
- *     |______________________|
- *
- * ENABLED:  ahb clk and peripheral clock is ON and regulators are ON
- * DISABLED: ahb clk and peripheral clock are OFF and regulators are ON
- *           (For now this state is just a place holder,clk mgmt will be
- *            be introduced later)
- * OFF:      both clocks are OFF and regulator is turned OFF
- *
- * State transition handlers will return the timeout for the
- * next state transition or negative error.
- */
-
-static int sdhci_kona_disabled_to_enabled(struct sdio_dev *dev)
-{
-	/*
-	 * TODO: Switch ON the clock from here and remove clock mgmt calls
-	 * made from all over the place in sdhci.c
-	 */
-	dev->dpm_state = ENABLED;
-	dev_dbg(dev->dev, "Disabled --> Enabled \r\n");
-
-	return 0;
-}
-
-static int sdhci_kona_off_to_enabled(struct sdio_dev *dev)
-{
-	/* TODO:
-	 * Once clk mgmt is introduced we need to turn ON the clocks here too
-	 */
-
-	/* Note that the sequence triggered by mmc_power_restore_host changes
-	 * the regulator voltage setting etc. But the regulator should be
-	 * enabled in first place.
-	 */
-	sdhci_kona_sdio_regulator_power(dev, 1);
-
-	/*
-	 * This is key, we are calling mmc_power_restore_host, which if needed
-	 * would re-trigger the protocol handshake with the card.
-	 */
-	if ((dev->devtype == SDIO_DEV_TYPE_SDMMC) && (dev->suspended != 1))
-		mmc_power_restore_host(dev->host->mmc);
-	dev->dpm_state = ENABLED;
-	pr_info("OFF --> Enabled \r\n");
-	return 0;
-}
-
-static int sdhci_kona_enabled_to_disabled(struct sdio_dev *dev)
-{
-	/*
-	 * TODO: Switch OFF the clock from here and remove clock mgmt calls
-	 * made from all over the place in sdhci.c
-	 * For now, just change the state to disabled and return
-	 * KONA_SDMMC_OFF_TIMEOUT. If nothing else happens on this SD
-	 * interface. "disable" entry point will be called after the
-	 * KONA_SDMMC_OFF_TIMEOUT milli seconds.
-	 */
-	dev->dpm_state = DISABLED;
-	dev_dbg(dev->dev, "Enabled --> Disabled \r\n");
-
-	/*
-	 * **NOTE**: Removing below check.
-	 * The reason for this change is- If dpm_state is
-	 * ENABLED and we remove the card, the higher layers in
-	 * the stack would mark ios.power_mode as MMC_POWER_OFF
-	 * and call mmc_release_host() which would land up in
-	 * this function because our regulators are initially
-	 * ENABLED. Now because of the below check, we would
-	 * return 0 from here after marking dpm_state as
-	 * DISABLED and never turn OFF the regulators.
-	 *
-	 * Revisit needed if any issues are seen because of this.
-	 */
-#if 0
-	/*
-	 * This is called when mmc_power_off is already called
-	 * from suspend path. If we don't return 0, the caller
-	 * mmc_host_do_disable would schedule the work queue.
-	 * This statement would avoid it.
-	 */
-	if (dev->host->mmc->ios.power_mode == MMC_POWER_OFF)
-		return 0;
-#endif
-
-	return sdmmc_off_timeout;
-
-}
-
-static int sdhci_kona_disabled_to_off(struct sdio_dev *dev)
-{
-	/*
-	 * Need to call mmc_power_off to safely turn-off of host
-	 * before turning OFF the regulators.
-	 * This is to switch bus width to 1-bit mode, turn-off
-	 * clock & voltage settings in Host Controller.
-	 */
-	if (dev->devtype == SDIO_DEV_TYPE_SDMMC)
-		mmc_power_save_host(dev->host->mmc);
-
-	/*
-	 * We have already turned OFF the clocks, now
-	 * turn OFF the regulators
-	 */
-	sdhci_kona_sdio_regulator_power(dev, 0);
-	dev->dpm_state = OFF;
-	pr_info("Disabled --> OFF\r\n");
-	return 0;
-}
-
-static int sdhci_pltfm_set(struct sdhci_host *host, int enable, int lazy)
-{
-	if (enable)
-		return sdhci_pltfm_enable(host);
-	else
-		return sdhci_pltfm_disable(host, lazy);
-}
-
-static int sdhci_pltfm_enable(struct sdhci_host *host)
-{
-	struct sdio_dev *dev;
-
-	if (host == NULL)
-		return -EINVAL;
-
-	dev = sdhci_priv(host);
-	if (dev == NULL)
-		return -EINVAL;
-
-	switch (dev->dpm_state) {
-	case DISABLED:
-		return sdhci_kona_disabled_to_enabled(dev);
-	case OFF:
-		return sdhci_kona_off_to_enabled(dev);
-	case ENABLED:
-		dev_dbg(dev->dev, "Already enabled \r\n");
-		return 0;
-	default:
-		dev_dbg(dev->dev, "Invalid Current State is %d \r\n",
-			dev->dpm_state);
-		return -EINVAL;
-	}
-}
-
-static int sdhci_pltfm_disable(struct sdhci_host *host, int lazy)
-{
-	struct sdio_dev *dev;
-
-	if (host == NULL)
-		return -EINVAL;
-
-	dev = sdhci_priv(host);
-	if (dev == NULL)
-		return -EINVAL;
-
-	switch (dev->dpm_state) {
-	case ENABLED:
-		return sdhci_kona_enabled_to_disabled(dev);
-	case DISABLED:
-		return sdhci_kona_disabled_to_off(dev);
-	case OFF:
-		dev_dbg(dev->dev, "Already OFF \r\n");
-		return 0;
-	default:
-		dev_dbg(dev->dev, "Invalid Current State is %d \r\n",
-			dev->dpm_state);
-		return -EINVAL;
-	}
 }
 
 #if !defined(CONFIG_WIFI_CONTROL_FUNC)
@@ -1600,4 +1790,24 @@ static void sdhci_pltfm_init_74_clocks(struct sdhci_host *host, u8 power_mode)
 		return;
 	else
 		mdelay(10);
+}
+
+static void sdhci_print_critical(struct sdhci_host *host)
+{
+	struct sdio_dev *dev = sdhci_priv(host);
+	int ret = 0;
+
+	if (dev->vdd_sdxc_regulator) {
+		ret = irqsafe_is_regulator_enable(dev->vdd_sdxc_regulator);
+		printk(KERN_ALERT "regulator enable:%d\n", ret);
+	}
+	if (dev->vddo_sd_regulator) {
+		ret = irqsafe_is_regulator_enable(dev->vddo_sd_regulator);
+		printk(KERN_ALERT "sd regulator enable:%d\n", ret);
+	}
+	ret = clk_get_usage(dev->peri_clk);
+	printk(KERN_ALERT "clk use_cnt:%d\n", ret);
+	printk(KERN_ALERT "runtime_suspended:%d\n", host->runtime_suspended);
+	ret = atomic_read(&dev->dev->power.usage_count);
+	printk(KERN_ALERT "pm runtime usage count:%d\n", ret);
 }

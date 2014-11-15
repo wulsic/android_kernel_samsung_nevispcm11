@@ -20,17 +20,15 @@
  * - if activity is -1 then there is one active writer
  * - if wait_list is not empty, then there are processes waiting for the semaphore
  */
-
-#define CONFIG_BRCM_DEBUG_RWSEM /* BRCM added for debugging rw semaphore */
 struct rw_semaphore {
 	__s32			activity;
-	spinlock_t		wait_lock;
+	raw_spinlock_t		wait_lock;
 	struct list_head	wait_list;
-#ifdef CONFIG_BRCM_DEBUG_RWSEM
-	struct task_struct	*wr_owner;
-#endif
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map dep_map;
+#endif
+#ifdef CONFIG_BRCM_DEBUG_RWSEM
+	struct task_struct	*wr_owner;
 #endif
 };
 

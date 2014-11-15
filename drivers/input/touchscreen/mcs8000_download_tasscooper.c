@@ -1151,7 +1151,4 @@ void mcsdl_delay_test(INT32 nCount)
 #endif
 
 
-MODULE_AUTHOR("Melfas");
-MODULE_DESCRIPTION("MCS8000 Touch Driver");
-MODULE_LICENSE("GPL");
 

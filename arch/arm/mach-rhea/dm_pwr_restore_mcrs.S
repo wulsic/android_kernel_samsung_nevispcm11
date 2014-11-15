@@ -179,7 +179,7 @@ VFPrestore:	VFP_RESTORE
 		MSR	SPSR_fsxc,r4            @ restore the current SPSR
 		CPS	#MODE_SVC               @ switch back to Supervisor mode
 
-      @ CSSELR ?Cache Size Selection Register
+      @ CSSELR – Cache Size Selection Register
 		LDR	r3,[r0],#4
 		MCR	p15,2,r3,c0,c0,0
 
@@ -223,8 +223,7 @@ DBGrestore_tst:
 		CMP	r0,#0
 		BEQ	SkipDbgRestore @ no debug context available to restore
 
-DBGrestore:     dormant_tracer_v DORMANT_DBG_REGS_RESTORE, r0, r1
-		RestoreDebugRegisters DBG_OSSRR, DBG_NoOSLock, DBG_CheckNums,\
+DBGrestore:	RestoreDebugRegisters DBG_OSSRR, DBG_NoOSLock, DBG_CheckNums,\
 		DBG_NumBreakpoints, DBG_NumWatchpoints, DBG_NoMemoryMapped, DBG_NoCP14
 
 SkipDbgRestore:
@@ -233,9 +232,7 @@ SkipDbgRestore:
 PMonrestore_tst:
 
 	.if (V7_PMon_PRESENT)
-PMonrestore:    		
-		dormant_tracer_v DORMANT_PMON_REGS_RESTORE, r0, r1
-		PMon_RESTORE
+PMonrestore:	PMon_RESTORE
 	.endif
 
 
@@ -249,7 +246,6 @@ PMonrestore:
 		LDR	SP, [r0], #4  @ restore the stack pointer
 		LDM	r0,{r1-r12,r14}	  @ restore other ARM registers
 		                      @ (except r0 and PC)
-		dormant_trace_restore_a9regs r0
 		SUB	r0,r0,#(DM_BLOCK + 4) @ restore r0.
 
 	.endm

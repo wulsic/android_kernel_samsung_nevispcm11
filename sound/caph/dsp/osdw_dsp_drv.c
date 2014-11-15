@@ -81,56 +81,54 @@ static void IRQ_EnableRIPInt(void)
 	void __iomem *chipreg_base = (void __iomem *)(KONA_CHIPREG_VA);
 	void __iomem *base = (void __iomem *)(KONA_BINTC_BASE_ADDR);
 
-	 if (vp_shared_mem->shared_dsp_support_chip_reg_ap_int) {
-		 vp_shared_mem->shared_ap_support_chip_reg_ap_int = 1;
-		 aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_EnableRIPInt: New Int*\n\r");
-		 writel((1<<CHIPREG_OUTPUT12),
-		 	(base + BINTC_IMR0_15_SET_OFFSET));
+	if (vp_shared_mem->shared_dsp_support_chip_reg_ap_int) {
+		vp_shared_mem->shared_ap_support_chip_reg_ap_int = 1;
+		aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_EnableRIPInt: New Int*\n\r");
+		writel((1<<CHIPREG_OUTPUT12),
+			(base + BINTC_IMR0_15_SET_OFFSET));
 
-		 //Programming Ap2DSP as wakeup event for power manager
-	writel((1<<CHIPREG_OUTPUT12),(base + BINTC_IMR0_9_SET_OFFSET));
+		/* Programming AP2DSP as WakeUp Event for Power Manager */
+		writel((1<<CHIPREG_OUTPUT12), (base + BINTC_IMR0_9_SET_OFFSET));
 
-	x=readl(chipreg_base + CHIPREG_MDM_SW_INTR_SEL_OFFSET);
-	x|=(1<<CHIPREG_OUTPUT12);
-	writel(x,(chipreg_base + CHIPREG_MDM_SW_INTR_SEL_OFFSET));
-	 } else {
-		 aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_EnableRIPInt: Old Int*\n\r");
-		 vp_shared_mem->shared_ap_support_chip_reg_ap_int = 0;
-		 *(volatile UInt32*)(KONA_BINTC_BASE_ADDR +
-			 BINTC_IMR1_0_SET_OFFSET +
-			 BINTC_OUT_DEST_AP2DSP*BMREG_BLOCK_SIZE) =
-			 1<<(IRQ_TO_BMIRQ(AP_RIP_IRQ)-32);
-	 }
-	 printk(KERN_INFO "\n\r\t*IRQ_EnableRIPInt "
-	 	" shared_dsp_support_chip_reg_ap_int = %x*\n\r"
-	 	"\n\r\t* shared_ap_support_chip_reg_ap_int = %x*\n\r",
-	 	vp_shared_mem->shared_dsp_support_chip_reg_ap_int,
-	 	vp_shared_mem->shared_ap_support_chip_reg_ap_int);
-
-
+		x = readl(chipreg_base + CHIPREG_MDM_SW_INTR_SEL_OFFSET);
+		x |= (1<<CHIPREG_OUTPUT12);
+		writel(x, (chipreg_base + CHIPREG_MDM_SW_INTR_SEL_OFFSET));
+	} else {
+		aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_EnableRIPInt: Old Int*\n\r");
+		vp_shared_mem->shared_ap_support_chip_reg_ap_int = 0;
+		*(volatile UInt32*)(KONA_BINTC_BASE_ADDR +
+			BINTC_IMR1_0_SET_OFFSET +
+			BINTC_OUT_DEST_AP2DSP*BMREG_BLOCK_SIZE) =
+			1<<(IRQ_TO_BMIRQ(AP_RIP_IRQ)-32);
+	}
+	printk(KERN_INFO "\n\r\t*IRQ_EnableRIPInt "
+		" shared_dsp_support_chip_reg_ap_int = %x*\n\r"
+		"\n\r\t* shared_ap_support_chip_reg_ap_int = %x*\n\r",
+		vp_shared_mem->shared_dsp_support_chip_reg_ap_int,
+		vp_shared_mem->shared_ap_support_chip_reg_ap_int);
 	return;
 }
 
 static void IRQ_TriggerRIPInt(void)
 {
-	 void __iomem *chipreg_base = (void __iomem *)(KONA_CHIPREG_VA);
+	void __iomem *chipreg_base = (void __iomem *)(KONA_CHIPREG_VA);
 
-	 /* Forcing new interrupt in case DSP woke up after the Interrupt */
-	 /* was enabled */
-	 if ((vp_shared_mem->shared_ap_support_chip_reg_ap_int == 0) &&
-		 (vp_shared_mem->shared_dsp_support_chip_reg_ap_int == 1))
-		 IRQ_EnableRIPInt();
+	/* Forcing new interrupt in case DSP woke up after the Interrupt */
+	/* was enabled */
+	if ((vp_shared_mem->shared_ap_support_chip_reg_ap_int == 0) &&
+		(vp_shared_mem->shared_dsp_support_chip_reg_ap_int == 1))
+		IRQ_EnableRIPInt();
 
-	 if (vp_shared_mem->shared_ap_support_chip_reg_ap_int) {
-		 aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_TriggerRIPInt: New Int*\n\r");
-		 writel((1<<CHIPREG_OUTPUT12), (chipreg_base +
-		 	CHIPREG_MDM_SW_INTR_SET_OFFSET));
-	 } else {
-		 aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_TriggerRIPInt: Old Int*\n\r");
-		 *(volatile UInt32*)(KONA_BINTC_BASE_ADDR +
-		 BINTC_ISWIR1_OFFSET) = 1<<(IRQ_TO_BMIRQ(AP_RIP_IRQ)-32);
-	 }
-
+	if (vp_shared_mem->shared_ap_support_chip_reg_ap_int) {
+		aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_TriggerRIPInt: New Int*\n\r");
+		writel((1<<CHIPREG_OUTPUT12), (chipreg_base +
+			CHIPREG_MDM_SW_INTR_SET_OFFSET));
+	} else {
+		aTrace(LOG_AUDIO_DSP, "\n\r\t*IRQ_TriggerRIPInt: Old Int*\n\r");
+		*(volatile UInt32*)(KONA_BINTC_BASE_ADDR +
+			BINTC_ISWIR1_OFFSET) =
+		1<<(IRQ_TO_BMIRQ(AP_RIP_IRQ)-32);
+	}
 
 	return;
 }
@@ -169,11 +167,12 @@ void DSPDRV_Init()
 
 	if (dsp_shared_mem == NULL) {
 		aTrace(LOG_AUDIO_DSP,
-	       "\n\r\t* mapping shared memory failed\n\r");
+		"\n\r\t* mapping shared memory failed\n\r");
 		return;
 	}
 
 	shared_mem = (AP_SharedMem_t *) dsp_shared_mem;
+
 	temp = shared_mem->shared_dsp_support_chip_reg_ap_int;
 
 	/* initialize DSP AP shared memory */

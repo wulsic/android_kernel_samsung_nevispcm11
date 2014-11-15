@@ -83,6 +83,9 @@
 #include "dwc_otg_cil.h"
 #include "dwc_otg_adp.h"
 
+#include <linux/delay.h>
+#include <linux/regulator/consumer.h>
+#include <./../drivers/usb/otg/bcmpmu59xxx_otg_xceiv.h>
 #define DWC_DRIVER_VERSION	"2.91a 18-FEB-2009"
 #define DWC_DRIVER_DESC		"HS OTG USB Controller driver"
 
@@ -707,6 +710,7 @@ static int dwc_otg_driver_probe(struct platform_device *_dev
 #if !defined LM_INTERFACE && !defined(PCI_INTERFACE)
 	struct resource *resource;
 #endif
+	struct bcmpmu_otg_xceiv_data *xceiv_data; 
 
 	dev_dbg(&_dev->dev, "dwc_otg_driver_probe(%p)\n", _dev);
 
@@ -828,6 +832,10 @@ static int dwc_otg_driver_probe(struct platform_device *_dev
 		return -ENOMEM;
 	}
 
+	xceiv_data = dev_get_drvdata(dwc_otg_device->core_if->xceiver->otg->phy->dev);
+
+    if (!xceiv_data)
+		return -EINVAL;				
 	/*
 	 * Attempt to ensure this device is really a DWC_otg Controller.
 	 * Read and verify the SNPSID register contents. The value should be
@@ -897,9 +905,9 @@ static int dwc_otg_driver_probe(struct platform_device *_dev
 #endif
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if (dwc_otg_device->core_if->xceiver->set_otg_enable)
-		dwc_otg_device->core_if->xceiver->
-		    set_otg_enable(dwc_otg_device->core_if->xceiver,
+	if (dwc_otg_device->core_if->xceiver->otg->set_otg_enable)
+		dwc_otg_device->core_if->xceiver->otg->
+		    set_otg_enable(dwc_otg_device->core_if->xceiver->otg,
 				   dwc_otg_device->core_if->core_params->
 				   otg_supp_enable);
 #endif
@@ -953,11 +961,11 @@ static int dwc_otg_driver_probe(struct platform_device *_dev
 #ifdef CONFIG_USB_OTG_UTILS
 #ifdef CONFIG_USB_OTG
 	if (dwc_otg_device->core_if->xceiver->shutdown &&
-	    (!dwc_otg_device->core_if->xceiver->default_a) &&
+	    (!dwc_otg_device->core_if->xceiver->otg->default_a) &&
 	    (!dwc_otg_device->core_if->core_params->otg_supp_enable))
 #else
 	if (dwc_otg_device->core_if->xceiver->shutdown &&
-	    (!dwc_otg_device->core_if->xceiver->default_a))
+	    (!dwc_otg_device->core_if->xceiver->otg->default_a))
 #endif /* CONFIG_USB_OTG */
 	{
 		/* Shutdown USB when in non-OTG device mode until
@@ -968,7 +976,7 @@ static int dwc_otg_driver_probe(struct platform_device *_dev
 
 	pm_runtime_set_active(&_dev->dev);
 	pm_runtime_enable(&_dev->dev);
-
+	regulator_set_always_on(xceiv_data->bcm_hsotg_regulator,false);
 	return 0;
 
 fail:
@@ -1071,6 +1079,10 @@ static int __init dwc_otg_driver_init(void)
 	int error;
 
 	pr_info("%s: version %s\n", dwc_driver_name, DWC_DRIVER_VERSION);
+	
+#ifdef CONFIG_NOP_USB_XCEIV
+	usb_nop_xceiv_register();
+#endif
 
 #ifdef LM_INTERFACE
 	retval = lm_driver_register(&dwc_otg_driver);
@@ -1138,6 +1150,11 @@ static void __exit dwc_otg_driver_cleanup(void)
 	driver_remove_file(&dwc_otg_driver.driver, &driver_attr_version);
 	platform_driver_unregister(&dwc_otg_driver);
 #endif
+
+#ifdef CONFIG_NOP_USB_XCEIV
+	usb_nop_xceiv_unregister();
+#endif
+
 }
 
 module_exit(dwc_otg_driver_cleanup);

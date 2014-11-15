@@ -45,7 +45,6 @@
 #include <linux/timer.h>
 #include <linux/crypto.h>
 #include <net/sock.h>
-#include <linux/gpio.h>
 
 #include <asm/system.h>
 #include <linux/uaccess.h>
@@ -78,16 +77,6 @@ struct hci_proto *hci_proto[HCI_MAX_PROTO];
 static ATOMIC_NOTIFIER_HEAD(hci_notifier);
 
 /* ---- HCI notifications ---- */
-
-struct timer_list delay_tx_timer;
-extern int UART_ready;
-
-static void reschedule_tx(unsigned long context)
-{
-	struct hci_dev *hdev = (struct hci_dev *)context;
-	del_timer(&delay_tx_timer);
-	tasklet_schedule(&hdev->tx_task);
-}
 
 int hci_register_notifier(struct notifier_block *nb)
 {
@@ -1429,18 +1418,7 @@ int hci_remove_ltk(struct hci_dev *hdev, bdaddr_t *bdaddr)
 static void hci_cmd_timer(unsigned long arg)
 {
 	struct hci_dev *hdev = (void *) arg;
-#if defined(CONFIG_MACH_M0) || defined(CONFIG_MACH_GRANDE) || defined(CONFIG_MACH_IRON)
-	int rx_pin = gpio_get_value(GPIO_BT_RXD);
-	int tx_pin = gpio_get_value(GPIO_BT_TXD);
-	int cts_pin = gpio_get_value(GPIO_BT_CTS);
-	int rts_pin = gpio_get_value(GPIO_BT_RTS);
 
-	int bt_host_wake_pin = gpio_get_value(GPIO_BT_HOST_WAKE);
-	int bt_wake_pin = gpio_get_value(GPIO_BT_WAKE);
-	int bt_en = gpio_get_value(GPIO_BT_EN);
-	BT_ERR("rx: %d, tx: %d, cts: %d, rts: %d", rx_pin, tx_pin, cts_pin, rts_pin);
-	BT_ERR("host_wake: %d, bt_wake: %d, en: %d", bt_host_wake_pin, bt_wake_pin, bt_en);
-#endif
 	BT_ERR("%s command tx timeout", hdev->name);
 	atomic_set(&hdev->cmd_cnt, 1);
 	tasklet_schedule(&hdev->cmd_task);
@@ -1591,12 +1569,11 @@ static void hci_clear_adv_cache(unsigned long arg)
 	BT_DBG("");
 	return;
 
-/* This code cannot be reached */
-/*	hci_dev_lock(hdev);
+	hci_dev_lock(hdev);
 
 	hci_adv_entries_clear(hdev);
 
-	hci_dev_unlock(hdev); */
+	hci_dev_unlock(hdev);
 }
 
 int hci_adv_entries_clear(struct hci_dev *hdev)
@@ -1826,10 +1803,6 @@ int hci_register_dev(struct hci_dev *hdev)
 	skb_queue_head_init(&hdev->rx_q);
 	skb_queue_head_init(&hdev->cmd_q);
 	skb_queue_head_init(&hdev->raw_q);
-
-	init_timer(&delay_tx_timer);
-	delay_tx_timer.function = reschedule_tx;
-	delay_tx_timer.data = (unsigned long) hdev;
 
 	setup_timer(&hdev->cmd_timer, hci_cmd_timer, (unsigned long) hdev);
 
@@ -2614,12 +2587,6 @@ static void hci_tx_task(unsigned long arg)
 {
 	struct hci_dev *hdev = (struct hci_dev *) arg;
 	struct sk_buff *skb;
-
-	if (!UART_ready) {
-		mod_timer(&delay_tx_timer, jiffies + 1);
-		printk (KERN_ERR "BT delay tx\n");
-		return;
-	}
 
 	read_lock(&hci_task_lock);
 

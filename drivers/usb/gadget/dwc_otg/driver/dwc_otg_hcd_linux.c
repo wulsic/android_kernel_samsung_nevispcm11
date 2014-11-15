@@ -461,8 +461,8 @@ int hcd_init(
 	dwc_otg_hcd_set_priv_data(dwc_otg_hcd, hcd);
 
 #ifdef CONFIG_USB_OTG_UTILS
-	if (dwc_otg_hcd->core_if->xceiver->set_host)
-		otg_set_host(dwc_otg_hcd->core_if->xceiver, &hcd->self);
+	if (dwc_otg_hcd->core_if->xceiver->otg->set_host)
+		otg_set_host(dwc_otg_hcd->core_if->xceiver->otg, &hcd->self);
 #endif
 
 	return 0;
@@ -521,8 +521,8 @@ void hcd_remove(
 		return;
 	}
 #ifdef CONFIG_USB_OTG_UTILS
-	if (dwc_otg_hcd->core_if->xceiver->set_host)
-		otg_set_host(dwc_otg_hcd->core_if->xceiver, NULL);
+	if (dwc_otg_hcd->core_if->xceiver->otg->set_host)
+		otg_set_host(dwc_otg_hcd->core_if->xceiver->otg, NULL);
 #endif
 
 	usb_remove_hcd(hcd);
@@ -690,6 +690,10 @@ static int urb_enqueue(struct usb_hcd *hcd,
 	dwc_otg_urb = dwc_otg_hcd_urb_alloc(dwc_otg_hcd,
 					    urb->number_of_packets,
 					    mem_flags == GFP_ATOMIC ? 1 : 0);
+	if (!dwc_otg_urb) {
+		DWC_PRINTF("USB Host urb_enqueue failed to alloc urb.\n");
+		return -ENOMEM;
+	}
 
 	dwc_otg_hcd_urb_set_pipeinfo(dwc_otg_urb, usb_pipedevice(urb->pipe),
 				     usb_pipeendpoint(urb->pipe), ep_type,
@@ -770,17 +774,17 @@ static int urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 
 	DWC_SPINLOCK_IRQSAVE(dwc_otg_hcd->lock, &lock_flags);
 	retval = usb_hcd_check_unlink_urb(hcd, urb, status);
+	DWC_SPINUNLOCK_IRQRESTORE(dwc_otg_hcd->lock, lock_flags);
 
-	if (retval < 0 || !urb->hcpriv) {
-		DWC_SPINUNLOCK_IRQRESTORE(dwc_otg_hcd->lock, lock_flags);
+	if (retval < 0 || !urb->hcpriv)
 		return retval;
-	}
 
 	dwc_otg_hcd_urb_dequeue(dwc_otg_hcd, urb->hcpriv);
 
 	dwc_free(urb->hcpriv);
 	urb->hcpriv = NULL;
 
+	DWC_SPINLOCK_IRQSAVE(dwc_otg_hcd->lock, &lock_flags);
 	usb_hcd_unlink_urb_from_ep(hcd, urb);
 	DWC_SPINUNLOCK_IRQRESTORE(dwc_otg_hcd->lock, lock_flags);
 

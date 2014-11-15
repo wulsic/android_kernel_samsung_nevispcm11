@@ -6,8 +6,8 @@ menuconfig NEW_SENSORS
 		Sensors.
 
 if NEW_SENSORS
-
-source "drivers/sensors/core/Kconfig"
-
-endif
+config SENSORS_CORE
+         bool "sensors_core"
+         depends on I2C
+endif # NEW_SENSORS
 

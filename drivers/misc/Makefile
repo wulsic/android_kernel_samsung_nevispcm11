@@ -1,11 +1,12 @@
 #
 # Makefile for misc devices that really don't fit anywhere else.
 #
+
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
 obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o
 obj-$(CONFIG_AD525X_DPOT_SPI)	+= ad525x_dpot-spi.o
-0bj-$(CONFIG_INTEL_MID_PTI)	+= pti.o
+obj-$(CONFIG_INTEL_MID_PTI)	+= pti.o
 obj-$(CONFIG_ATMEL_PWM)		+= atmel_pwm.o
 obj-$(CONFIG_ATMEL_SSC)		+= atmel-ssc.o
 obj-$(CONFIG_ATMEL_TCLIB)	+= atmel_tclib.o
@@ -31,13 +32,13 @@ obj-$(CONFIG_BRCM_VIRTUAL_SENSOR)	+= brvsens_driver.o
 obj-$(CONFIG_ISL29003)		+= isl29003.o
 obj-$(CONFIG_ISL29020)		+= isl29020.o
 obj-$(CONFIG_SENSORS_TSL2550)	+= tsl2550.o
-obj-$(CONFIG_SENSORS_BH1715)	+= bh1715.o
-obj-$(CONFIG_SENSORS_BMA150)	+= bma150.o
-obj-$(CONFIG_SENSORS_MPU3050)	+= mpu3050.o
+obj-$(CONFIG_SENSORS_KIONIX_KXTIK)	+= kxtik.o
+obj-$(CONFIG_AMI306)		+= ami306/
 obj-$(CONFIG_BMP18X) += bmp18x-core.o
 obj-$(CONFIG_BMP18X_I2C) += bmp18x-i2c.o
 obj-$(CONFIG_BMP18X_SPI) += bmp18x-spi.o
 obj-$(CONFIG_AL3006) += al3006.o
+obj-$(CONFIG_ISL290XX) += isl290xx.o
 obj-$(CONFIG_EP93XX_PWM)	+= ep93xx_pwm.o
 obj-$(CONFIG_DS1682)		+= ds1682.o
 obj-$(CONFIG_TI_DAC7512)	+= ti_dac7512.o
@@ -55,17 +56,22 @@ obj-y				+= ti-st/
 obj-$(CONFIG_AB8500_PWM)	+= ab8500-pwm.o
 obj-y				+= lis3lv02d/
 obj-y				+= carma/
+obj-$(CONFIG_USB_SWITCH_FSA9480) += fsa9480.o
+obj-$(CONFIG_USB_SWITCH_TSU6111) += tsu6111.o
+obj-$(CONFIG_MFD_RT)		+= rt8973.o
+obj-$(CONFIG_USB_SWITCH_TSU6721) += tsu6721.o
+obj-$(CONFIG_MFD_RT) += rt8973.o
+obj-$(CONFIG_ALTERA_STAPL)	+=altera-stapl/
+obj-$(CONFIG_MAX8997_MUIC)	+= max8997-muic.o
 obj-$(CONFIG_WL127X_RFKILL)	+= wl127x-rfkill.o
 obj-$(CONFIG_APANIC)		+= apanic.o
 obj-$(CONFIG_APANIC_ON_MMC)	+= apanic_mmc.o
-obj-$(CONFIG_BRCM_CP_CRASH_DUMP_EMMC) += cp_crash.o
+obj-$(CONFIG_SENSORS_AK8963)	+= akm8963.o
+obj-y				+= cp_crash.o
 obj-$(CONFIG_SENSORS_AK8975)	+= akm8975.o
 obj-$(CONFIG_SENSORS_AK8975_BRCM)	+= akm8975_brcm.o
-obj-$(CONFIG_SENSORS_K3DH)	+= k3dh.o
-obj-$(CONFIG_SENSORS_GP2AP002)	+= gp2ap002.o 
-obj-$(CONFIG_SENSORS_HSCDTD006A)	+= hscdtd006a_i2c.o alps-input.o
-obj-$(CONFIG_SENSORS_HSCDTD008A)	+= hscdtd008a_i2c.o alps-input.o
-obj-$(CONFIG_SENSORS_BMC150)    += bmc150/
+obj-$(CONFIG_SENSORS_GP2AP002)	+= gp2ap002.o
+obj-y				+= bmc150/
 obj-$(CONFIG_INTER_PROCESSOR_COMM)	+= ipc.o
 obj-$(CONFIG_STM_TRACE)         += stm.o
 obj-$(CONFIG_BCM59055_AUDIO)	+= bcm59055-audio.o
@@ -73,8 +79,13 @@ obj-$(CONFIG_BCM59055_SARADC)	+= bcm59055-adc.o
 obj-$(CONFIG_BCM59055_FUELGAUGE)+= bcm59055-fuelgauge.o
 obj-$(CONFIG_BCM59055_ADC_CHIPSET_API)+= bcm59055-adc_chipset_api.o
 obj-$(CONFIG_BCMPMU_CSAPI_ADC)	+= bcmpmu_csapi_adc.o
+ifeq ($(CONFIG_MFD_BCM_PMU59xxx),y)
+obj-$(CONFIG_BCMPMU_AUDIO)	+= bcmpmu59xxx_audio.o
+else ifeq ($(CONFIG_MFD_BCM_PMU59056), y)
+obj-$(CONFIG_BCMPMU_AUDIO)	+= bcmpmu_audio_56.o
+else
 obj-$(CONFIG_BCMPMU_AUDIO)	+= bcmpmu_audio.o
-obj-$(CONFIG_D2083_AUDIO)	+= d2083-audio.o
+endif
 obj-$(CONFIG_BTHID)		+= bthid.o
 obj-$(CONFIG_MACH_RHEA_SELFTEST)	+= bcm_selftest_bb.o
 obj-$(CONFIG_MONITOR_BQ27541_I2C)	+= bq27541.o
@@ -88,5 +99,3 @@ obj-$(CONFIG_BCM_BT_GPS_SELFTEST) += bcmbt_gps_test.o
 obj-$(CONFIG_BCM_USERFAULT_HANDLER) += bcm_userfault_handler.o
 obj-$(CONFIG_BRCM_BTPORT_DRV)   += btport/
 obj-$(CONFIG_BRCM_EMMC_RPMB)	+= emmc_rpmb/
-obj-$(CONFIG_SENSORS_BMA222)    += bma222.o
-obj-$(CONFIG_AMI306)		+= ami306/

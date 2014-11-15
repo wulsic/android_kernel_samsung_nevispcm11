@@ -16,7 +16,9 @@
 #define AMI306_SETTINGS_H
 
 /* I2C */
-#define AMI_I2C_BUS_NUM                 1
+#define AMI306_I2C_BUS_ID	1
+
+
 #ifdef AMI306L
 #define AMI_I2C_ADDRESS                 0x0F    /* 7-bit Addressing */
 #else
@@ -24,7 +26,7 @@
 #endif
 
 /* GPIO */
-#define AMI_GPIO_INT                    0   /* COMPASS_INT */
+#define AMI_GPIO_INT                    135   /* Ball MPHI_RUN1 */
 #define AMI_GPIO_DRDY                   0
 
 /* sensor position */

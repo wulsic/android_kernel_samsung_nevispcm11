@@ -828,40 +828,6 @@ cVoid chal_audio_earpath_clear_slowramp_ctrl(CHAL_HANDLE handle,
 
 /*============================================================================
 *
-* Function Name: cVoid chal_audio_earpath_ramp_ctrl(CHAL_HANDLE handle,
-* cUInt16 ramp_ctrl)
-*
-* Description:  Set AudioTx Earpiece Ramp Controls
-*
-* Parameters:   handle - audio chal handle.
-*		ramp_ctrl - Earpiece Ramp controls.
-*		Should be one of the combinations of CHAL_AUDIO_AUDIOTX_EP_DRV_XXXX
-*
-* Return:       None.
-*
-*============================================================================*/
-cVoid chal_audio_earpath_ramp_ctrl(CHAL_HANDLE handle, cUInt16 ramp_ctrl)
-{
-	cUInt32 base = ((ChalAudioCtrlBlk_t *) handle)->audioh_base;
-	cUInt32 reg_value;
-
-	/* Get the current setting  */
-	reg_value = BRCM_READ_REG(base, AUDIOH_EP_DRV);
-
-	if (ramp_ctrl) {
-		reg_value &= ~AUDIOH_EP_DRV_AUDIOTX_EP_DRV_SPAREBIT_MASK; // ENABLE RAMP
-	} else {
-		reg_value |= AUDIOH_EP_DRV_AUDIOTX_EP_DRV_SPAREBIT_MASK; // DISABLE RAMP
-	}
-
-	/* Set the required setting */
-	BRCM_WRITE_REG(base, AUDIOH_EP_DRV, reg_value);
-
-	return;
-}
-
-/*============================================================================
-*
 * Function Name: cVoid chal_audio_earpath_set_isolation_ctrl(
 * CHAL_HANDLE handle, cUInt16 sr_ctrl)
 *

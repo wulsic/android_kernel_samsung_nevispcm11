@@ -1,12 +1,12 @@
 /*
- * Created on Sep 19th, 2012, by guz4sgh
- * Last modified: Sep 19th, 2012
+ * (C) Copyright 2013 Bosch Sensortec GmbH * All Rights Reserved
  *
  * This software program is licensed subject to the GNU General Public License
  * (GPL).Version 2,June 1991, available at http://www.fsf.org/copyleft/gpl.html
-
- * (C) Copyright 2012 Bosch Sensortec GmbH
- * All Rights Reserved
+ *
+ * @date        Sep 19th, 2012
+ * @version     v1.0
+ * @brief       Common APIs for Bosch MEMS sensor drivers
  */
 
 
@@ -110,11 +110,11 @@ struct bosch_sensor_axis_remap {
 
 struct bosch_sensor_data {
 	union {
-		int16_t v[3];
+		int32_t v[3];
 		struct {
-			int16_t x;
-			int16_t y;
-			int16_t z;
+			int32_t x;
+			int32_t y;
+			int32_t z;
 		};
 	};
 };

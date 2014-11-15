@@ -482,7 +482,7 @@ static int acc_unregister_hid(struct acc_dev *dev, int id)
 	return 0;
 }
 
-static int __init create_bulk_endpoints(struct acc_dev *dev,
+static int create_bulk_endpoints(struct acc_dev *dev,
 				struct usb_endpoint_descriptor *in_desc,
 				struct usb_endpoint_descriptor *out_desc)
 {
@@ -1060,16 +1060,20 @@ static int acc_function_set_alt(struct usb_function *f,
 	int ret;
 
 	DBG(cdev, "acc_function_set_alt intf: %d alt: %d\n", intf, alt);
-	ret = usb_ep_enable(dev->ep_in,
-			ep_choose(cdev->gadget,
-				&acc_highspeed_in_desc,
-				&acc_fullspeed_in_desc));
+
+	ret = config_ep_by_speed(cdev->gadget, f, dev->ep_in);
 	if (ret)
 		return ret;
-	ret = usb_ep_enable(dev->ep_out,
-			ep_choose(cdev->gadget,
-				&acc_highspeed_out_desc,
-				&acc_fullspeed_out_desc));
+
+	ret = usb_ep_enable(dev->ep_in);
+	if (ret)
+		return ret;
+
+	ret = config_ep_by_speed(cdev->gadget, f, dev->ep_out);
+	if (ret)
+		return ret;
+
+	ret = usb_ep_enable(dev->ep_out);
 	if (ret) {
 		usb_ep_disable(dev->ep_in);
 		return ret;
@@ -1160,12 +1164,6 @@ err:
 	kfree(dev);
 	pr_err("USB accessory gadget driver failed to initialize\n");
 	return ret;
-}
-
-static void acc_disconnect(void)
-{
-	/* unregister all HID devices if USB is disconnected */
-	kill_all_hid_devices(_acc_dev);
 }
 
 static void acc_cleanup(void)

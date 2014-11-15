@@ -113,9 +113,10 @@ bool dma_release_from_contiguous(struct device *dev, struct page *pages,
 	return false;
 }
 
+static inline
 void get_dev_cma_info(struct device *dev, struct dev_cma_info *info)
 {
-	return 0;
+	return;
 }
 
 #endif

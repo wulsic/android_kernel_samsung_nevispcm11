@@ -1027,6 +1027,7 @@ static CSL_LCD_RES_T cslSmiSpiDmaStart(pSMI_SPI_HANDLE smiSpiH,
 		dmaData.dstAddr = chal_spivc4l_get_dma_addr(smiSpiH->chalH);
 
 	dmaData.xferLength = dmaReq->xLenBytes * dmaReq->yLen;
+	dmaData.burstWriteEnable32 = 0;
 
 	if (csl_dma_vc4lite_add_data(*pDmaCh, &dmaData)
 	    != DMA_VC4LITE_STATUS_SUCCESS) {
@@ -1118,6 +1119,7 @@ static CSL_LCD_RES_T cslSmiSpiDmaStart_2D(pSMI_SPI_HANDLE smiSpiH,
 
 	dmaData.xXferLength = dmaReq->xLenBytes;
 	dmaData.yXferLength = dmaReq->yLen - 1;
+	dmaData.burstWriteEnable32 = 0;
 
 	if (csl_dma_vc4lite_add_data_ex(*pDmaCh, &dmaData)
 	    != DMA_VC4LITE_STATUS_SUCCESS) {
@@ -1248,7 +1250,7 @@ static CSL_LCD_RES_T cslSmi2cHal(pSMI_SPI_HANDLE pSmi, CSL_SMI_CTRL_T *smiCfg)
 		pSmi->cfg.smiCfg.smiMode.inPixelMode = CHAL_SMI_CM_16B_RGB565;
 		pSmi->cfg.smiCfg.buffBpp = 2;
 		break;
-	case LCD_IF_CM_I_RGB888U:
+	case LCD_IF_CM_I_xRGB8888:
 		pSmi->cfg.smiCfg.smiMode.inPixelMode = CHAL_SMI_CM_32B_RGB888;
 		pSmi->cfg.smiCfg.buffBpp = 4;
 		break;
@@ -1266,8 +1268,8 @@ static CSL_LCD_RES_T cslSmi2cHal(pSMI_SPI_HANDLE pSmi, CSL_SMI_CTRL_T *smiCfg)
 	case 8:
 		if (!(((smiCfg->colModeIn == LCD_IF_CM_I_RGB565P)
 		       && (smiCfg->colModeOut == LCD_IF_CM_O_RGB565))
-		      || ((smiCfg->colModeIn == LCD_IF_CM_I_RGB888U)
-			  && (smiCfg->colModeOut == LCD_IF_CM_O_RGB888)))) {
+		      || ((smiCfg->colModeIn == LCD_IF_CM_I_xRGB8888)
+			  && (smiCfg->colModeOut == LCD_IF_CM_O_xRGB8888)))) {
 			return (CSL_LCD_COL_MODE);
 		}
 		pSmi->cfg.smiCfg.busWidth = CHAL_SMI_BUSW_08B;
@@ -1290,8 +1292,8 @@ static CSL_LCD_RES_T cslSmi2cHal(pSMI_SPI_HANDLE pSmi, CSL_SMI_CTRL_T *smiCfg)
 	case 16:
 		if (!(((smiCfg->colModeIn == LCD_IF_CM_I_RGB565P)
 		       && (smiCfg->colModeOut == LCD_IF_CM_O_RGB565))
-		      || ((smiCfg->colModeIn == LCD_IF_CM_I_RGB888U)
-			  && (smiCfg->colModeOut == LCD_IF_CM_O_RGB888)))) {
+		      || ((smiCfg->colModeIn == LCD_IF_CM_I_xRGB8888)
+			  && (smiCfg->colModeOut == LCD_IF_CM_O_xRGB8888)))) {
 			return (CSL_LCD_COL_MODE);
 		}
 		pSmi->cfg.smiCfg.busWidth = CHAL_SMI_BUSW_16B;

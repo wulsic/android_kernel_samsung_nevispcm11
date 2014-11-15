@@ -42,7 +42,8 @@
 #include "csl_caph_dma.h"
 #include <mach/irqs.h>
 #include "audio_trace.h"
-#include <plat/cpu.h>
+#include <linux/io.h>
+#include <mach/cpu.h>
 
 /****************************************************************************/
 /*                        G L O B A L   S E C T I O N                       */
@@ -691,6 +692,7 @@ void csl_caph_dma_config_channel(CSL_CAPH_DMA_CONFIG_t chnl_config)
 
 	caph_aadmac_ch = csl_caph_dma_get_chal_chnl(chnl_config.dma_ch);
 	caph_cfifo_fifo = csl_caph_cfifo_get_chal_fifo(chnl_config.fifo);
+
 	chal_caph_dma_clear_register(handle, caph_aadmac_ch);
 
 	chal_caph_dma_set_cfifo(handle, caph_aadmac_ch, caph_cfifo_fifo);
@@ -893,12 +895,9 @@ void csl_caph_dma_stop_transfer(CSL_CAPH_DMA_CHNL_e chnl)
 			chal_caph_dma_set_ddrfifo_status(handle,
 						 csl_caph_dma_get_chal_chnl
 						 (chnl), CAPH_READY_NONE);
-#ifndef CAPH_NEW_SEQUENCE
-/* this is done in chal_caph_dma_disable following the new stop sequence*/
 		chal_caph_dma_clr_channel_fifo(handle,
 					       csl_caph_dma_get_chal_chnl
 					       (chnl));
-#endif
 		chal_caph_dma_disable(handle, csl_caph_dma_get_chal_chnl(chnl));
 	}
 
@@ -1000,7 +999,8 @@ void csl_caph_dma_clear_intr(CSL_CAPH_DMA_CHNL_e chnl,
 	CAPH_DMA_CHANNEL_e chal_chnl = CAPH_DMA_CH_VOID;
 	CAPH_ARM_DSP_e owner = CAPH_ARM;
 
-	aTrace(LOG_AUDIO_CSL, "%s: chnl=0x%x  owner=0x%x \n", __func__, chnl, csl_owner);
+	/*aTrace(LOG_AUDIO_CSL, "%s: chnl=0x%x "
+		"owner=%d\n", __func__, chnl, csl_owner);*/
 
 	if (csl_owner == CSL_CAPH_DSP)
 		owner = CAPH_DSP;
@@ -1203,4 +1203,16 @@ UInt32 csl_caph_dma_read_timestamp(CSL_CAPH_DMA_CHNL_e chnl)
 {
 	return chal_caph_dma_read_timestamp(handle,
 					    csl_caph_dma_get_chal_chnl(chnl));
+}
+
+/****************************************************************************
+*
+*  Function Name: csl_caph_dma_channel_obtained(CSL_CAPH_DMA_CHNL_e chnl)
+*
+*  Description: check if a given dma channel is obtained
+*
+****************************************************************************/
+Boolean csl_caph_dma_channel_obtained(CSL_CAPH_DMA_CHNL_e chnl)
+{
+	return dmaCH_ctrl[chnl].bUsed;
 }

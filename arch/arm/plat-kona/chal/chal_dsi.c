@@ -31,6 +31,36 @@
 
 #include "mach/rdb/brcm_rdb_util.h"
 
+
+/*
+ * RDB diff from Rhea to Hawaii.
+ * Reuse code!
+ */
+#define DSI1_CTRL_DISP_CRCC_SHIFT DSI1_CTRL_DIS_DISP_CRCC_SHIFT
+#define DSI1_CTRL_DISP_CRCC_MASK DSI1_CTRL_DIS_DISP_CRCC_MASK
+#define DSI1_CTRL_DISP_ECCC_SHIFT DSI1_CTRL_DIS_DISP_ECCC_SHIFT
+#define DSI1_CTRL_DISP_ECCC_MASK DSI1_CTRL_DIS_DISP_ECCC_MASK
+#define DSI1_CTRL_DSI_EN_SHIFT DSI1_CTRL_DSI1_EN_SHIFT
+#define DSI1_CTRL_DSI_EN_MASK DSI1_CTRL_DSI1_EN_MASK
+
+#define DSI1_TXPKT1_H_WC_CDFIFO_SHIFT DSI1_TXPKT1_H_BC_CMDFIFO_SHIFT
+#define DSI1_TXPKT1_H_WC_CDFIFO_MASK DSI1_TXPKT1_H_BC_CMDFIFO_MASK
+#define DSI1_TXPKT1_H_WC_PARAM_SHIFT DSI1_TXPKT1_H_BC_PARAM_SHIFT
+#define DSI1_TXPKT1_H_WC_PARAM_MASK DSI1_TXPKT1_H_BC_PARAM_MASK
+#define DSI1_TXPKT2_H_WC_CDFIFO_SHIFT DSI1_TXPKT2_H_BC_CMDFIFO_MASK
+#define DSI1_TXPKT2_H_WC_CDFIFO_MASK DSI1_TXPKT2_H_BC_PARAM_SHIFT
+#define DSI1_TXPKT2_H_WC_PARAM_SHIFT DSI1_TXPKT2_H_BC_PARAM_MASK
+#define DSI1_TXPKT2_H_WC_PARAM_MASK DSI1_TXPKT2_H_DT_SHIFT
+
+#define DSI1_RXPKT1_H_WC_PARAM_SHIFT DSI1_RXPKT1_H_BC_PARAM_SHIFT
+#define DSI1_RXPKT1_H_WC_PARAM_MASK DSI1_RXPKT1_H_BC_PARAM_MASK
+#define DSI1_TXPKT_PIXD_FIFO_PIXEL_SHIFT DSI1_TXPKT_PIXD_FIFO_WORD_SHIFT
+#define DSI1_TXPKT_PIXD_FIFO_PIXEL_MASK DSI1_TXPKT_PIXD_FIFO_WORD_MASK
+#define DSI1_LP_DLT6_LPX_SHIFT DSI1_LP_DLT6_LP_LPX_SHIFT
+#define DSI1_LP_DLT6_LPX_MASK DSI1_LP_DLT6_LP_LPX_MASK
+#define DSI1_PHY_TST2_PHYD0_TEST_HSDATA_SHIFT DSI1_PHY_TST2_PHYD0_HSDATA_SHIFT
+#define DSI1_PHY_TST2_PHYD0_TEST_HSDATA_MASK DSI1_PHY_TST2_PHYD0_HSDATA_MASK
+
 struct CHAL_DSI {
 	cBool init;
 	cUInt32 baseAddr;
@@ -39,9 +69,9 @@ struct CHAL_DSI {
 };
 
 /* NO OF DATA LINES SUPPORTED */
-#define	DSI_DL_COUNT		    1
+#define	DSI_DL_COUNT		    4
 /* NO OF CONTROLLERs */
-#define	DSI_DEV_COUNT		    2
+#define	DSI_DEV_COUNT		    1
 
 /*
  * Local Variables
@@ -136,101 +166,6 @@ enum DSI_TIMING_C {
 	DSI_C_MAX,
 };
 
-/*-------------------------------------------------------------- */
-/* D-PHY 0.92 Timing */
-/*   o changed T-INIT to 1ms(from1us) to fix LM2550 */
-/*     start-up issues */
-/*-------------------------------------------------------------- */
-struct DSI_COUNTER dsi_dphy_0_92[] = {
-	/* LP Data Symbol Rate Calc - MUST BE FIRST RECORD */
-	{"ESC2LP_RATIO", DSI_C_TIME_ESC2LPDT, 0,
-	 0, 0, 0, 0, 0, 0, 0, 0, 0x0000003F, 1, 1, 0},
-
-	/* SPEC:  min =  100[us] + 0[UI] */
-	/* SET:   min = 1000[us] + 0[UI]                             <= */
-	{"HS_INIT", DSI_C_TIME_HS, 0,
-	 0, 1000000, 0, 0, 0, 0, 0, 0, 0x00FFFFFF, 0, 0, 0},
-
-	/* SPEC:  min = 1[ms] + 0[UI] */
-	/* SET:   min = 1[ms] + 0[UI] */
-	{"HS_WAKEUP", DSI_C_TIME_HS, 0,
-	 0, 1000000, 0, 0, 0, 0, 0, 0, 0x00FFFFFF, 0, 0, 0},
-
-	/* SPEC:  min = 1[ms] + 0[UI] */
-	/* SET:   min = 1[ms] + 0[UI] */
-	{"LP_WAKEUP", DSI_C_TIME_ESC, 0,
-	 0, 1000000, 0, 0, 0, 0, 0, 0, 0x00FFFFFF, 1, 1, 0},
-
-	/* SPEC:  min = 0[ns] +  8[UI] */
-	/* SET:   min = 0[ns] + 10[UI]                               <= */
-	{"HS_CLK_PRE", DSI_C_TIME_HS, 0,
-	 0, 0, 10, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = 38[ns] + 0[UI]   max= 95[ns] + 0[UI] */
-	/* SET:   min = 68[ns] + 0[UI]   max= 95[ns] + 0[UI]         <= */
-	{"HS_CLK_PREPARE", DSI_C_TIME_HS, DSI_C_HAS_MAX,
-	 0, 68, 0, 0, 0, 95, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = 262[ns] + 0[UI] */
-	/* SET:   min = 314[ns] + 0[UI]                              <= */
-	{"HS_CLK_ZERO", DSI_C_TIME_HS, 0,
-	 0, 314, 0, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min =  60[ns] + 52[UI] */
-	/* SET:   min =  72[ns] + 52[UI]                             <= */
-	{"HS_CLK_POST", DSI_C_TIME_HS, 0,
-	 0, 72, 52, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min =  60[ns] + 0[UI] */
-	/* SET:   min =  72[ns] + 0[UI]                              <= */
-	{"HS_CLK_TRAIL", DSI_C_TIME_HS, 0,
-	 0, 72, 0, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min =  50[ns] + 0[UI] */
-	/* SET:   min =  60[ns] + 0[UI]                              <= */
-	{"HS_LPX", DSI_C_TIME_HS, 0,
-	 0, 1500, 0, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = 40[ns] + 4[UI]      max= 85[ns] + 6[UI] */
-	/* SET:   min = 60[ns] + 4[UI]      max= 85[ns] + 6[UI]      <= */
-	{"HS_PRE", DSI_C_TIME_HS, DSI_C_HAS_MAX,
-	 0, 60, 4, 0, 0, 85, 6, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = 105[ns] + 6[UI] */
-	/* SET:   min = 125[ns] + 6[UI]                              <= */
-	{"HS_ZERO", DSI_C_TIME_HS, 0,
-	 0, 125, 6, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = max(0[ns]+32[UI],60[ns]+16[UI])  n=4 */
-	/* SET:   min = max(0[ns]+32[UI],60[ns]+16[UI])  n=4 */
-	{"HS_TRAIL", DSI_C_TIME_HS, DSI_C_MIN_MAX_OF_2,
-	 0, 0, 32, 60, 16, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* SPEC:  min = 100[ns] + 0[UI] */
-	/* SET:   min = 120[ns] + 0[UI]                              <= */
-	{"HS_EXIT", DSI_C_TIME_HS, 0,
-	 0, 120, 0, 0, 0, 0, 0, 0, 0x000001FF, 0, 0, 0},
-
-	/* min = 50[ns] + 0[UI] */
-	/* LP esc counters are speced in LP LPX units.
-	   LP_LPX is calculated by chal_dsi_set_timing
-	   and equals LP data clock */
-	{"LPX", DSI_C_TIME_ESC, 0,
-	 1, 0, 0, 0, 0, 0, 0, 0, 0x000000FF, 1, 1, 0},
-
-	/* min = 4*[Tlpx]  max = 4[Tlpx], set to 4 */
-	{"LP-TA-GO", DSI_C_TIME_ESC, 0,
-	 4, 0, 0, 0, 0, 0, 0, 0, 0x000000FF, 1, 1, 0},
-
-	/* min = 1*[Tlpx]  max = 2[Tlpx], set to 2 */
-	{"LP-TA-SURE", DSI_C_TIME_ESC, 0,
-	 2, 0, 0, 0, 0, 0, 0, 0, 0x000000FF, 1, 1, 0},
-
-	/* min = 5*[Tlpx]  max = 5[Tlpx], set to 5 */
-	{"LP-TA-GET", DSI_C_TIME_ESC, 0,
-	 5, 0, 0, 0, 0, 0, 0, 0, 0x000000FF, 1, 1, 0},
-};
-
 /*
  *
  * Function Name: chal_dsi_init
@@ -242,8 +177,6 @@ CHAL_HANDLE chal_dsi_init(cUInt32 baseAddr, pCHAL_DSI_INIT dsiInit)
 {
 	struct CHAL_DSI *pDev = NULL;
 	cUInt32 i;
-
-	chal_dprintf(CDBG_INFO, "chal_dsi_init\n");
 
 	if (dsiInit->dlCount > DSI_DL_COUNT) {
 		chal_dprintf(CDBG_ERRO,
@@ -295,21 +228,37 @@ cVoid chal_dsi_phy_state(CHAL_HANDLE handle, CHAL_DSI_PHY_STATE_t state)
 
 	regMask = DSI_REG_FIELD_SET(DSI1_PHYC, FORCE_TXSTOP_0, 1)
 	    | DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSCLK, 1)
-	    | DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_0, 1)
 	    | DSI_REG_FIELD_SET(DSI1_PHYC, TX_HSCLK_CONT, 1);
+
+#if !defined(CONFIG_MACH_BCM_FPGA_E) && !defined(CONFIG_MACH_BCM_FPGA)
+	switch (pDev->dlCount) {
+	case 4:
+		regMask |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_3, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_3, 1);
+	case 3:
+		regMask |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_2, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_2, 1);
+	case 2:
+		regMask |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_1, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_1, 1);
+	case 1:
+	default:
+		regMask |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_0, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_0, 1);
+	}
+#endif
 
 	switch (state) {
 	case PHY_TXSTOP:
-		regVal = DSI_REG_FIELD_SET(DSI1_PHYC, FORCE_TXSTOP_0, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, FORCE_TXSTOP_0, 1);
 		break;
 	case PHY_ULPS:
-		regVal = DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSCLK, 1)
-		    | DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSESC_0, 1);
+		regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TXULPSCLK, 1);
 		break;
 	case PHY_CORE:
 	default:
 		if (pDev->clkContinuous)
-			regVal = DSI_REG_FIELD_SET(DSI1_PHYC, TX_HSCLK_CONT, 1);
+			regVal |= DSI_REG_FIELD_SET(DSI1_PHYC, TX_HSCLK_CONT, 1);
 		else
 			regVal = 0;
 		break;
@@ -360,12 +309,18 @@ cVoid chal_dsi_phy_afe_on(CHAL_HANDLE handle, pCHAL_DSI_AFE_CFG afeCfg)
 	    | DSI1_PHY_AFEC0_PD_MASK
 	    | DSI1_PHY_AFEC0_RESET_MASK
 	    | DSI1_PHY_AFEC0_DDR2CLK_EN_MASK
+	    | DSI1_PHY_AFEC0_IDR_DLANE3_MASK
+	    | DSI1_PHY_AFEC0_IDR_DLANE2_MASK
+	    | DSI1_PHY_AFEC0_IDR_DLANE1_MASK
 	    | DSI1_PHY_AFEC0_IDR_DLANE0_MASK | DSI1_PHY_AFEC0_IDR_CLANE_MASK;
 
 	afeVal = DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, CTATADJ, afeCfg->afeCtaAdj)
 	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, PTATADJ, afeCfg->afePtaAdj)
 	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_CLANE, afeCfg->afeClkIdr)
-	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_DLANE0, afeCfg->afeDlIdr);
+	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_DLANE0, afeCfg->afeDlIdr)
+	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_DLANE1, afeCfg->afeDlIdr)
+	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_DLANE2, afeCfg->afeDlIdr)
+	    | DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, IDR_DLANE3, afeCfg->afeDlIdr);
 
 /*    if( !afeCfg->afeBandGapOn ) */
 /*        afeVal |= DSI_REG_FIELD_SET( DSI1_PHY_AFEC0, PD_BG, 1 ); */
@@ -373,7 +328,6 @@ cVoid chal_dsi_phy_afe_on(CHAL_HANDLE handle, pCHAL_DSI_AFE_CFG afeCfg)
 /*    if( afeCfg->afeDs2xClkEna ) */
 /*        afeVal |= DSI_REG_FIELD_SET( DSI1_PHY_AFEC0, DDRCLK_EN, 1 ); */
 
-	rmb();
 	afeVal |= DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, PD_BG, 0);
 	afeVal |= DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, PD, 0);
 	/* for now, enable all clock outputs */
@@ -383,14 +337,12 @@ cVoid chal_dsi_phy_afe_on(CHAL_HANDLE handle, pCHAL_DSI_AFE_CFG afeCfg)
 	afeVal |= DSI_REG_FIELD_SET(DSI1_PHY_AFEC0, RESET, 1);
 
 	/* PWR-UP & Reset */
-	wmb();
 	DSI_REG_WRITE_MASKED(pDev->baseAddr, DSI1_PHY_AFEC0, afeMask, afeVal);
 
 	/*for ( i=0; i<100; i++ ) {} */
 	CHAL_DELAY_MS(2);
 
 	/* remove reset */
-	wmb();
 	BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_PHY_AFEC0, RESET, 0);
 }
 
@@ -446,7 +398,7 @@ static Boolean chalDsiTimingDivAndRoundUp(struct DSI_COUNTER *pDsiC,
  *
  */
 cBool chal_dsi_set_timing(CHAL_HANDLE handle,
-			  cUInt32 DPHY_SpecRev,
+			  void *phy_timing,
 			  CHAL_DSI_CLK_SEL_t coreClkSel,
 			  cUInt32 escClk_MHz,
 			  cUInt32 hsBitRate_Mbps, cUInt32 lpBitRate_Mbps)
@@ -469,17 +421,10 @@ cBool chal_dsi_set_timing(CHAL_HANDLE handle,
 	cUInt32 lp_lpx_ns;
 
 	pDev = (struct CHAL_DSI *)handle;
+	pDsiC = (struct DSI_COUNTER *)phy_timing;
 	scaled_ui_ns = (1000 * 1000) / hsBitRate_Mbps;
 
 	scaled_escClk_ns = (1000 * 1000) / escClk_MHz;
-
-	switch (DPHY_SpecRev) {
-	case 1:
-		pDsiC = &dsi_dphy_0_92[0];
-		break;
-	default:
-		return FALSE;
-	}
 
 	/* figure step & offset for HS counters */
 	if (coreClkSel == CHAL_DSI_BIT_CLK_DIV_BY_8) {
@@ -583,6 +528,7 @@ cBool chal_dsi_set_timing(CHAL_HANDLE handle,
 		}
 	}
 
+#if 0
 	for (i = 0; i < DSI_C_MAX; i++) {
 		if (pDsiC[i].timeBase == DSI_C_TIME_ESC2LPDT) {
 			chal_dprintf(CDBG_ERRO,
@@ -606,7 +552,7 @@ cBool chal_dsi_set_timing(CHAL_HANDLE handle,
 
 	chal_dprintf(CDBG_ERRO, "[cHAL DSI] chal_dsi_set_timing: "
 		     "LP_DATA_RATE %u[kbps]\n\r", lp_clk_khz / 2);
-
+#endif
 	/* set ESC 2 LPDT ratio */
 	BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_PHYC,
 			     ESC_CLK_LPDT, pDsiC[DSI_C_ESC2LP_RATIO].counter);
@@ -719,11 +665,14 @@ cVoid chal_dsi_on(CHAL_HANDLE handle, pCHAL_DSI_MODE dsiMode)
 	    | DSI_REG_FIELD_SET(DSI1_CTRL, LPDT_EOT_EN, 1)
 	    | DSI_REG_FIELD_SET(DSI1_CTRL, HSDT_EOT_EN, 1)
 	    | DSI_REG_FIELD_SET(DSI1_CTRL, DSI_EN, 1)
+	    | DSI_REG_FIELD_SET(DSI1_CTRL, CAL_BYTE_EN, 1)
 	    | DSI1_CTRL_HS_CLKC_MASK;
 
 	ctrl = dsiMode->clkSel << DSI1_CTRL_HS_CLKC_SHIFT;
 
-	rmb();
+	if (dsiMode->clkSel != CHAL_DSI_BIT_CLK_DIV_BY_8)
+		ctrl |= DSI_REG_FIELD_SET(DSI1_CTRL, CAL_BYTE_EN, 1);
+
 	if (dsiMode->enaRxCrc)
 		ctrl |= DSI_REG_FIELD_SET(DSI1_CTRL, DISP_CRCC, 1);
 	if (dsiMode->enaRxEcc)
@@ -740,25 +689,49 @@ cVoid chal_dsi_on(CHAL_HANDLE handle, pCHAL_DSI_MODE dsiMode)
 
 	ctrl |= DSI_REG_FIELD_SET(DSI1_CTRL, DSI_EN, 1);
 
-	wmb();
 	DSI_REG_WRITE_MASKED(pDev->baseAddr, DSI1_CTRL, mask, ctrl);
 
 	/* PHY-C  Configure & Enable D-PHY Interface */
 	mask = 0;
 	ctrl = 0;
 
-	mask = DSI1_PHYC_TX_HSCLK_CONT_MASK
-	    | DSI1_PHYC_PHY_CLANE_EN_MASK | DSI1_PHYC_PHY_DLANE0_EN_MASK;
+	mask = DSI1_PHYC_TX_HSCLK_CONT_MASK | DSI1_PHYC_PHY_CLANE_EN_MASK;
+	switch (pDev->dlCount) {
+	case 4:
+		mask |= DSI1_PHYC_PHY_DLANE3_EN_MASK;
+		ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_DLANE3_EN, 1);
+	case 3:
+		mask |= DSI1_PHYC_PHY_DLANE2_EN_MASK;
+		ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_DLANE2_EN, 1);
+	case 2:
+		mask |= DSI1_PHYC_PHY_DLANE1_EN_MASK;
+		ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_DLANE1_EN, 1);
+	case 1:
+	default:
+		mask |= DSI1_PHYC_PHY_DLANE0_EN_MASK;
+		ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_DLANE0_EN, 1);
+	}
 
-	rmb();
 	if (dsiMode->enaContClock)
 		ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, TX_HSCLK_CONT, 1);
 
 	ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_CLANE_EN, 1);
-	ctrl |= DSI_REG_FIELD_SET(DSI1_PHYC, PHY_DLANE0_EN, 1);
 
-	wmb();
 	DSI_REG_WRITE_MASKED(pDev->baseAddr, DSI1_PHYC, mask, ctrl);
+}
+
+/*
+ *
+ *  Function Name:  chal_dsi_get_ena_int
+ *
+ *  Description:    Get enabled DSI Interrupts
+ *
+ */
+cUInt32 chal_dsi_get_ena_int(CHAL_HANDLE handle)
+{
+	struct CHAL_DSI *pDev = (struct CHAL_DSI *)handle;
+
+	return BRCM_READ_REG(pDev->baseAddr, DSI1_INT_EN);
 }
 
 /*
@@ -938,7 +911,6 @@ CHAL_DSI_RES_t chal_dsi_tx_short(CHAL_HANDLE handle,
 	pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, CMD_TX_TIME, txCfg->vmWhen);
 	pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, DISPLAY_NO,
 				  DSI_PKT_SRC_CMND_FIFO);
-	pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, CMD_EN, 1);
 
 	if (txCfg->start)
 		pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, CMD_EN, 1);
@@ -1019,9 +991,12 @@ CHAL_DSI_RES_t chal_dsi_tx_long(CHAL_HANDLE handle,
 	if (txCfg->msgLen == txCfg->msgLenCFifo)
 		pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, DISPLAY_NO,
 					  DSI_PKT_SRC_CMND_FIFO);
-	else
+	else if (txCfg->dispEngine == 1)
 		pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, DISPLAY_NO,
 					  DSI_PKT_SRC_DE1);
+	else
+		pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, DISPLAY_NO,
+					  DSI_PKT_SRC_DE0);
 
 	if (txCfg->isTe)
 		pktc |= DSI_REG_FIELD_SET(DSI1_TXPKT1_C, CMD_TE_EN, 1);
@@ -1040,6 +1015,7 @@ CHAL_DSI_RES_t chal_dsi_tx_long(CHAL_HANDLE handle,
 		BRCM_WRITE_REG(pDev->baseAddr, DSI1_TXPKT2_H, pkth);
 	else
 		BRCM_WRITE_REG(pDev->baseAddr, DSI1_TXPKT1_H, pkth);
+
 
 /*  chal_dprintf ( CDBG_ERRO, "[cHAL DSI] %s: PKTC[0x%08X] PKTH[0x%08X]\n", */
 /*      __FUNCTION__, pktc  , pktc  ); */
@@ -1362,3 +1338,64 @@ cVoid chal_dsi_de1_enable(CHAL_HANDLE handle, cBool ena)
 	else
 		BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP1_CTRL, EN, 0);
 }
+
+
+/*
+ *
+ *  Function Name:  chal_dsi_de0_set_cm
+ *
+ *  Description:
+ *
+ */
+cVoid chal_dsi_de0_set_cm(CHAL_HANDLE handle, CHAL_DSI_DE0_COL_MOD_t cm)
+{
+	struct CHAL_DSI *pDev = (struct CHAL_DSI *)handle;
+
+	BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP0_CTRL, PFORMAT, cm);
+}
+
+/*
+ *
+ *  Function Name:  chal_dsi_de0_set_pix_clk_div
+ *
+ *  Description:    Set pixel clock divider
+ *
+ */
+cVoid chal_dsi_de0_set_pix_clk_div(CHAL_HANDLE handle, cUInt32 div)
+{
+	struct CHAL_DSI *pDev = (struct CHAL_DSI *)handle;
+
+	BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP0_CTRL, PIX_CLK_DIV, div);
+}
+
+/*
+ *
+ *  Function Name:  chal_dsi_de1_enable
+ *
+ *  Description:    Ena | Dis Color Engine 0
+ *
+ */
+cVoid chal_dsi_de0_enable(CHAL_HANDLE handle, cBool ena)
+{
+	struct CHAL_DSI *pDev = (struct CHAL_DSI *)handle;
+
+	if (ena)
+		BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP0_CTRL, EN, 1);
+	else
+		BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP0_CTRL, EN, 0);
+}
+
+/*
+ *
+ *  Function Name:  chal_dsi_de0_set_mode
+ *
+ *  Description:
+ *
+ */
+cVoid chal_dsi_de0_set_mode(CHAL_HANDLE handle, CHAL_DSI_DE0_MODE_t mode)
+{
+	struct CHAL_DSI *pDev = (struct CHAL_DSI *)handle;
+
+	BRCM_WRITE_REG_FIELD(pDev->baseAddr, DSI1_DISP0_CTRL, MODE, mode);
+}
+

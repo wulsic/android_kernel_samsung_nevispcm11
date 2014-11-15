@@ -17,7 +17,6 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <asm/mach/arch.h>
@@ -29,8 +28,8 @@
 #include <linux/i2c.h>
 #include <linux/mfd/bcmpmu.h>
 #include <linux/broadcom/bcmpmu-ponkey.h>
-#ifdef CONFIG_KONA_AVS
-#include <plat/kona_avs.h>
+#ifdef CONFIG_RHEA_AVS
+#include <mach/rhea_avs.h>
 #endif
 #include "pm_params.h"
 
@@ -847,7 +846,7 @@ static struct bcmpmu_platform_data bcmpmu_plat_data = {
 	.batt_voltcap_map_len = ARRAY_SIZE(batt_voltcap_map),
 	.batt_impedence = 140,
 	.chrg_1c_rate = 1500,
-	.chrg_eoc = 100,
+	.chrg_eoc = 75,
 	.support_hw_eoc = 0,
 	.chrg_zone_map = &chrg_zone[0],
 	.fg_capacity_full = 1500 * 3600,
@@ -867,7 +866,7 @@ static struct bcmpmu_platform_data bcmpmu_plat_data = {
 	.fg_fbat_lvl = 4150,
 	.bc = BCMPMU_BC_PMU_BC12,
 	.batt_model = "BRCM BL-84 1500mAH",
-	.cutoff_volt = 3250,
+	.cutoff_volt = 3400,
 	.cutoff_count_max = 3,
 	.hard_reset_en = -1,
 	.restart_en = -1,
@@ -962,114 +961,35 @@ static struct i2c_board_info __initdata pmu_info[] = {
 						CSR_VAL_TURBO_FF_1G,\
 						CSR_VAL_TURBO_FF_1G)
 
-#define CSR_VAL_RETN_SS_1G_SMIC      0x3	/*0.88*/
-#define CSR_VAL_RETN_TT_1G_SMIC      0x3	/*0.88*/
-#define CSR_VAL_RETN_FF_1G_SMIC      0x3	/*0.88*/
-
-#define CSR_VAL_ECO_SS_1G_SMIC       0xD	/*1.08*/
-#define CSR_VAL_ECO_TT_1G_SMIC       0x8	/*0.98*/
-#define CSR_VAL_ECO_FF_1G_SMIC       0x8	/*0.98*/
-
-#define CSR_VAL_NRML_SS_1G_SMIC      0x15	/*1.24*/
-#define CSR_VAL_NRML_TT_1G_SMIC      0x13	/*1.20*/
-#define CSR_VAL_NRML_FF_1G_SMIC      0xE	/*1.10*/
-
-#define CSR_VAL_TURBO_SS_1G_SMIC     0x1F	/*1.48 Novalue in PMU*/
-#define CSR_VAL_TURBO_TT_1G_SMIC     0x1B	/*1.36*/
-#define CSR_VAL_TURBO_FF_1G_SMIC     0x18	/*1.30*/
-
-#define PMU_CSR_VLT_TBL_SS_1G_SMIC ARRAY_LIST(\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_RETN_SS_1G_SMIC,\
-		CSR_VAL_ECO_SS_1G_SMIC,\
-		CSR_VAL_ECO_SS_1G_SMIC,\
-		CSR_VAL_ECO_SS_1G_SMIC,\
-		CSR_VAL_NRML_SS_1G_SMIC,\
-		CSR_VAL_NRML_SS_1G_SMIC,\
-		CSR_VAL_NRML_SS_1G_SMIC,\
-		CSR_VAL_TURBO_SS_1G_SMIC,\
-		CSR_VAL_TURBO_SS_1G_SMIC)
-
-#define PMU_CSR_VLT_TBL_TT_1G_SMIC ARRAY_LIST(\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_RETN_TT_1G_SMIC,\
-		CSR_VAL_ECO_TT_1G_SMIC,\
-		CSR_VAL_ECO_TT_1G_SMIC,\
-		CSR_VAL_ECO_TT_1G_SMIC,\
-		CSR_VAL_NRML_TT_1G_SMIC,\
-		CSR_VAL_NRML_TT_1G_SMIC,\
-		CSR_VAL_NRML_TT_1G_SMIC,\
-		CSR_VAL_TURBO_TT_1G_SMIC,\
-		CSR_VAL_TURBO_TT_1G_SMIC)
-
-#define PMU_CSR_VLT_TBL_FF_1G_SMIC ARRAY_LIST(\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_RETN_FF_1G_SMIC,\
-		CSR_VAL_ECO_FF_1G_SMIC,\
-		CSR_VAL_ECO_FF_1G_SMIC,\
-		CSR_VAL_ECO_FF_1G_SMIC,\
-		CSR_VAL_NRML_FF_1G_SMIC,\
-		CSR_VAL_NRML_FF_1G_SMIC,\
-		CSR_VAL_NRML_FF_1G_SMIC,\
-		CSR_VAL_TURBO_FF_1G_SMIC,\
-		CSR_VAL_TURBO_FF_1G_SMIC)
-
 u8 csr_vlt_table_ss[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_SS_1G;
 u8 csr_vlt_table_tt[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_TT_1G;
 u8 csr_vlt_table_ff[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_FF_1G;
 
-u8 csr_vlt_table_ss_smic[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_SS_1G_SMIC;
-u8 csr_vlt_table_tt_smic[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_TT_1G_SMIC;
-u8 csr_vlt_table_ff_smic[SR_VLT_LUT_SIZE] = PMU_CSR_VLT_TBL_FF_1G_SMIC;
-
-const u8 *bcmpmu_get_sr_vlt_table(int sr, u32 freq_inx, u32 silicon_type)
+const u8 *bcmpmu_get_sr_vlt_table(int sr, u32 freq_inx,
+						u32 silicon_type)
 {
-	u32 fab_src = FAB_TSMC;
 	pr_info("%s:sr = %i, freq_inx = %d,"
 			"silicon_type = %d\n", __func__,
 			sr, freq_inx, silicon_type);
 
 	BUG_ON(freq_inx > A9_FREQ_1_GHZ);
-	BUG_ON(freq_inx == A9_FREQ_1_GHZ && silicon_type == SILICON_TYPE_SLOW);
-#ifdef CONFIG_KONA_AVS
-	fab_src = kona_avs_get_fab_src();
+
+#ifdef CONFIG_RHEA_AVS
 	switch (silicon_type) {
 	case SILICON_TYPE_SLOW:
-		return (fab_src == FAB_SMIC) ? csr_vlt_table_ss_smic :
-						csr_vlt_table_ss;
+		return csr_vlt_table_ss;
 
 	case SILICON_TYPE_TYPICAL:
-		return (fab_src == FAB_SMIC) ? csr_vlt_table_tt_smic :
-						csr_vlt_table_tt;
+		return csr_vlt_table_tt;
 
 	case SILICON_TYPE_FAST:
-		return (fab_src == FAB_SMIC) ? csr_vlt_table_ff_smic :
-						csr_vlt_table_ff;
+		return csr_vlt_table_ff;
 
 	default:
 		BUG();
 	}
 #else
-	return (fab_src == FAB_SMIC) ? csr_vlt_table_ss_smic :
-					csr_vlt_table_ss;
+	return csr_vlt_table_ss;
 #endif
 }
 

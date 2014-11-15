@@ -20,8 +20,9 @@
 #include <linux/delay.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
-#include <linux/pm_qos_params.h>
+#include <linux/ctype.h>
 
+#include <plat/kona_pm_dbg.h>
 #include <plat/clock.h>
 #include <plat/pi_mgr.h>
 #include <plat/pwr_mgr.h>
@@ -35,6 +36,8 @@
 #ifndef DEBUGFS_PM_CLIENT_NAME
 #define DEBUGFS_PM_CLIENT_NAME		"pi_client"
 #endif /*DEBUGFS_PM_CLIENT_NAME */
+
+#define DEBUGFS_PM_CLIENT_LEN	12
 
 #ifndef PI_MGR_DEBUG_CLIENT_MAX
 #define PI_MGR_DEBUG_CLIENT_MAX		10
@@ -118,6 +121,7 @@ struct pi_mgr {
 };
 
 static struct pi_mgr pi_mgr;
+static int pi_set_ccu_freq(struct pi *pi, u32 policy, u32 opp_inx);
 
 static int pi_change_notify(int pi_id, u32 type, u32 old_val,
 			    u32 new_val, u32 state)
@@ -169,6 +173,38 @@ static int pi_save_state(struct pi *pi, int save)
 	return 0;
 }
 
+static inline int get_opp_inx(u32 id, u32 map)
+{
+	u32 i;
+	int cnt = 0;
+	if (id >= PI_OPP_MAX || !IS_SUPPORTED_OPP(map, id))
+		return -EINVAL;
+
+	for (i = 0; i <= id; i++) {
+		if (map & OPP_ID_MASK(i))
+			cnt++;
+	}
+	return cnt-1;
+}
+
+static inline int opp_inx_to_id(struct pi_opp *pi_opp, u32 inx)
+{
+	if (inx >= pi_opp->num_opp)
+		return -EINVAL;
+	return pi_opp->opp_info[0][inx].opp_id;
+}
+
+u32 pi_get_dfs_lmt(u32 pi_id, bool max)
+{
+	struct pi *pi = pi_mgr_get(pi_id);
+	BUG_ON(pi == NULL);
+	BUG_ON(pi->pi_opp == NULL);
+	if (max)
+		return opp_inx_to_id(pi->pi_opp, pi->opp_lmt_max);
+	else
+		return opp_inx_to_id(pi->pi_opp, pi->opp_lmt_min);
+}
+
 int __pi_enable(struct pi *pi)
 {
 	int inx;
@@ -193,6 +229,12 @@ int __pi_enable(struct pi *pi)
 			/*Restore the context if state was saved */
 			if (pi->state_saved)
 				pi_save_state(pi, 0/*restore*/);
+			/*Update freq if a new freq was set while
+			PI was in disabled state*/
+			pi_set_ccu_freq(pi,
+			pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy,
+				pi->opp_inx_act);
+
 		}
 	}
 	return ret;
@@ -330,7 +372,7 @@ event, void *data)
 	pi->pi_dfs_stats.last_index = p->new_value;
 	if (pi->pi_dfs_stats.trans_table)
 		pi->pi_dfs_stats.trans_table[p->old_value *
-			pi->num_opp + p->new_value]++;
+			pi->pi_opp->num_opp + p->new_value]++;
 	pi->pi_dfs_stats.total_trans++;
 	spin_unlock_irqrestore(&pi->lock, flgs);
 
@@ -373,13 +415,13 @@ static int __pi_dfs_stats_clear(struct pi *pi)
 	if (!pi)
 		return -EPERM;
 
-	for (i = pi->num_opp - 1; i >= 0; i--)
+	for (i = pi->pi_opp->num_opp - 1; i >= 0; i--)
 		pi->pi_dfs_stats.time_in_state[i] = 0;
-	for (i = (pi->num_opp * pi->num_opp) - 1; i >= 0; i--)
+	for (i = (pi->pi_opp->num_opp * pi->pi_opp->num_opp) - 1; i >= 0; i--)
 		pi->pi_dfs_stats.trans_table[i] = 0;
 	pi->pi_dfs_stats.total_trans = 0;
 	pi->pi_dfs_stats.last_time = get_jiffies_64();
-	pi->pi_dfs_stats.last_index = pi->opp_active;
+	pi->pi_dfs_stats.last_index = pi->opp_inx_act;
 
 	return 0;
 }
@@ -403,7 +445,7 @@ static int __pi_dfs_stats_enable(struct pi *pi, int enable)
 		return -EPERM;
 	if (enable) {
 		pi->pi_dfs_stats.last_time = get_jiffies_64();
-		pi->pi_dfs_stats.last_index = pi->opp_active;
+		pi->pi_dfs_stats.last_index = pi->opp_inx_act;
 		pi_mgr_register_notifier(pi->id, &pi->
 			pi_dfs_stats.pi_dfs_notify_blk, PI_NOTIFY_DFS_CHANGE);
 		if (dfs_pi->usg_cnt)
@@ -526,28 +568,43 @@ int pi_init_state(struct pi *pi)
 }
 EXPORT_SYMBOL(pi_init_state);
 
-
-
 #ifndef CONFIG_CHANGE_POLICY_FOR_DFS
 static int pi_set_ccu_freq(struct pi *pi, u32 policy, u32 opp_inx)
 {
 	int inx;
 	int res = 0;
-	u32 freq_id;
-	BUG_ON(opp_inx >= pi->num_opp);
+	struct opp_info *opp_info;
+	struct pi_opp *pi_opp;
+
+	BUG_ON(opp_inx >= pi->pi_opp->num_opp);
+	pi_dbg(pi->id, PI_LOG_DFS,
+			"%s:pi->num_ccu_id = %d\n",
+			__func__, pi->num_ccu_id);
+	pi_opp = pi->pi_opp;
 	for (inx = 0; inx < pi->num_ccu_id; inx++) {
-		freq_id = pi->pi_opp[inx].opp[opp_inx];
-
+		opp_info = &pi_opp->opp_info[inx][opp_inx];
 		pi_dbg(pi->id, PI_LOG_DFS,
-		       "%s:%s  policy => %x freq_id => %d\n", __func__,
-		       pi->pi_ccu[inx]->name, policy, freq_id);
+			"%s:%s  pi->opp_inx_act = %d, opp_inx = %d\n",
+			__func__, pi->pi_ccu[inx]->name, pi->opp_inx_act,
+			opp_inx);
+		if (pi->opp_inx_act !=  opp_inx ||
+			ccu_get_freq_policy(to_ccu_clk(pi->pi_ccu[inx]),
+			CCU_POLICY(policy)) !=  opp_info->freq_id) {
 
-		res = ccu_set_freq_policy(to_ccu_clk(pi->pi_ccu[inx]),
-					  CCU_POLICY(policy), freq_id);
-		if (res != 0) {
 			pi_dbg(pi->id, PI_LOG_DFS,
-			       "%s:ccu_set_freq_policy failed\n", __func__);
-		}
+			"%s:%s  policy => %x freq_id => %d\n",
+			__func__, pi->pi_ccu[inx]->name,
+			policy, opp_info->freq_id);
+
+			log_pm(num_dbg_args[DBG_MSG_PI_SET_FREQ_OPP],
+				DBG_MSG_PI_SET_FREQ_OPP, pi->id,
+					opp_inx, opp_info->freq_id);
+
+			res = ccu_set_freq_policy(to_ccu_clk
+				(pi->pi_ccu[inx]),
+				CCU_POLICY(policy), opp_info);
+
+			}
 	}
 	return res;
 }
@@ -572,6 +629,8 @@ int pi_set_policy(const struct pi *pi, u32 policy, int type)
 
 		pi_change_notify(pi->id, PI_NOTIFY_POLICY_CHANGE,
 				 old_pol, policy, PI_PRECHANGE);
+		log_pm(num_dbg_args[DBG_MSG_PI_SET_FREQ_POLICY],
+			DBG_MSG_PI_SET_FREQ_POLICY, pi->id, old_pol, policy);
 		res =
 		    pwr_mgr_event_set_pi_policy(pi->qos_sw_event_id, pi->id,
 						&cfg);
@@ -595,7 +654,8 @@ int pi_set_policy(const struct pi *pi, u32 policy, int type)
 
 		pi_change_notify(pi->id, PI_NOTIFY_POLICY_CHANGE,
 				 old_pol, policy, PI_PRECHANGE);
-
+		log_pm(num_dbg_args[DBG_MSG_PI_SET_FREQ_POLICY],
+			DBG_MSG_PI_SET_FREQ_POLICY, pi->id, old_pol, policy);
 		res =
 		    pwr_mgr_event_set_pi_policy(pi->dfs_sw_event_id, pi->id,
 						&cfg);
@@ -661,11 +721,12 @@ static int pi_def_init_state(struct pi *pi)
 {
 #ifdef CONFIG_CHANGE_POLICY_FOR_DFS
 	pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy =
-	    pi->pi_opp[0].opp[pi->opp_active];
-	pi_set_policy(pi, pi->pi_opp[0].opp[pi->opp_active], POLICY_DFS);
+		pi->pi_opp->opp_info[0][pi->opp_inx_act].freq_id;
+	pi_set_policy(pi, pi->pi_opp->opp_info[0][pi->opp_inx_act].freq_id,
+				POLICY_DFS);
 #else
 	pi_set_ccu_freq(pi, pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy,
-			pi->opp_active);
+			pi->opp_inx_act);
 #endif
 	return 0;
 }
@@ -697,16 +758,17 @@ static int pi_def_init(struct pi *pi)
 	}
 
 	if ((pi->flags & PI_NO_DFS) == 0) {
-		pi_dbg(pi->id, PI_LOG_INIT, "pi->opp_active = %d\n",
-		       pi->opp_active);
+		pi_dbg(pi->id, PI_LOG_INIT, "pi->opp_inx_act = %d\n",
+		       pi->opp_inx_act);
 		dfs = &pi_mgr.dfs[pi->id];
 		ATOMIC_INIT_NOTIFIER_HEAD(&dfs->notifiers);
 		plist_head_init(&dfs->requests);
 		dfs->pi_id = pi->id;
 		dfs->default_opp = 0;
-		BUG_ON(pi->num_opp && pi->pi_opp == NULL);
+		BUG_ON(pi->pi_opp->num_opp && (pi->pi_opp == NULL ||
+			pi->pi_opp->opp_info == NULL));
 		if (pi->flags & DFS_LIMIT_CHECK_EN)
-			BUG_ON(pi->num_opp <= pi->opp_lmt_max ||
+			BUG_ON(pi->pi_opp->num_opp <= pi->opp_lmt_max ||
 			       pi->opp_lmt_max < pi->opp_lmt_min);
 
 	}
@@ -724,6 +786,8 @@ static int pi_def_enable(struct pi *pi, int enable)
 	pi_dbg(pi->id, PI_LOG_EN_DIS,
 	       "%s: pi_name:%s, enable:%d usageCount:%d\n",
 	       __func__, pi->name, enable, pi->usg_cnt);
+	log_pm(num_dbg_args[DBG_MSG_PI_ENABLE],
+		DBG_MSG_PI_ENABLE, pi->id, enable);
 	if (enable) {
 		policy = pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy;
 		pi_dbg(pi->id, PI_LOG_EN_DIS,
@@ -812,84 +876,86 @@ struct pi_ops gen_pi_ops = {
 	.reset = pi_reset,
 };
 
-static u32 pi_mgr_dfs_get_opp(const struct pi_mgr_dfs_object *dfs)
+static u32 pi_mgr_dfs_get_opp_inx(const struct pi_mgr_dfs_object *dfs)
 {
-	u32 opp = dfs->default_opp;
+	u32 opp_inx = dfs->default_opp;
 	int i;
 	int sum[PI_OPP_MAX - 1] = { 0 };
 	struct pi_mgr_dfs_node *dfs_node;
 	struct pi *pi = pi_mgr.pi_list[dfs->pi_id];
+	struct pi_opp *pi_opp = pi->pi_opp;
 
 	if (!plist_head_empty(&dfs->requests)) {
 
-		opp = plist_last(&dfs->requests)->prio;
-		if (opp == (pi->num_opp - 1))	/*Highest OPP ?? */
-			return opp;
+		opp_inx = plist_last(&dfs->requests)->prio;
+		if (opp_inx == (pi_opp->num_opp - 1))	/*Highest OPP ?? */
+			return opp_inx;
 
 		plist_for_each_entry(dfs_node, &dfs->requests, list) {
 			if (dfs_node->req_active
-			    && dfs_node->opp < (pi->num_opp - 1)) {
-				sum[dfs_node->opp] += dfs_node->weightage;
+			    && dfs_node->opp_inx < (pi_opp->num_opp - 1)) {
+				sum[dfs_node->opp_inx] += dfs_node->weightage;
 			}
 		}
 
-		for (i = opp; i < pi->num_opp - 1; i++) {
+		for (i = opp_inx; i < pi_opp->num_opp - 1; i++) {
 			if (sum[i] / PI_MGR_DFS_WEIGHTAGE_BASE)
-				opp++;
+				opp_inx++;
 		}
 
-		if (opp >= pi->num_opp)
-			opp = pi->num_opp - 1;
+		if (opp_inx >= pi_opp->num_opp)
+			opp_inx = pi->pi_opp->num_opp - 1;
 		pi_dbg(pi->id, PI_LOG_DFS, "%s:pi :%s opp = %d\n",
-		       __func__, pi->name, opp);
+		       __func__, pi->name, opp_inx);
 	}
 
-	return opp;
+	return opp_inx;
 }
 
-static u32 check_dfs_limit(struct pi *pi, u32 opp)
+static u32 check_dfs_limit(struct pi *pi, u32 opp_inx)
 {
-	u32 act_opp = opp;
+	u32 act_opp_inx = opp_inx;
 
 	if (pi->flags & DFS_LIMIT_CHECK_EN) {
 
 		BUG_ON(pi->opp_lmt_min > pi->opp_lmt_max);
-		if (opp < pi->opp_lmt_min)
-			act_opp = pi->opp_lmt_min;
-		else if (opp > pi->opp_lmt_max)
-			act_opp = pi->opp_lmt_max;
+		if (opp_inx < pi->opp_lmt_min)
+			act_opp_inx = pi->opp_lmt_min;
+		else if (opp_inx > pi->opp_lmt_max)
+			act_opp_inx = pi->opp_lmt_max;
 	}
-	return act_opp;
+	return act_opp_inx;
 }
 
 static u32 pi_mgr_dfs_update(struct pi_mgr_dfs_node *node,
 			     u32 pi_id, int action)
 {
-	u32 old_val, new_val;
+	u32 old_inx, new_inx;
+	u32 old_opp, new_opp;
 	struct pi_mgr_dfs_object *dfs = &pi_mgr.dfs[pi_id];
 	struct pi *pi = pi_mgr.pi_list[pi_id];
+	struct pi_opp *pi_opp = pi->pi_opp;
 	unsigned long flgs;
-
 	spin_lock_irqsave(&pi->lock, flgs);
 
-	old_val = pi->opp_active;
+	old_inx = pi->opp_inx_act;
 	switch (action) {
 	case NODE_ADD:
-		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_ADD -> opp req = %d\n",
-		       __func__, node->opp);
-		plist_node_init(&node->list, node->opp);
+		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_ADD-> opp_inx req = %d\n",
+		       __func__, node->opp_inx);
+		plist_node_init(&node->list, node->opp_inx);
 		plist_add(&node->list, &dfs->requests);
 		break;
 	case NODE_DELETE:
-		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_DELETE -> opp req = %d\n",
-		       __func__, node->opp);
+		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_DEL-> opp_inx req = %d\n",
+		       __func__, node->opp_inx);
 		plist_del(&node->list, &dfs->requests);
 		break;
 	case NODE_UPDATE:
-		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_UPDATE -> opp req = %d\n",
-		       __func__, node->opp);
+		pi_dbg(pi->id, PI_LOG_DFS, "%s:NODE_UPD-> opp_inx req = %d\n",
+		       __func__, node->opp_inx);
 		plist_del(&node->list, &dfs->requests);
-		plist_node_init(&node->list, node->opp);
+		plist_node_init(&node->list, node->opp_inx);
 		plist_add(&node->list, &dfs->requests);
 		break;
 
@@ -901,39 +967,55 @@ static u32 pi_mgr_dfs_update(struct pi_mgr_dfs_node *node,
 		BUG();
 		break;
 	}
-	new_val = check_dfs_limit(pi, pi_mgr_dfs_get_opp(dfs));
+	new_inx = check_dfs_limit(pi, pi_mgr_dfs_get_opp_inx(dfs));
+	pi_dbg(pi->id, PI_LOG_OPP_CHANGE,
+				"%s:pi_id= %d old_inx = %d => new_inx = %d\n",
+				__func__, pi_id, old_inx, new_inx);
 
-	if (old_val != new_val) {
-		BUG_ON(new_val >= pi->num_opp);
-		pi->opp_active = new_val;
+	if (old_inx != new_inx) {
+		BUG_ON(new_inx >= pi_opp->num_opp);
+		old_opp = opp_inx_to_id(pi_opp, old_inx);
+		new_opp = opp_inx_to_id(pi_opp, new_inx);
 		if (pi->init == PI_INIT_COMPLETE
 		    && ((pi->flags & NO_POLICY_CHANGE) == 0)) {
-			pi_change_notify(pi->id, PI_NOTIFY_DFS_CHANGE, old_val,
-					 new_val, PI_PRECHANGE);
+			pi_change_notify(pi->id, PI_NOTIFY_DFS_CHANGE,
+				old_opp, new_opp, PI_PRECHANGE);
 			pi_dbg(pi->id, PI_LOG_OPP_CHANGE,
 				"%s:pi_id= %d old_opp = %d => new_opp = %d\n",
-				__func__, pi_id, old_val, new_val);
+				__func__, pi_id, old_opp, new_opp);
 #ifdef CONFIG_CHANGE_POLICY_FOR_DFS
 			pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy =
-			    pi->pi_opp[0].opp[new_val];
+				pi_opp->opp_info[0][new_inx].freq_id;
 			if (pi_is_enabled(pi))
-				pi_set_policy(pi, pi->pi_opp[0].opp[new_val],
-					      POLICY_QOS);
+				pi_set_policy(pi,
+					pi->pi_opp[0]->opp[new_inx].freq_id,
+					POLICY_QOS);
 			if (pi->dfs_sw_event_id != pi->qos_sw_event_id)
-				pi_set_policy(pi, pi->pi_opp[0].opp[new_val],
-					      POLICY_DFS);
+				pi_set_policy(pi,
+					pi->pi_opp[0]->opp[new_inx].freq_id,
+					POLICY_DFS);
 #else
-			pi_set_ccu_freq(pi,
+			/*Update freq if in enabled state
+			pi_enable function will set the new freq otherwise*/
+			if (pi->flags & DEFER_DFS_UPDATE) {
+				if (pi_is_enabled(pi))
+					pi_set_ccu_freq(pi,
 					pi->pi_state[PI_MGR_ACTIVE_STATE_INX].
-					state_policy, new_val);
+					state_policy, new_inx);
+			} else
+				pi_set_ccu_freq(pi,
+					pi->pi_state[PI_MGR_ACTIVE_STATE_INX].
+					state_policy, new_inx);
+
 #endif
 			pi_change_notify(pi->id, PI_NOTIFY_DFS_CHANGE,
-					 old_val, new_val, PI_POSTCHANGE);
+					 old_opp, new_opp, PI_POSTCHANGE);
 		}
+		pi->opp_inx_act = new_inx;
 	}
 	spin_unlock_irqrestore(&pi->lock, flgs);
 
-	return new_val;
+	return new_inx;
 }
 
 static u32 pi_mgr_qos_get_value(const struct pi_mgr_qos_object *qos)
@@ -1045,8 +1127,6 @@ static u32 pi_mgr_qos_update(struct pi_mgr_qos_node *node, u32 pi_id,
 				__pi_disable(pi);
 			}
 		}
-		if (pi->flags & UPDATE_PM_QOS)
-			pm_qos_update_request(&pi->pm_qos, new_val);
 
 		pi_change_notify(pi->id, PI_NOTIFY_QOS_CHANGE,
 				 old_val, new_val, PI_POSTCHANGE);
@@ -1055,6 +1135,10 @@ static u32 pi_mgr_qos_update(struct pi_mgr_qos_node *node, u32 pi_id,
 	pi_dbg(pi->id, PI_LOG_QOS, "%s:%s state allowed = %d\n", __func__,
 	       pi->name, pi->state_allowed);
 	spin_unlock_irqrestore(&pi->lock, flgs);
+	/*We can't invoke pm_qos_update_request from intr disabled
+	context*/
+	if (pi->flags & UPDATE_PM_QOS && old_val != new_val)
+			pm_qos_update_request(&pi->pm_qos, new_val);
 	return new_val;
 }
 
@@ -1082,12 +1166,10 @@ EXPORT_SYMBOL(pi_get_use_count);
 
 u32 pi_get_active_qos(int pi_id)
 {
-	struct pi_mgr_qos_object *qos = &pi_mgr.qos[pi_id];
-	if (qos)
-		return pi_mgr_qos_get_value(qos);
-	else
-		pi_dbg(pi_id, PI_LOG_ERR, "%s:invalid param\n", __func__);
-	return 0;
+	struct pi_mgr_qos_object *qos;
+	BUG_ON(pi_id >= PI_MGR_PI_ID_MAX);
+	qos = &pi_mgr.qos[pi_id];
+	return pi_mgr_qos_get_value(qos);
 }
 EXPORT_SYMBOL(pi_get_active_qos);
 
@@ -1099,11 +1181,12 @@ u32 pi_get_active_opp(int pi_id)
 	   Policy 7 freq is initialized to turbo mode freq.
 	   Hence, this function should return the max opp number if the init is
 	   not complete. */
-	if (pi) {
+	if (pi && pi->pi_opp) {
 		if (pi->init == PI_INIT_COMPLETE)
-			ret = pi->opp_active;
+			ret = opp_inx_to_id(pi->pi_opp, pi->opp_inx_act);
 		else
-			return pi->num_opp - 1;
+			return opp_inx_to_id(pi->pi_opp,
+					pi->pi_opp->num_opp - 1);
 	}
 	return ret;
 }
@@ -1239,6 +1322,16 @@ int pi_mgr_dfs_add_request_ex(struct pi_mgr_dfs_node *node, char *client_name,
 			      u32 pi_id, u32 opp, u32 weightage)
 {
 	struct pi *pi;
+	struct pi_opp *pi_opp;
+	int inx;
+	pi = pi_mgr_get(pi_id);
+	if (pi)
+		pi_opp = pi->pi_opp;
+	else
+		return -EINVAL;
+	inx = (opp == PI_MGR_DFS_MIN_VALUE) ? 0 :
+		get_opp_inx(opp, pi_opp->opp_map);
+
 	pi_dbg(pi_id, PI_LOG_DFS, "%s:client = %s pi = %d opp = %d\n",
 	       __func__, client_name, pi_id, opp);
 	if (!pi_mgr.init) {
@@ -1262,10 +1355,10 @@ int pi_mgr_dfs_add_request_ex(struct pi_mgr_dfs_node *node, char *client_name,
 		return -EPERM;
 	}
 
-	if (opp >= pi->num_opp && opp != PI_MGR_DFS_MIN_VALUE) {
+	if (inx < 0) {
 		__WARN();
-		pi_dbg(pi_id, PI_LOG_ERR, "%s:ERROR - %d:unsupported opp\n",
-		       __func__, opp);
+		pi_dbg(pi_id, PI_LOG_ERR, "%s:ERROR - %d:unsupp opp, err:%d\n",
+				__func__, opp, inx);
 		return -EINVAL;
 	}
 
@@ -1277,19 +1370,25 @@ int pi_mgr_dfs_add_request_ex(struct pi_mgr_dfs_node *node, char *client_name,
 		       __func__, weightage);
 		return -EINVAL;
 	}
-
 	node->name = client_name;
 	node->pi_id = pi_id;
 
 	if (opp == PI_MGR_DFS_MIN_VALUE) {
 		node->req_active = 0;
-		node->opp = 0;
+		node->opp_inx = 0;
 	} else {
-		node->opp = opp;
 		node->req_active = 1;
+		node->opp_inx = (u32)inx;
 	}
-	if (weightage == PI_MGR_DFS_WIEGHTAGE_DEFAULT)
-		node->weightage = pi->opp_def_weightage[node->opp];
+	pi_opp = pi->pi_opp;
+	BUG_ON(!pi->pi_opp ||
+		node->opp_inx >= pi_opp->num_opp);
+	if (weightage == PI_MGR_DFS_WIEGHTAGE_DEFAULT) {
+		if (pi_opp->def_weightage)
+			node->weightage = pi_opp->def_weightage[node->opp_inx];
+		else
+			node->weightage = 0;
+	}
 	else
 		node->weightage = weightage;
 
@@ -1305,17 +1404,23 @@ int pi_mgr_dfs_request_update_ex(struct pi_mgr_dfs_node *node, u32 opp,
 				 u32 weightage)
 {
 	struct pi *pi = pi_mgr.pi_list[node->pi_id];
-	BUG_ON(pi == NULL);
+	struct pi_opp *pi_opp = pi->pi_opp;
+	int inx = (opp == PI_MGR_DFS_MIN_VALUE) ? 0 :
+				get_opp_inx(opp, pi_opp->opp_map);
+
+	BUG_ON(!pi || !pi->pi_opp);
+
 	if (!pi_mgr.init) {
 		pi_dbg(node->pi_id, PI_LOG_ERR,
 		       "%s:ERROR -pi mgr not initialized\n", __func__);
 		return -EINVAL;
 	}
 	BUG_ON(node->valid == 0);
-	if (opp >= pi->num_opp && opp != PI_MGR_DFS_MIN_VALUE) {
+	if (inx < 0) {
 		__WARN();
 		pi_dbg(node->pi_id, PI_LOG_ERR,
-		       "%s:ERROR - %d:unsupported opp\n", __func__, opp);
+		       "%s:ERROR - %d:unsupported opp, error val: %d\n",
+		       __func__, opp, inx);
 		return -EINVAL;
 	}
 
@@ -1329,20 +1434,27 @@ int pi_mgr_dfs_request_update_ex(struct pi_mgr_dfs_node *node, u32 opp,
 	}
 
 	pi_dbg(node->pi_id, PI_LOG_DFS,
-	       "%s:client = %s pi= %d opp= %d opp_new= %d weightage= %d\n",
-	       __func__, node->name, node->pi_id, node->opp, opp, weightage);
+		"%s:client = %s pi= %d opp= %d opp_new= %d weightage= %d\n",
+		__func__, node->name, node->pi_id,
+		opp_inx_to_id(pi_opp, node->opp_inx), opp, weightage);
 
-	if (node->opp != opp || weightage != node->weightage) {
+	if (node->opp_inx != (u32)inx || weightage != node->weightage) {
 		if (opp == PI_MGR_DFS_MIN_VALUE) {
 			node->req_active = 0;
-			node->opp = 0;
+			node->opp_inx = 0;
 		} else {
-			node->opp = opp;
+			node->opp_inx = (u32)inx;
 			node->req_active = 1;
 		}
-		if (weightage == PI_MGR_DFS_WIEGHTAGE_DEFAULT)
-			node->weightage = pi->opp_def_weightage[node->opp];
-		else
+		BUG_ON(node->opp_inx >= pi_opp->num_opp);
+
+		if (weightage == PI_MGR_DFS_WIEGHTAGE_DEFAULT) {
+			if (pi_opp->def_weightage)
+				node->weightage =
+					pi_opp->def_weightage[node->opp_inx];
+			else
+				node->weightage = 0;
+		} else
 			node->weightage = weightage;
 
 		BUG_ON(node->weightage >= PI_MGR_DFS_WEIGHTAGE_BASE);
@@ -1356,8 +1468,10 @@ EXPORT_SYMBOL(pi_mgr_dfs_request_update_ex);
 
 int pi_mgr_dfs_request_remove(struct pi_mgr_dfs_node *node)
 {
+	struct pi *pi = pi_mgr_get(node->pi_id);
+	BUG_ON(pi == NULL);
 	pi_dbg(node->pi_id, PI_LOG_DFS, "%s:name = %s, req = %d\n", __func__,
-	       node->name, node->opp);
+	       node->name, opp_inx_to_id(pi->pi_opp, node->opp_inx));
 	BUG_ON(node->valid == 0);
 	if (!pi_mgr.init) {
 		pi_dbg(node->pi_id, PI_LOG_ERR,
@@ -1374,19 +1488,29 @@ EXPORT_SYMBOL(pi_mgr_dfs_request_remove);
 int pi_mgr_set_dfs_opp_limit(int pi_id, int min, int max)
 {
 	struct pi *pi = pi_mgr_get(pi_id);
+	struct pi_opp *pi_opp;
 	bool update = false;
+	int min_inx, max_inx;
+
 	BUG_ON(pi == NULL);
-	if ((pi->flags & DFS_LIMIT_CHECK_EN) == 0)
+	pi_opp = pi->pi_opp;
+	if (!pi_opp || ((pi->flags & DFS_LIMIT_CHECK_EN) == 0))
 		return -EINVAL;
-	if (min >= 0 && (u32) min != pi->opp_lmt_min) {
-		pi->opp_lmt_min = (u32) min;
+	min_inx = get_opp_inx(min, pi_opp->opp_map);
+	max_inx = get_opp_inx(max, pi_opp->opp_map);
+
+	if (min_inx >= 0 && (u32) min_inx != pi->opp_lmt_min) {
+		pi->opp_lmt_min = (u32) min_inx;
 		update = true;
 	}
 
-	if (max >= 0 && (u32) max != pi->opp_lmt_max) {
-		if ((u32) max >= pi->num_opp)
+	if (max_inx >= 0 && (u32) max_inx != pi->opp_lmt_max) {
+		if ((u32) max_inx >= pi_opp->num_opp)
 			return -EINVAL;
-		pi->opp_lmt_max = (u32) max;
+		pi->opp_lmt_max = (u32) max_inx;
+		pi_dbg(pi_id, PI_LOG_POLICY,
+			"%s: pi->opp_lmt_max = %d\n", __func__,
+			pi->opp_lmt_max);
 		update = true;
 	}
 	if (update)
@@ -1412,16 +1536,17 @@ int pi_mgr_disable_policy_change(int pi_id, int disable)
 		       "%s :enable pol change\n", __func__);
 		pi->flags &= ~NO_POLICY_CHANGE;
 
-		/*Update PI DFS freq based on opp_active value */
+		/*Update PI DFS freq based on opp_inx_act value */
 #ifdef CONFIG_CHANGE_POLICY_FOR_DFS
 		pi->pi_state[PI_MGR_ACTIVE_STATE_INX].state_policy =
-		    pi->pi_opp[0].opp[pi->opp_active];
-		pi_set_policy(pi, pi->pi_opp[0].opp[pi->opp_active],
+			pi->pi_opp->opp_info[0][pi->opp_inx_act].freq_id;
+		pi_set_policy(pi,
+			pi->pi_opp->opp_info[0][pi->opp_inx_act].freq_id,
 			      POLICY_DFS);
 #else
 		pi_set_ccu_freq(pi,
 				pi->pi_state[PI_MGR_ACTIVE_STATE_INX].
-				state_policy, pi->opp_active);
+				state_policy, pi->opp_inx_act);
 #endif
 
 		if (pi->usg_cnt)
@@ -1586,7 +1711,13 @@ __weak char *get_opp_name(int opp)
 {
 	return NULL;
 }
-void pi_mgr_print_active_pis(void)
+
+__weak u32 get_opp_from_name(char *name)
+{
+	return -EINVAL;
+}
+
+int pi_mgr_print_active_pis(void)
 {
 	u32 i;
 	struct pi *pi;
@@ -1594,9 +1725,10 @@ void pi_mgr_print_active_pis(void)
 	struct pi_mgr_qos_node *qos_node;
 	unsigned long flag;
 	int state_policy;
+	int num_active = 0;
 
 	if (unlikely(!pi_mgr.init))
-		return;
+		return -EPERM;
 
 	for (i = 0; i < PI_MGR_PI_ID_MAX; i++) {
 		pi = pi_mgr.pi_list[i];
@@ -1621,9 +1753,12 @@ void pi_mgr_print_active_pis(void)
 				pr_info("%s \t %d\n", qos_node->name,
 						qos_node->latency);
 			pr_info("---------------------\n");
+			num_active++;
 		}
 		spin_unlock_irqrestore(&pi->lock, flag);
 	}
+	pr_info("%s, Num PIs with active QOS req: %d", __func__, num_active);
+	return num_active;
 }
 EXPORT_SYMBOL(pi_mgr_print_active_pis);
 
@@ -1688,8 +1823,8 @@ static int pi_debug_register_qos_client(void *data, u64 value)
 	}
 
 	qos_dir = debugfs_info[pi->id].qos_dir;
-	sprintf(debug_qos_client[val].client_name, "%s_%d",
-		DEBUGFS_PM_CLIENT_NAME, val);
+	snprintf(debug_qos_client[val].client_name, DEBUGFS_PM_CLIENT_LEN,
+		"%s_%d", DEBUGFS_PM_CLIENT_NAME, val);
 
 	dent_client =
 	    debugfs_create_file(debug_qos_client[val].client_name,
@@ -1782,22 +1917,46 @@ static const struct file_operations pi_qos_request_list_fops = {
 };
 
 static ssize_t pi_debug_set_dfs_client_opp(struct file *file,
-					   char const __user *buf,
+					   const char __user *buf,
 					   size_t count, loff_t *offset)
 {
 	u32 len = 0;
-	u32 opp = PI_MGR_DFS_MIN_VALUE;
+	int opp = PI_MGR_DFS_MIN_VALUE;
+	char opp_str[15];
 	u32 weightage = PI_MGR_DFS_WIEGHTAGE_DEFAULT;
-	char input_str[100];
+	char input_str[15];
 	u32 inx = (u32) file->private_data;
-	if (count > 100)
-		len = 100;
+	int opp_inx;
+	struct pi *pi = debug_dfs_client[inx].pi;
+	BUG_ON(pi == NULL);
+	if (count > 15)
+		len = 15;
 	else
 		len = count;
-
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
 	if (copy_from_user(input_str, buf, len))
 		return -EFAULT;
-	sscanf(input_str, "%u%u", &opp, &weightage);
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
+	sscanf(input_str, "%s%u", opp_str, &weightage);
+	/* coverity[secure_coding] */
+	if (isdigit(opp_str[0]))
+		opp = (opp_str[0] - toascii('0'));
+	else
+		opp = get_opp_from_name(opp_str);
+	if (opp < 0) {
+		pr_err("%s: Invalid opp %s, opp_id %d\n",
+				__func__, opp_str, opp);
+		return count;
+	}
+	opp_inx = get_opp_inx(opp, pi->pi_opp->opp_map);
+	if (opp_inx > pi->opp_lmt_max || opp_inx < 0) {
+		pr_err("%s: Unsupported OPP %d, max %d\n",
+			__func__, opp, opp_inx_to_id(
+			pi->pi_opp, pi->opp_lmt_max));
+		return count;
+	}
 	pi_mgr_dfs_request_update_ex(&debug_dfs_client[inx].debugfs_dfs_node,
 				     opp, weightage);
 	return count;
@@ -1809,11 +1968,18 @@ static ssize_t pi_debug_get_dfs_client_opp(struct file *file,
 {
 	u32 len = 0;
 	u32 inx = (u32) file->private_data;
+	char *str;
+	str = get_opp_name(opp_inx_to_id(debug_dfs_client[inx].pi->pi_opp,
+			debug_dfs_client[inx].debugfs_dfs_node.opp_inx));
+	if (str == NULL) {
+		pr_err("%s: Invalid opp index %d\n", __func__,
+			debug_dfs_client[inx].debugfs_dfs_node.opp_inx);
+		return count;
+	}
 
 	len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
-			"DFS Req:%u Request active:%u Request Weightage:%u\n",
-			debug_dfs_client[inx].debugfs_dfs_node.opp,
-			debug_dfs_client[inx].debugfs_dfs_node.req_active,
+			"DFS Req:%s Request active:%u Request Weightage:%u\n",
+			str, debug_dfs_client[inx].debugfs_dfs_node.req_active,
 			debug_dfs_client[inx].debugfs_dfs_node.weightage);
 	return simple_read_from_buffer(user_buf, count, ppos, debug_fs_buf,
 				       len);
@@ -1825,17 +1991,31 @@ static const struct file_operations pi_dfs_client_fops = {
 	.write = pi_debug_set_dfs_client_opp,
 };
 
-static int pi_debug_get_active_dfs(void *data, u64 * val)
+static ssize_t pi_debug_get_active_dfs(struct file *file,
+		char __user *user_buf, size_t count, loff_t *ppos)
 {
 
-	struct pi *pi = data;
+	struct pi *pi = file->private_data;
+	u32 len = 0;
+	char *str;
+	BUG_ON(pi == NULL);
+	str = get_opp_name(pi_get_active_opp(pi->id));
+	if (str == NULL) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid DFS\n",
+				__func__);
+		return count;
+	}
+	len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
+			"Active OPP: %s\n", str);
 
-	*val = pi_get_active_opp(pi->id);
-
-	return 0;
+	return simple_read_from_buffer(user_buf, count, ppos, debug_fs_buf,
+			len);
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(pi_dfs_fops, pi_debug_get_active_dfs, NULL, "%llu\n");
+static const struct file_operations pi_dfs_fops = {
+	.open = pi_debugfs_open,
+	.read = pi_debug_get_active_dfs,
+};
 
 static int pi_debug_register_dfs_client(void *data, u64 value)
 {
@@ -1852,13 +2032,13 @@ static int pi_debug_register_dfs_client(void *data, u64 value)
 
 	if (debug_dfs_client[val].pi) {
 		pi_dbg(pi->id, PI_LOG_ERR, "%s:client in use by %s\n", __func__,
-		       pi->name);
+		       debug_dfs_client[val].pi->name);
 		return 0;
 	}
 
 	dfs_dir = debugfs_info[pi->id].dfs_dir;
-	sprintf(debug_dfs_client[val].client_name, "%s_%d",
-		DEBUGFS_PM_CLIENT_NAME, val);
+	snprintf(debug_dfs_client[val].client_name, DEBUGFS_PM_CLIENT_LEN,
+			"%s_%d", DEBUGFS_PM_CLIENT_NAME, val);
 
 	ret =
 	    pi_mgr_dfs_add_request(&debug_dfs_client[val].debugfs_dfs_node,
@@ -1936,16 +2116,25 @@ static ssize_t read_get_dfs_request_list(struct file *file,
 	struct pi *pi = (struct pi *)file->private_data;
 	struct pi_mgr_dfs_object *dfs = &pi_mgr.dfs[pi->id];
 	struct pi_mgr_dfs_node *dfs_node;
+	char *opp_str;
+	BUG_ON(pi == NULL || dfs == NULL);
 
 	len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
 		"*********** PI DFS requests **********************\n");
 	plist_for_each_entry(dfs_node, &dfs->requests, list) {
+		opp_str = get_opp_name(opp_inx_to_id(pi->pi_opp,
+						dfs_node->opp_inx));
+		if (opp_str == NULL) {
+			pi_dbg(pi->id, PI_LOG_ERR, "%s:	Invalid opp inx: %d\n",
+					__func__, dfs_node->opp_inx);
+			return count;
+		}
 		len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
-				"PI: %s (Id:%d) \t\t Client:%s \t\t DFS request:%u "
-				"request_active:%u request_weightage: %u\n",
-				pi->name, dfs_node->pi_id, dfs_node->name,
-				dfs_node->opp, dfs_node->req_active,
-				dfs_node->weightage);
+			"PI: %s (Id:%d) \t\t Client:%s \t\t DFS req:%s"\
+			" request_active:%u request_weightage:%u\n",
+			pi->name, dfs_node->pi_id, dfs_node->name,
+			opp_str, dfs_node->req_active,
+			dfs_node->weightage);
 	}
 	return simple_read_from_buffer(user_buf, count, ppos, debug_fs_buf,
 				       len);
@@ -1956,52 +2145,152 @@ static const struct file_operations pi_dfs_request_list_fops = {
 	.read = read_get_dfs_request_list,
 };
 
-static int pi_opp_set_min_lmt(void *data, u64 val)
+static ssize_t pi_opp_set_min_lmt(struct file *file, const char __user *buf,
+		size_t count, loff_t *ppos)
 {
-	struct pi *pi = data;
+	struct pi *pi = (struct pi *)file->private_data;
+	int val;
+	u32 len;
+	int max_opp;
+	char opp_str[15];
+	char input_str[15];
 	BUG_ON(pi == NULL);
-
-	if (unlikely(val > pi->opp_lmt_max)) {
-		pi_dbg(pi->id, PI_LOG_ERR, "%s: min > max\n", __func__);
-		return 0;
+	if (count > 15)
+		len = 15;
+	else
+		len = count;
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
+	if (copy_from_user(input_str, buf, len))
+		return -EFAULT;
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
+	sscanf(input_str, "%s", opp_str);
+	/* coverity[secure_coding] */
+	if (isdigit(opp_str[0]))
+		val = (opp_str[0] - toascii('0'));
+	else
+		val = get_opp_from_name(opp_str);
+	if (val < 0) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid	opp:%s\n",
+				__func__, opp_str);
+		return count;
 	}
-	return pi_mgr_set_dfs_opp_limit(pi->id, (int)val, -1);
+	max_opp = opp_inx_to_id(pi->pi_opp, pi->opp_lmt_max);
+	if (max_opp < 0) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: invalid max_opp: %d\n",
+				__func__, max_opp);
+		return count;
+	}
+	if (unlikely(val > max_opp)) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: val: %d, min > max\n",
+				__func__, val);
+		return count;
+	}
+	pi_mgr_set_dfs_opp_limit(pi->id, val, -1);
+	return count;
 }
 
-static int pi_opp_get_min_lmt(void *data, u64 * val)
+static ssize_t pi_opp_get_min_lmt(struct file *file, char __user *user_buf,
+		size_t count, loff_t *ppos)
 {
-	struct pi *pi = data;
+	struct pi *pi = file->private_data;
+	u32 len = 0;
+	char *str;
 	BUG_ON(pi == NULL);
-	*val = pi->opp_lmt_min;
-	return 0;
+	str = get_opp_name(opp_inx_to_id(pi->pi_opp,
+					pi->opp_lmt_min));
+	if (str == NULL) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid min lmt %d\n",
+				__func__, pi->opp_lmt_min);
+		return count;
+	}
+	len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
+			"OPP limit min: %s\n", str);
+	return simple_read_from_buffer(user_buf, count,
+			ppos, debug_fs_buf, len);
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(pi_opp_min_lmt_fops, pi_opp_get_min_lmt,
-			pi_opp_set_min_lmt, "%llu\n");
+static const struct file_operations pi_opp_min_lmt_fops = {
+	.open = pi_debugfs_open,
+	.read = pi_opp_get_min_lmt,
+	.write = pi_opp_set_min_lmt,
+};
 
-static int pi_opp_set_max_lmt(void *data, u64 val)
+static ssize_t pi_opp_set_max_lmt(struct file *file, const char __user *buf,
+		size_t count, loff_t *ppos)
 {
-	struct pi *pi = data;
+	struct pi *pi = (struct pi *)file->private_data;
+	int val, opp_inx_req;
+	u32 len;
+	char opp_str[15];
+	char input_str[15];
 	BUG_ON(pi == NULL);
+	if (count > 15)
+		len = 15;
+	else
+		len = count;
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
+	if (copy_from_user(input_str, buf, len))
+		return -EFAULT;
+	/* coverity[secure_coding] */
+	/* coverity[tainted_data_argument] */
+	sscanf(input_str, "%s", opp_str);
+	/* coverity[secure_coding] */
+	if (isdigit(opp_str[0]))
+		val = (opp_str[0] - toascii('0'));
+	else
+		val = get_opp_from_name(opp_str);
+	if (val < 0) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid i/p:%s, id %d\n",
+				__func__, opp_str, val);
+		return count;
+	}
+	opp_inx_req = get_opp_inx(val, pi->pi_opp->opp_map);
+	if (opp_inx_req < 0) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Unsupp OPP:%d, inx = %d\n",
+				__func__, val, opp_inx_req);
+		return count;
+	}
 
-	if (unlikely(val < pi->opp_lmt_min || val >= pi->num_opp)) {
+	if (opp_inx_req < pi->opp_lmt_min ||
+		opp_inx_req >= pi->pi_opp->num_opp) {
 		pi_dbg(pi->id, PI_LOG_ERR,
-		       "%s: min > max or max > max supported opp\n", __func__);
-		return 0;
+			"%s: val:%d, min > max or max > max supp opp\n",
+			__func__, val);
+		return count;
 	}
-	return pi_mgr_set_dfs_opp_limit(pi->id, -1, (int)val);
+	pi_mgr_set_dfs_opp_limit(pi->id, -1, (int)val);
+	return count;
 }
 
-static int pi_opp_get_max_lmt(void *data, u64 * val)
+static int pi_opp_get_max_lmt(struct file *file, char __user *user_buf,
+		size_t count, loff_t *ppos)
 {
-	struct pi *pi = data;
+	struct pi *pi = file->private_data;
+	u32 len = 0;
+	char *str;
 	BUG_ON(pi == NULL);
-	*val = pi->opp_lmt_max;
-	return 0;
+	str = get_opp_name(opp_inx_to_id(pi->pi_opp,
+					pi->opp_lmt_max));
+	if (str == NULL) {
+		pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid max lmt %d\n",
+			__func__, pi->opp_lmt_max);
+		return count;
+	}
+
+	len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
+			"OPP limit max: %s\n", str);
+	return simple_read_from_buffer(user_buf, count,
+			ppos, debug_fs_buf, len);
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(pi_opp_max_lmt_fops, pi_opp_get_max_lmt,
-			pi_opp_set_max_lmt, "%llu\n");
+static const struct file_operations pi_opp_max_lmt_fops = {
+	.open = pi_debugfs_open,
+	.read = pi_opp_get_max_lmt,
+	.write = pi_opp_set_max_lmt
+};
 
 #ifdef CONFIG_KONA_PI_DFS_STATS
 static ssize_t pi_dfs_get_time_in_state(struct file *file,
@@ -2010,18 +2299,23 @@ static ssize_t pi_dfs_get_time_in_state(struct file *file,
 {
 	struct pi *pi = NULL;
 	u32 i, len = 0;
-
+	char *str;
 	pi = (struct pi *) file->private_data;
 	BUG_ON(pi == NULL);
 	if (pi->flags & ENABLE_DFS_STATS)
 		pi_dfs_stats_update(pi);
 
-	for (i = 0; i < pi->num_opp; i++)
+	for (i = 0; i < pi->pi_opp->num_opp; i++) {
+		str = get_opp_name(i);
+		if (str == NULL) {
+			pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid OPP %d\n",
+					__func__, i);
+			return count;
+		}
 		len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) -
-		len, "%s %llu\n",
-		get_opp_name(i), (u64)
+		len, "%s %llu\n", str, (u64)
 		cputime64_to_clock_t(pi->pi_dfs_stats.time_in_state[i]));
-
+	}
 	return simple_read_from_buffer(user_buf, count, ppos, debug_fs_buf,
 				       len);
 }
@@ -2037,7 +2331,7 @@ static ssize_t pi_dfs_get_trans_table(struct file *file,
 {
 	struct pi *pi = NULL;
 	u32 i, j, len = 0;
-
+	char *str;
 	pi = (struct pi *) file->private_data;
 	BUG_ON(pi == NULL);
 	if (pi->flags & ENABLE_DFS_STATS)
@@ -2047,28 +2341,40 @@ static ssize_t pi_dfs_get_trans_table(struct file *file,
 					"   From  :    To\n");
 	len += snprintf(debug_fs_buf + len , sizeof(debug_fs_buf) - len,
 					"         : ");
-	for (i = 0; i < pi->num_opp; i++) {
+	for (i = 0; i < pi->pi_opp->num_opp; i++) {
 		if (len >= sizeof(debug_fs_buf))
 			break;
+		str = get_opp_name(i);
+		if (str == NULL) {
+			pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid OPP %d\n",
+					__func__, i);
+			return count;
+		}
 		len += snprintf(debug_fs_buf + len , sizeof(debug_fs_buf) - len,
-			 "%10s", get_opp_name(i));
+			 "%10s", str);
 	}
 	if (len >= sizeof(debug_fs_buf))
 		return sizeof(debug_fs_buf);
 	len += snprintf(debug_fs_buf + len , sizeof(debug_fs_buf) - len, "\n");
 
-	for (i = 0; i < pi->num_opp; i++) {
+	for (i = 0; i < pi->pi_opp->num_opp; i++) {
 		if (len >= sizeof(debug_fs_buf))
 			break;
+		str = get_opp_name(i);
+		if (str == NULL) {
+			pi_dbg(pi->id, PI_LOG_ERR, "%s: Invalid OPP %d\n",
+					__func__, i);
+			return count;
+		}
 		len += snprintf(debug_fs_buf + len, sizeof(debug_fs_buf) - len,
-				"%10s: ", get_opp_name(i));
-		for (j = 0; j < pi->num_opp; j++) {
+				"%10s: ", str);
+		for (j = 0; j < pi->pi_opp->num_opp; j++) {
 			if (len >= sizeof(debug_fs_buf))
 				break;
 			len += snprintf(debug_fs_buf + len,
 				sizeof(debug_fs_buf) - len, "%9u ",
 				pi->pi_dfs_stats.
-				trans_table[i*pi->num_opp+j]);
+				trans_table[i*pi->pi_opp->num_opp+j]);
 		}
 		if (len >= sizeof(debug_fs_buf))
 			break;
@@ -2234,9 +2540,11 @@ static ssize_t read_file_all_req(struct file *file, char __user *user_buf,
 				len +=
 				    snprintf(debug_fs_buf + len,
 					     sizeof(debug_fs_buf) - len,
-					     "PI: %s (Id:%d) \t\t Client: %s \t\t OPP_FREQ request: %u\n",
+					     "PI: %s (Id:%d) \t\t Client: %s"\
+					     "\t\t OPP_FREQ request: %u\n",
 					     pi->name, dfs_node->pi_id,
-					     dfs_node->name, dfs_node->opp);
+					     dfs_node->name,
+					     dfs_node->opp_inx);
 			}
 		} else
 			len +=
@@ -2426,8 +2734,8 @@ int __init pi_debug_add_pi(struct pi *pi)
 	if (!dent_state)
 		goto err;
 	dent_opp =
-	    debugfs_create_u32("opp_active", S_IRUSR, dent_pi_dir,
-			       &pi->opp_active);
+	    debugfs_create_u32("opp_inx_act", S_IRUSR, dent_pi_dir,
+			       &pi->opp_inx_act);
 	if (!dent_opp)
 		goto err;
 
@@ -2542,13 +2850,11 @@ int __init pi_debug_add_pi(struct pi *pi)
 
 		if (pi->flags & DFS_LIMIT_CHECK_EN) {
 
-			debugfs_create_file("opp_lmt_max", S_IRUSR,
-					    dent_dfs_dir, pi,
-					    &pi_opp_max_lmt_fops);
+			debugfs_create_file("opp_lmt_max", S_IRUSR | S_IWUSR,
+				dent_dfs_dir, pi, &pi_opp_max_lmt_fops);
 
-			debugfs_create_file("opp_lmt_min", S_IRUSR,
-					    dent_dfs_dir, pi,
-					    &pi_opp_min_lmt_fops);
+			debugfs_create_file("opp_lmt_min", S_IRUSR | S_IWUSR,
+				dent_dfs_dir, pi, &pi_opp_min_lmt_fops);
 		}
 	}
 

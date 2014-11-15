@@ -91,66 +91,6 @@ struct bcmpmu_adc_temp_cal_data {
 	int offset;
 };
 
-enum _AudioApp_t {
-	AUDIO_APP_VOICE_CALL = 0,	/*AUDIO_APP_VOICE_CALL_NB */
-	AUDIO_APP_VOICE_CALL_WB,
-	AUDIO_APP_MUSIC,
-	AUDIO_APP_RECORDING_HQ,
-	AUDIO_APP_RECORDING,	/* AUDIO_APP_RECORDING_LQ */
-	AUDIO_APP_RECORDING_GVS,
-	AUDIO_APP_FM,		/*AUDIO_APP_FM_RADIO */
-	AUDIO_APP_VOIP,
-	AUDIO_APP_VOIP_INCOMM,
-	AUDIO_APP_VT_CALL,	/*AUDIO_APP_VT_NB */
-	AUDIO_APP_VT_CALL_WB,	/*AUDIO_APP_VT_WB */
-	AUDIO_APP_LOOPBACK,
-	AUDIO_APP_RESERVED12 = 12,
-	AUDIO_APP_RESERVED13 = 13,
-	AUDIO_APP_RESERVED14 = 14,
-	AUDIO_APP_RESERVED15 = 15
-};
-#define AudioApp_t enum _AudioApp_t
-
-extern AudioApp_t AUDCTRL_GetAudioApp(void);
-extern int AUDCTRL_InVoiceCall(void);
-extern int real_level; //check LCD ON/OFF
-#define LCD_REWARD_VOLTAGE		25  //0.025v
-#define CALL_REWARD_VOLTAGE		25  //0.025v
-
-static int spa_reward_voltage(int volt)
-{
-   if(real_level > 0) //LCD ON
-   {
-      volt += LCD_REWARD_VOLTAGE;
-   }
-
-   //CALLING	
-	if (AUDCTRL_InVoiceCall() == 1) {
-	  AudioApp_t app_temp = AUDCTRL_GetAudioApp();
-	  switch (app_temp) {
-			case AUDIO_APP_VOICE_CALL:
-			case AUDIO_APP_VOICE_CALL_WB:
-				volt += CALL_REWARD_VOLTAGE;
-				// voice call state
-				  break;
-#if 0				
-			case AUDIO_APP_VT_CALL:
-			case AUDIO_APP_VT_CALL_WB:
-				  // VT call state
-				  break;
-			case AUDIO_APP_VOIP:
-			case AUDIO_APP_VOIP_INCOMM:
-				  // VoIP call state
-				  break;
-#endif				  
-			default:
-				  break;
-		}
-	}
-
-   return volt;
-}
-
 static int return_index(const struct bcmpmu_temp_map *slist,
 						int len, int element)
 {
@@ -613,12 +553,9 @@ static int update_adc_result(struct bcmpmu_adc *padc,
 		/* Here we get the raw value */
 		if (ret != 0)
 			return ret;
-		
 		insurance--;
-	} while (req->raw == -EINVAL && insurance &&
-			req->sig != PMU_ADC_FG_CURRSMPL);
- 
-	BUG_ON(insurance == 0 && req->raw == -EINVAL);
+	} while (req->raw ==
+		-EINVAL && insurance && req->sig != PMU_ADC_FG_CURRSMPL);
 
 	BUG_ON(insurance == 0 && req->raw == -EINVAL);
 	return 0;
@@ -870,12 +807,6 @@ static int bcmpmu_adc_request(struct bcmpmu *bcmpmu, struct bcmpmu_adc_req *req)
 		req->cal = req->raw;
 		req->cnv = req->raw;
 	}
-
-	if(req->sig == PMU_ADC_VMBATT)
-	{
-	      req->cnv = spa_reward_voltage(req->cnv);
-	}
-   
 	pr_hwmon(DATA, "%s: result sig=%d, raw=0x%X, cal=0x%X, cnv=%d\n",
 		 __func__, req->sig, req->raw, req->cal, req->cnv);
 
@@ -1423,10 +1354,9 @@ static ssize_t fg_factor_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(dbgmsk, 0664, dbgmsk_show, dbgmsk_store);
+static DEVICE_ATTR(dbgmsk, 0644, dbgmsk_show, dbgmsk_store);
 static DEVICE_ATTR(fg_status, 0644, fg_status_show, NULL);
-static DEVICE_ATTR(fg_factor, 0664, fg_factor_show, fg_factor_store);
-
+static DEVICE_ATTR(fg_factor, 0644, fg_factor_show, fg_factor_store);
 #endif
 
 static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
@@ -1445,8 +1375,7 @@ static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
 	padc = kzalloc(sizeof(struct bcmpmu_adc), GFP_KERNEL);
 	if (padc == NULL) {
 		pr_hwmon(ERROR, "%s failed to alloc mem.\n", __func__);
-      ret = -ENOMEM;
-		return ret;
+		return -ENOMEM;
 	}
 	init_waitqueue_head(&padc->wait);
 	mutex_init(&padc->lock);
@@ -1492,15 +1421,13 @@ static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
 	penv = kzalloc(sizeof(struct bcmpmu_env), GFP_KERNEL);
 	if (penv == NULL) {
 		pr_hwmon(ERROR, "%s failed to alloc mem.\n", __func__);
-      ret = -ENOMEM;
-      goto err_penv;
+		goto err;
 	}
 	penv->envregmap = bcmpmu_get_envregmap(bcmpmu, &penv->env_size);
 	envregs = kzalloc((penv->env_size * sizeof(int)), GFP_KERNEL);
 	if (envregs == NULL) {
 		pr_hwmon(ERROR, "%s failed to alloc mem.\n", __func__);
-      ret = -ENOMEM;
-      goto err_envregs;
+		goto err;
 	}
 	penv->bcmpmu = bcmpmu;
 	penv->env_regs = envregs;
@@ -1512,8 +1439,7 @@ static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
 	pfg = kzalloc(sizeof(struct bcmpmu_fg), GFP_KERNEL);
 	if (pfg == NULL) {
 		pr_hwmon(ERROR, "%s failed to alloc mem.\n", __func__);
-      ret = -ENOMEM;
-      goto err_pfg;
+		goto err;
 	}
 	pfg->bcmpmu = bcmpmu;
 	if (pdata->fg_smpl_rate)
@@ -1556,7 +1482,7 @@ static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
 	if (IS_ERR(padc->hwmon_dev)) {
 		ret = PTR_ERR(padc->hwmon_dev);
 		dev_err(&pdev->dev, "Class registration failed (%d)\n", ret);
-		goto err_hwmon_device;
+		goto exit_remove_files;
 	}
 	ret = sysfs_create_group(&pdev->dev.kobj, &bcmpmu_hwmon_attr_group);
 	if (ret != 0)
@@ -1584,15 +1510,11 @@ static int __devinit bcmpmu_hwmon_probe(struct platform_device *pdev)
 
 exit_remove_files:
 	sysfs_remove_group(&padc->hwmon_dev->kobj, &bcmpmu_hwmon_attr_group);
-err_hwmon_device:   
-   kfree(pfg);
-err_pfg:
-   kfree(envregs);
-err_envregs:
+err:
+	kfree(padc);
 	kfree(penv);
-err_penv:
-   kfree(padc);
-   
+	kfree(pfg);
+	kfree(envregs);
 	return ret;
 }
 

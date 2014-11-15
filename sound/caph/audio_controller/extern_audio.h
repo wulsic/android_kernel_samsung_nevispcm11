@@ -175,17 +175,6 @@ void extern_ihf_unmute(void);
 ****************************************************************************/
 void extern_ihf_en_hi_gain_mode(int enable);
 
-void extern_amp_shutdown(void);
-
-/********************************************************************
-*  @brief  Set Multicast on/off on PMU 
-* 
-*  @param  flag	IHF on/off for multicasting 
-*  @return  none 
-* 
-****************************************************************************/ 
-void extern_start_stop_multicast(unsigned char flag); 
-
 /********************************************************************
 *  @brief  Set IHF Noise gate parameter
 *
@@ -250,6 +239,15 @@ void extern_set_ihf_preamp_gain(int gain_mB);
 
 void extern_set_hs_preamp_gain(int gain_mB);
 
+/********************************************************************
+*  @brief  Set Multicast on/off on PMU
+*
+*  @param  flag	IHF on/off for multicasting
+*  @return  none
+*
+****************************************************************************/
+void extern_start_stop_multicast(unsigned char flag);
+
 #if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
 /********************************************************************
 *  @brief  Get headset gain (mB)
@@ -261,4 +259,3 @@ void extern_set_hs_preamp_gain(int gain_mB);
 void extern_hs_get_gain(int *pGainL_mB, int *pGainR_mB);
 #endif
 #endif
-

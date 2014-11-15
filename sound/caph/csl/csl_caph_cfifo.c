@@ -295,7 +295,6 @@ static void csl_caph_cfifo_fifo_init(void)
 	for (id = CSL_CAPH_CFIFO_FIFO1; id <= CSL_CAPH_CFIFO_FIFO16; id++) {
 		chal_fifo =
 		    csl_caph_cfifo_get_chal_fifo((CSL_CAPH_CFIFO_FIFO_e) id);
-		chal_caph_fifo_clear_register(handle, chal_fifo);
 		chal_caph_cfifo_set_address(handle, chal_fifo,
 					    CSL_CFIFO_table[id].address);
 		chal_caph_cfifo_set_size(handle, chal_fifo,

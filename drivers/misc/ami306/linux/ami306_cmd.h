@@ -26,18 +26,15 @@ int AMI_GetSoftIron(void *handle, s16 si[9]);
 int AMI_SetDirection(void *handle, s16 dir, s16 polarity);
 int AMI_GetDirection(void *handle, s16 *dir, s16 *polarity);
 
-/* self test */
 int AMI_SelfTest(void *i2c_handle);
-
 /* for debug */
 int AMI_ReadParameter(void *handle, struct ami_sensor_parameter *prm);
 int AMI_DriverInformation(void *handle, struct ami_driverinfo *drv);
 int AMI_GetRawValue(void *handle, struct ami_sensor_value *raw_val);
 
-int AMI_i2c_send_b(void *i2c_handle, u8 cmd, u8 buf);
-int AMI_i2c_recv_b(void *i2c_handle, u8 cmd, u8 *buf);
-int AMI_i2c_send_w(void *i2c_handle, u8 cmd, u16 buf);
-int AMI_i2c_recv_w(void *i2c_handle, u8 cmd, u16 *buf);
+int AMI_i2c_send_b(void *handle, u8 cmd, u8 buf);
+int AMI_i2c_recv_b(void *handle, u8 cmd, u8 *buf);
+int AMI_i2c_send_w(void *handle, u8 cmd, u16 buf);
+int AMI_i2c_recv_w(void *handle, u8 cmd, u16 *buf);
 
 #endif
-

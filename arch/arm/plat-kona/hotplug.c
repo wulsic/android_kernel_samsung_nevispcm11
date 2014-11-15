@@ -12,12 +12,14 @@
 #include <linux/errno.h>
 #include <linux/smp.h>
 #include <linux/completion.h>
-
+#include <asm/cp15.h>
 #include <asm/cacheflush.h>
+#include <plat/kona_pm.h>
+#ifdef CONFIG_A9_DORMANT_MODE
+#include <mach/dormant.h>
+#endif
 
 extern volatile int pen_release;
-
-static DECLARE_COMPLETION(cpu_killed);
 
 static inline void cpu_enter_lowpower(void)
 {
@@ -31,13 +33,13 @@ static inline void cpu_enter_lowpower(void)
 	 * Turn off coherency
 	 */
 	"	mrc	p15, 0, %0, c1, c0, 1\n"
-	"	bic	%0, %0, #0x20\n"
+	"	bic	%0, %0, #0x40\n"
 	"	mcr	p15, 0, %0, c1, c0, 1\n"
 	"	mrc	p15, 0, %0, c1, c0, 0\n"
-	"	bic	%0, %0, #0x04\n"
+	"	bic	%0, %0, %2\n"
 	"	mcr	p15, 0, %0, c1, c0, 0\n"
 	  : "=&r" (v)
-	  : "r" (0)
+	  : "r" (0), "Ir" (CR_C)
 	  : "cc");
 }
 
@@ -46,13 +48,13 @@ static inline void cpu_leave_lowpower(void)
 	unsigned int v;
 
 	asm volatile(	"mrc	p15, 0, %0, c1, c0, 0\n"
-	"	orr	%0, %0, #0x04\n"
+	"	orr	%0, %0, %1\n"
 	"	mcr	p15, 0, %0, c1, c0, 0\n"
 	"	mrc	p15, 0, %0, c1, c0, 1\n"
-	"	orr	%0, %0, #0x20\n"
+	"	orr	%0, %0, #0x40\n"
 	"	mcr	p15, 0, %0, c1, c0, 1\n"
 	  : "=&r" (v)
-	  :
+	  : "Ir" (CR_C)
 	  : "cc");
 }
 
@@ -67,11 +69,14 @@ static inline void platform_do_lowpower(unsigned int cpu)
 		/*
 		 * here's the WFI
 		 */
+#ifdef CONFIG_A9_DORMANT_MODE
+		kona_pm_cpu_lowpower();
+#else
 		asm(".word	0xe320f003\n"
 		    :
 		    :
 		    : "memory", "cc");
-
+#endif
 		if (pen_release == cpu) {
 			/*
 			 * OK, proper wakeup, we're done
@@ -87,15 +92,13 @@ static inline void platform_do_lowpower(unsigned int cpu)
 		 * possible, since we are currently running incoherently, and
 		 * therefore cannot safely call printk() or anything else
 		 */
-#ifdef DEBUG
-		printk("CPU%u: spurious wakeup call\n", cpu);
-#endif
+		pr_debug("CPU%u: spurious wakeup call\n", cpu);
 	}
 }
 
 int platform_cpu_kill(unsigned int cpu)
 {
-	return wait_for_completion_timeout(&cpu_killed, 5000);
+	return 1;
 }
 
 /*
@@ -109,15 +112,19 @@ void platform_cpu_die(unsigned int cpu)
 	unsigned int this_cpu = hard_smp_processor_id();
 
 	if (cpu != this_cpu) {
-		printk(KERN_CRIT "Eek! platform_cpu_die running on %u, should be %u\n",
+		pr_crit("Eek! platform_cpu_die running on %u, should be %u\n",
 			   this_cpu, cpu);
 		BUG();
 	}
 #endif
 
-	printk(KERN_NOTICE "CPU%u: shutdown\n", cpu);
-	complete(&cpu_killed);
+	pr_notice("CPU%u: shutdown\n", cpu);
 
+#ifdef CONFIG_A9_DORMANT_MODE
+	if (is_dormant_enabled())
+		platform_do_lowpower(cpu);
+	else {
+#endif
 	/*
 	 * we're ready for shutdown now, so do it
 	 */
@@ -129,6 +136,9 @@ void platform_cpu_die(unsigned int cpu)
 	 * coherency, and then restore interrupts
 	 */
 	cpu_leave_lowpower();
+#ifdef CONFIG_A9_DORMANT_MODE
+	}
+#endif
 }
 
 int platform_cpu_disable(unsigned int cpu)

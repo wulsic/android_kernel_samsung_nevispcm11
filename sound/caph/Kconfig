@@ -44,33 +44,9 @@ config IHF_EXT_AMPLIFIER
         default n
         help
           Say Y here to enable the external amp for IHF
-config ALLINONE_RCVSPK
-        boolean "Define if device has all in one receiver and speaker"
-        depends on BCM_ALSA_SOUND
-        default n
-        help
-          Say Y here to enable the stereo speaker
 config STEREO_SPEAKER
         boolean "Define if device has stereo speaker support"
         depends on BCM_ALSA_SOUND
         default n
         help
           Say Y here to enable the stereo speaker
-config EXTERNAL_AMP_GPIO
-        boolean "Define if device has stereo speaker support"
-        depends on BCM_ALSA_SOUND
-        default n
-        help
-          Say Y here to enable the stereo speaker
-config ENABLE_SSMULTICAST
-	boolean "Broadcom enable multicast feature"
-	depends on BCM_MODEM
-	default n
-	help
-	  Say Y here to activate Brcm multicast
-config AUDIO_FEATURE_SET_DISABLE_ECNS
-	boolean "Broadcom enable BT NREC off feature"
-	depends on BCM_MODEM
-	default n
-	help
-	  Say Y here to activate Brcm BT NREC OFF

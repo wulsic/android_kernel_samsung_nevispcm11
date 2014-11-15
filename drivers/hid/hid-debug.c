@@ -31,6 +31,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/sched.h>
+#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/poll.h>
@@ -113,6 +114,14 @@ static const struct hid_usage_entry hid_usage_table[] = {
       {0, 0xbd, "FlareRelease"},
       {0, 0xbe, "LandingGear"},
       {0, 0xbf, "ToeBrake"},
+  {  6, 0, "GenericDeviceControls" },
+      {0, 0x20, "BatteryStrength" },
+      {0, 0x21, "WirelessChannel" },
+      {0, 0x22, "WirelessID" },
+      {0, 0x23, "DiscoverWirelessControl" },
+      {0, 0x24, "SecurityCodeCharacterEntered" },
+      {0, 0x25, "SecurityCodeCharactedErased" },
+      {0, 0x26, "SecurityCodeCleared" },
   {  7, 0, "Keyboard" },
   {  8, 0, "LED" },
       {0, 0x01, "NumLock"},
@@ -961,10 +970,6 @@ static ssize_t hid_debug_events_read(struct file *file, char __user *buffer,
 	mutex_lock(&list->read_mutex);
 	while (ret == 0) {
 		if (list->head == list->tail) {
-            if(!list->hdev){
-        	    ret = -EIO;
-				break;
-            }
 			add_wait_queue(&list->hdev->debug_wait, &wait);
 			set_current_state(TASK_INTERRUPTIBLE);
 
@@ -978,7 +983,7 @@ static ssize_t hid_debug_events_read(struct file *file, char __user *buffer,
 					break;
 				}
 
-				if (!list->hdev->debug) {
+				if (!list->hdev || !list->hdev->debug) {
 					ret = -EIO;
 					break;
 				}

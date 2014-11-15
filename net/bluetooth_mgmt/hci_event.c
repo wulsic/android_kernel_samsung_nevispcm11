@@ -1111,8 +1111,13 @@ static inline void hci_cs_inquiry(struct hci_dev *hdev, __u8 status)
 		hci_req_complete(hdev, HCI_OP_INQUIRY, status);
 		hci_conn_check_pending(hdev);
 		hci_dev_lock(hdev);
-		if (test_bit(HCI_MGMT, &hdev->dev_flags))
+		if (test_bit(HCI_MGMT, &hdev->dev_flags)) {
+			/* [GGSM/sc47.yun] P120828-6815. Discovery fail issue */
+			BT_ERR("Discovery can't be done with other commands");
+			hci_discovery_set_state(hdev, DISCOVERY_STOPPING);
+
 			mgmt_start_discovery_failed(hdev, status);
+		}
 		hci_dev_unlock(hdev);
 		return;
 	}
@@ -1313,7 +1318,7 @@ static void hci_check_pending_name(struct hci_dev *hdev, struct hci_conn *conn,
 	struct discovery_state *discov = &hdev->discovery;
 	struct inquiry_entry *e;
 
-	/* this event is for remote name & class update. actual connected event is sent from hci_conn_complete_evt */
+	/* this event is for remote name & class update.actual connected event is sent from hci_conn_complete_evt */
 	if (conn /*&& !test_and_set_bit(HCI_CONN_MGMT_CONNECTED, &conn->flags)*/)
 		mgmt_device_connected(hdev, bdaddr, ACL_LINK, 0x00,
 					name, name_len, conn->dev_class);
@@ -1713,19 +1718,8 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		} else
 			conn->state = BT_CONNECTED;
 
-/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
-//		hci_conn_hold_device(conn);
-//		hci_conn_add_sysfs(conn);
-
-/* We could have somehow not hci_conn_deleted, due to errors in the HCI transport. */
-		if (atomic_read(&conn->devref) == 0) {
 		hci_conn_hold_device(conn);
 		hci_conn_add_sysfs(conn);
-		} else {
-			BT_ERR("connection to %s was never torn down", batostr(&ev->bdaddr));
-			hci_proto_disconn_cfm(conn, 0x16);
-		}
-/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
 
 		if (test_bit(HCI_AUTH, &hdev->flags))
 			conn->link_mode |= HCI_LM_AUTH;
@@ -2939,18 +2933,8 @@ static inline void hci_sync_conn_complete_evt(struct hci_dev *hdev, struct sk_bu
 		conn->handle = __le16_to_cpu(ev->handle);
 		conn->state  = BT_CONNECTED;
 
-/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
-//		hci_conn_hold_device(conn);
-//		hci_conn_add_sysfs(conn);
-/* We could have somehow not hci_conn_deleted, due to errors in the HCI transport. */
-		if (atomic_read(&conn->devref) == 0) {
 		hci_conn_hold_device(conn);
 		hci_conn_add_sysfs(conn);
-		} else {
-			BT_ERR("sync connection to %s was never torn down", batostr(&ev->bdaddr));
-			hci_proto_disconn_cfm(conn, 0x16);
-		}
-/*vijay.g3 SNMC - Fix for memory corruption in HCI*/
 		break;
 
 	/*case 0x10:*//* Connection Accept Timeout */
@@ -2959,7 +2943,7 @@ static inline void hci_sync_conn_complete_evt(struct hci_dev *hdev, struct sk_bu
 	case 0x1a:	/* Unsupported Remote Feature */
 	case 0x1f:	/* Unspecified error */
 		if (conn->out && conn->attempt < 2 && !conn->hdev->is_wbs) {
-			conn->pkt_type = (hdev->esco_type & SCO_ESCO_MASK) |
+				conn->pkt_type = (hdev->esco_type & SCO_ESCO_MASK) |
 					(hdev->esco_type & EDR_ESCO_MASK);
 			hci_setup_sync(conn, conn->link->handle);
 			goto unlock;

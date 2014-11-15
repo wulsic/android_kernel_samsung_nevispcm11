@@ -29,7 +29,6 @@ Copyright 2009 - 2011  Broadcom Corporation
 #include <linux/kernel.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
-#include <linux/interrupt.h>
 
 #include "mobcom_types.h"
 #include "resultcode.h"
@@ -166,10 +165,8 @@ static const UInt16 sVoIPDataLen[] = { 0, 322, 160, 38, 166, 642, 70 };
 static CSL_VP_Mode_AMR_t prev_amr_mode = (CSL_VP_Mode_AMR_t) 0xffff;
 static Boolean telephony_amr_if2;
 
-// static struct work_struct voip_work;
-// static struct workqueue_struct *voip_workqueue; /* init to NULL */
-static struct tasklet_struct voip_task;
-
+static struct work_struct voip_work;
+static struct workqueue_struct *voip_workqueue; /* init to NULL */
 #ifdef VOLTE_SUPPORT
 static UInt32 djbTimeStamp; /* init to 0 */
 static DJB_InputFrame *djbBuf; /* init to NULL */
@@ -288,15 +285,6 @@ static AUDIO_DDRIVER_t *GetPlaybackStreamHandle(UInt32 streamID)
 		aError(
 				"Error: GetPlaybackStreamHandle invalid handle for id %ld\n",
 				streamID);
-	if (audio_render_driver[streamID]->sample_rate > 48000 ||audio_render_driver[streamID]->num_channel > 2 ||
-		audio_render_driver[streamID]->bits_per_sample > 16 )
-	{
-
-		aError(
-				"AUDIO_DRIVER_RenderDmaCallback::"
-				"DATA is Corrupt\n");
-		return NULL;
-	}
 	return audio_render_driver[streamID];
 }
 
@@ -483,55 +471,55 @@ void AUDIO_DRIVER_Ctrl(AUDIO_DRIVER_HANDLE_t drv_handle,
 	switch (aud_drv->drv_type) {
 	case AUDIO_DRIVER_PLAY_VOICE:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessVoiceRenderCmd(aud_drv,
-							       ctrl_cmd,
-							       pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessVoiceRenderCmd(aud_drv,
+						       ctrl_cmd,
+						       pCtrlStruct);
 		}
 		break;
 	case AUDIO_DRIVER_PLAY_AUDIO:
 	case AUDIO_DRIVER_PLAY_RINGER:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessRenderCmd(aud_drv, ctrl_cmd,
-							  pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessRenderCmd(aud_drv, ctrl_cmd,
+						  pCtrlStruct);
 		}
 		break;
 	case AUDIO_DRIVER_CAPT_HQ:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessCaptureCmd(aud_drv, ctrl_cmd,
-							   pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessCaptureCmd(aud_drv, ctrl_cmd,
+						   pCtrlStruct);
 		}
 		break;
 	case AUDIO_DRIVER_CAPT_VOICE:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessCaptureVoiceCmd(aud_drv,
-								ctrl_cmd,
-								pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessCaptureVoiceCmd(aud_drv,
+							ctrl_cmd,
+							pCtrlStruct);
 		}
 		break;
 
 	case AUDIO_DRIVER_VOIP:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessVoIPCmd(aud_drv, ctrl_cmd,
-							pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessVoIPCmd(aud_drv, ctrl_cmd,
+						pCtrlStruct);
 		}
 		break;
 	case AUDIO_DRIVER_VOIF:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessVoIFCmd(aud_drv, ctrl_cmd,
-							pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessVoIFCmd(aud_drv, ctrl_cmd,
+						pCtrlStruct);
 		}
 		break;
 	case AUDIO_DRIVER_PTT:
 		{
-			result_code =
-			    AUDIO_DRIVER_ProcessPttCmd(aud_drv, ctrl_cmd,
-							pCtrlStruct);
+		result_code =
+		    AUDIO_DRIVER_ProcessPttCmd(aud_drv, ctrl_cmd,
+						pCtrlStruct);
 		}
 		break;
 	default:
@@ -634,6 +622,9 @@ static Result_t AUDIO_DRIVER_ProcessRenderCmd(AUDIO_DDRIVER_t *aud_drv,
 				aud_drv->stream_id,
 				aud_drv->arm2sp_config.mixMode);
 
+			if (result_code != RESULT_OK)
+				return result_code;
+
 			/*start render*/
 			result_code = AUDCTRL_StartRender(aud_drv->stream_id);
 		}
@@ -660,6 +651,13 @@ static Result_t AUDIO_DRIVER_ProcessRenderCmd(AUDIO_DDRIVER_t *aud_drv,
 			/*resume render*/
 			result_code =
 			    csl_audio_render_resume(aud_drv->stream_id);
+		}
+		break;
+	case AUDIO_DRIVER_BUFFER_READY:
+		{
+			/*notify render a new buffer is ready*/
+			result_code =
+			    csl_audio_render_buffer_ready(aud_drv->stream_id);
 		}
 		break;
 	default:
@@ -763,7 +761,9 @@ static Result_t AUDIO_DRIVER_ProcessVoiceRenderCmd(
 				aud_drv->arm2sp_config.mixMode,
 				aud_drv->arm2sp_config.numFramesPerInterrupt,
 				aud_drv->arm2sp_config.audMode,
-				0);
+				0,
+				CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+				CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 
 		} else
 		    if (aud_drv->arm2sp_config.instanceID ==
@@ -775,7 +775,9 @@ static Result_t AUDIO_DRIVER_ProcessVoiceRenderCmd(
 				aud_drv->arm2sp_config.mixMode,
 				aud_drv->arm2sp_config.numFramesPerInterrupt,
 				aud_drv->arm2sp_config.audMode,
-				0);
+				0,
+				CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+				CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 		}
 		index = 1;	/*reset*/
 		endOfBuffer = FALSE;
@@ -797,7 +799,9 @@ static Result_t AUDIO_DRIVER_ProcessVoiceRenderCmd(
 				aud_drv->arm2sp_config.mixMode,
 				aud_drv->arm2sp_config.numFramesPerInterrupt,
 				aud_drv->arm2sp_config.audMode,
-				1);
+				1,
+				CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+				CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 		else if (aud_drv->arm2sp_config.instanceID ==
 			VORENDER_ARM2SP_INSTANCE2)
 			csl_arm2sp_set_arm2sp2(
@@ -807,7 +811,9 @@ static Result_t AUDIO_DRIVER_ProcessVoiceRenderCmd(
 				aud_drv->arm2sp_config.mixMode,
 				aud_drv->arm2sp_config.numFramesPerInterrupt,
 				aud_drv->arm2sp_config.audMode,
-				1);
+				1,
+				CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+				CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 
 		break;
 	}
@@ -886,6 +892,9 @@ static Result_t AUDIO_DRIVER_ProcessCaptureCmd(AUDIO_DDRIVER_t *aud_drv,
 			num_blocks, block_size,
 			(CSL_AUDCAPTURE_CB)AUDIO_DRIVER_CaptureDmaCallback,
 			aud_drv->stream_id);
+
+		if (result_code != RESULT_OK)
+			return result_code;
 
 		/*start capture*/
 		result_code = AUDCTRL_StartCapture(aud_drv->stream_id);
@@ -1468,7 +1477,9 @@ static Result_t ARM2SP_play_start(AUDIO_DDRIVER_t *aud_drv,
 			aud_drv->arm2sp_config.mixMode,
 			aud_drv->arm2sp_config.numFramesPerInterrupt,
 			aud_drv->arm2sp_config.audMode,
-			0);
+			0,
+			CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+			CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 	} else if (aud_drv->arm2sp_config.instanceID ==
 		   VORENDER_ARM2SP_INSTANCE2) {
 		/* clean buffer before starting to play */
@@ -1483,7 +1494,9 @@ static Result_t ARM2SP_play_start(AUDIO_DDRIVER_t *aud_drv,
 			aud_drv->arm2sp_config.mixMode,
 			aud_drv->arm2sp_config.numFramesPerInterrupt,
 			aud_drv->arm2sp_config.audMode,
-			0);
+			0,
+			CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+			CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 	}
 
 	return RESULT_OK;
@@ -1504,23 +1517,27 @@ static Result_t ARM2SP_play_resume(AUDIO_DDRIVER_t *aud_drv)
 
 	if (aud_drv->arm2sp_config.instanceID == VORENDER_ARM2SP_INSTANCE1)
 		csl_arm2sp_set_arm2sp((UInt32) aud_drv->sample_rate,
-				      (CSL_ARM2SP_PLAYBACK_MODE_t) aud_drv->
-				      arm2sp_config.playbackMode,
-				      (CSL_ARM2SP_VOICE_MIX_MODE_t) aud_drv->
-				      arm2sp_config.mixMode,
-				      aud_drv->arm2sp_config.
-				      numFramesPerInterrupt,
-				      aud_drv->arm2sp_config.audMode, 1);
+					(CSL_ARM2SP_PLAYBACK_MODE_t) aud_drv->
+					arm2sp_config.playbackMode,
+					(CSL_ARM2SP_VOICE_MIX_MODE_t) aud_drv->
+					arm2sp_config.mixMode,
+					aud_drv->arm2sp_config.
+					numFramesPerInterrupt,
+					aud_drv->arm2sp_config.audMode, 1,
+					CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+					CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 
 	else if (aud_drv->arm2sp_config.instanceID == VORENDER_ARM2SP_INSTANCE2)
 		csl_arm2sp_set_arm2sp2((UInt32) aud_drv->sample_rate,
-				       (CSL_ARM2SP_PLAYBACK_MODE_t) aud_drv->
-				       arm2sp_config.playbackMode,
-				       (CSL_ARM2SP_VOICE_MIX_MODE_t) aud_drv->
-				       arm2sp_config.mixMode,
-				       aud_drv->arm2sp_config.
-				       numFramesPerInterrupt,
-				       aud_drv->arm2sp_config.audMode, 1);
+					(CSL_ARM2SP_PLAYBACK_MODE_t) aud_drv->
+					arm2sp_config.playbackMode,
+					(CSL_ARM2SP_VOICE_MIX_MODE_t) aud_drv->
+					arm2sp_config.mixMode,
+					aud_drv->arm2sp_config.
+					numFramesPerInterrupt,
+					aud_drv->arm2sp_config.audMode, 1,
+					CSL_ARM2SP_DL_BEFORE_AUDIO_PROC,
+					CSL_ARM2SP_UL_AFTER_AUDIO_PROC);
 	return RESULT_OK;
 }
 
@@ -1582,7 +1599,7 @@ static Result_t VPU_record_start(VOCAPTURE_start_t capt_start)
  * Notes:
  ***************************************************************************/
 
-void VoIP_Task_Entry(unsigned long arg)
+void VoIP_Task_Entry(struct work_struct *work)
 {
 	VOIP_FillDL_CB(1);
 }
@@ -1597,9 +1614,8 @@ void VoIP_Task_Entry(unsigned long arg)
  ***************************************************************************/
 void VOIP_ProcessVOIPDLDone(void)
 {
-	// if (voip_workqueue)
-	// 	queue_work(voip_workqueue, &voip_work);
-	tasklet_schedule(&(voip_task));
+	if (voip_workqueue)
+		queue_work(voip_workqueue, &voip_work);
 }
 
 /* handle interrupt from DSP of data ready */
@@ -1648,12 +1664,11 @@ void VOIF_Buffer_Request(UInt32 bufferIndex, UInt32 samplingRate)
 static Boolean VoIP_StartTelephony(void)
 {
 	aTrace(LOG_AUDIO_DRIVER, "=====VoIP_StartTelephony\r\n");
-	// voip_workqueue = create_workqueue("voip");
-	// if (!voip_workqueue)
-	// 	return TRUE;
-	//
-	// INIT_WORK(&voip_work, VoIP_Task_Entry);
-	tasklet_init(&(voip_task), VoIP_Task_Entry, (unsigned long)NULL);
+	voip_workqueue = create_workqueue("voip");
+	if (!voip_workqueue)
+		return TRUE;
+
+	INIT_WORK(&voip_work, VoIP_Task_Entry);
 
 	VOIP_ProcessVOIPDLDone();
 	return TRUE;
@@ -1677,12 +1692,10 @@ static Boolean VoIP_StopTelephony(void)
 	/* Clear voip mode, which block audio processing for voice calls */
 	/* arg0 = 0 to clear VOIPmode */
 	audio_control_dsp(AUDDRV_DSPCMD_COMMAND_CLEAR_VOIPMODE, 0, 0, 0, 0, 0);
-	// flush_workqueue(voip_workqueue);
-	// destroy_workqueue(voip_workqueue);
-	// 
-	// voip_workqueue = NULL;
-	tasklet_kill(&(voip_task));
+	flush_workqueue(voip_workqueue);
+	destroy_workqueue(voip_workqueue);
 
+	voip_workqueue = NULL;
 	prev_amr_mode = (VP_Mode_AMR_t) 0xffff;
 #ifdef VOLTE_SUPPORT
 	djbTimeStamp = 0;
@@ -1706,10 +1719,6 @@ static void AUDIO_DRIVER_RenderDmaCallback(UInt32 stream_id)
 {
 	AUDIO_DDRIVER_t *pAudDrv;
 
-	if (stream_id >= CSL_CAPH_STREAM_TOTAL) {
-		aError("invalid stream id=%ld\n",stream_id);
-		return;
-	}
 	pAudDrv = GetPlaybackStreamHandle(stream_id);
 
 	/*aTrace(LOG_AUDIO_DRIVER,
@@ -2067,13 +2076,6 @@ static Boolean VOIP_FillDL_CB(UInt32 nFrames)
 				"VOIP_FillDL_CB:: Spurious call back\n");
 		return TRUE;
 	}
-
-	if (aud_drv->tmp_buffer == NULL) {
-		aError(
-				"VOIP_FillDL_CB:: aud_drv->tmp_buffer is not allocated yet\n");
-		return TRUE;
-	}
-
 	dlSize = sVoIPDataLen[(aud_drv->voip_config.codec_type & 0xf000) >> 12];
 	memset(aud_drv->tmp_buffer, 0, VOIP_MAX_FRAME_LEN);
 	aud_drv->tmp_buffer[0] = aud_drv->voip_config.codec_type;

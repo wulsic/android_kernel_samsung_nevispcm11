@@ -20,12 +20,9 @@
 #include <mach/pm.h>
 #include <mach/pwr_mgr.h>
 #include <mach/pi_mgr.h>
+#include <mach/memory.h>
 #ifdef CONFIG_KONA_PROFILER
 #include <plat/profiler.h>
-#endif
-#include <mach/gpio.h>
-#ifdef CONFIG_MACH_RHEA_SS_COMMON
-#include <plat/chal/chal_aci.h>
 #endif
 
 /*****************************************************************************
@@ -38,8 +35,6 @@
 #define GPIO_GPORC_BASE_PHYS    (GPIO2_BASE_ADDR + GPIO_GPORC0_OFFSET)
 #define GPIO_GPORC_BASE_VIRT    (KONA_GPIO2_VA + GPIO_GPORC0_OFFSET)
 
-#define SAVE_REG_OFFSET			(SZ_256)
-#define RESTORE_REG_OFFSET		(SZ_512)
 #define	RETENTION_TRACE_OFFSET		(SZ_1K)
 #define	WFI_TRACE_OFFSET		(SZ_2K)
 #define	TRACE_PATTERN_OFFSET		0 /* 1st word from offset */
@@ -148,8 +143,6 @@ static void dormant_profile_config(u32 on, u32 ns, u32 sec, u32 ref)
 u32 dorm_profile_enable;
 u32 *dormant_trace_v;
 u32 *dormant_trace_p;
-u32 *dormant_save;
-u32 *dormant_restore;
 
 u32 *ret_trace_v;
 u32 *wfi_trace_v;
@@ -207,15 +200,14 @@ static void cmd_display_stats(const char *p)
 	pr_info("dormant trace %x\n", *dormant_trace_v);
 }
 
-static int force_sleep_state = RHEA_STATE_C5;
+static int force_sleep_state = CSTATE_DS_DRMT;
 int get_force_sleep_state(void)
 {
 	return force_sleep_state;
 }
 
+#if defined(CONFIG_MACH_RHEA_SS_LUCAS)
 extern void uas_jig_force_sleep(void);
-#if defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
-extern void fsa9480_force_sleep(void);
 #endif
 
 static void cmd_print_pm_log_buf(const char *p)
@@ -225,16 +217,6 @@ static void cmd_print_pm_log_buf(const char *p)
 
 static void cmd_force_sleep(const char *p)
 {
-#if defined(CONFIG_MACH_RHEA_SS_LUCAS) || defined(CONFIG_MACH_RHEA_SS_ZANIN) || defined(CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_IVORYSS) || defined(CONFIG_MACH_RHEA_SS_CORIPLUS) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
-	//LCD backlight control
-	gpio_set_value(95, 0);	
-#endif
-
-#ifdef CONFIG_MACH_RHEA_SS_ZANIN
-	//LED control
-	gpio_set_value(43, 0);
-#endif
-
 	sscanf(p, "%d", &force_sleep_state);
 	if (force_sleep_state < 0 || force_sleep_state > 4) {
 		pr_err("Invalid state: %d\n", force_sleep_state);
@@ -242,13 +224,8 @@ static void cmd_force_sleep(const char *p)
 		return;
 	}
 
+#if defined(CONFIG_MACH_RHEA_SS_LUCAS)
 	uas_jig_force_sleep();
-#if defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
-	fsa9480_force_sleep();
-#endif
-
-#ifdef CONFIG_MACH_RHEA_SS_COMMON
-	chal_aci_block_ctrl(NULL, CHAL_ACI_BLOCK_ACTION_INTERRUPT_DISABLE, CHAL_ACI_BLOCK_COMP);
 #endif
 
 	pr_info("Forcing system to state: %d\n", force_sleep_state);
@@ -329,14 +306,6 @@ static int param_get_debug(char *buffer, const struct kernel_param *kp)
 /*****************************************************************************
  *                       DORMANT MODE INSTRUMENTATION                        *
  *****************************************************************************/
-
-void instrument_dormant_trace(u32 trace)
-{
-	if (dormant_trace_v)
-		*dormant_trace_v = trace;
-
-	dormant_profile_entry();
-}
 
 void instrument_dormant_entry(void)
 {
@@ -504,8 +473,6 @@ int __init rhea_pmdbg_init(void)
 	dormant_trace_v = (u32 *) v;
 	dormant_trace_p = (u32 *) p;
 
-	dormant_save = (u32 *)((u32)dormant_trace_v + SAVE_REG_OFFSET);
-	dormant_restore = (u32 *)((u32)dormant_trace_v + RESTORE_REG_OFFSET);
 	ret_trace_v = (u32 *)((u32)dormant_trace_v + RETENTION_TRACE_OFFSET);
 	wfi_trace_v = (u32 *)((u32)dormant_trace_v + WFI_TRACE_OFFSET);
 

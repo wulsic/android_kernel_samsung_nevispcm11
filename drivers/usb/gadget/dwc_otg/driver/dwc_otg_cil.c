@@ -60,17 +60,8 @@
 #include "dwc_os.h"
 #include "dwc_otg_regs.h"
 #include "dwc_otg_cil.h"
-#include "plat/cpu.h"
-
-#define CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-#include <plat/pi_mgr.h>
-#include <mach/pi_mgr.h>
-#include <plat/kona_cpufreq_drv.h>
-
-struct cpufreq_lmt_node cpufreq_min_lmt_node_usb;
-#endif
+#include <linux/io.h>
+#include <mach/cpu.h>
 
 static int dwc_otg_setup_params(dwc_otg_core_if_t *core_if);
 
@@ -101,33 +92,33 @@ void dwc_otg_core_soft_disconnect(dwc_otg_core_if_t *core_if, bool en)
 void w_init_core(void *p)
 {
 	dwc_otg_core_if_t *core_if = p;
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-	u32 freq_turbo;
-
-#endif
-
-  printk("USBD][%s] entered\n",__func__);
 
 	if (core_if) {
+		int retry = 0;
+		int ret=0;
 
 #ifdef CONFIG_USB_DELAYED_SUSPEND_POWER_SAVING
 		DWC_TIMER_CANCEL(core_if->suspend_power_saving_timer);
 #endif
 
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-		freq_turbo = get_cpu_freq_from_opp(PI_OPP_TURBO);
-		if (freq_turbo != 0){
-			printk("%s - cpufreq_update_lmt_req(TURBO)\n",__func__);
-			cpufreq_update_lmt_req(&cpufreq_min_lmt_node_usb,
-								 freq_turbo);
-		}
-#endif
-
-		printk("USBD][%s] usb core initialization is started\n",__func__);
 #ifdef CONFIG_USB_OTG_UTILS
+
+init_core_retry:
+		printk("USBD] init=0x%x state=0x%x \n",(u32)core_if->xceiver->init,core_if->xceiver->state);
 		if (core_if->xceiver->init
-		    && (core_if->xceiver->state == OTG_STATE_UNDEFINED))
-			otg_init(core_if->xceiver);
+		    && (core_if->xceiver->state == OTG_STATE_UNDEFINED)){
+			ret = usb_phy_init(core_if->xceiver);
+			printk("USBD] phy init done\n");
+			if(ret){
+				printk("%s- Retry:%d\n",__func__,retry);
+				if(retry<10){
+					retry++;
+					goto init_core_retry;
+				}
+				printk("%s - Fail USB Initialization\n",__func__);
+				return;
+			}
+		}
 #endif
 		dwc_otg_disable_global_interrupts(core_if);
 		if (dwc_otg_is_host_mode(core_if))
@@ -135,7 +126,11 @@ void w_init_core(void *p)
 		else
 			core_if->op_state = B_PERIPHERAL;
 
-		dwc_otg_core_init(core_if);
+		if(dwc_otg_core_init(core_if)){
+			printk("%s-Fail to initializa OTG Core\n",__func__);				
+			return;
+		}
+			
 		dwc_otg_enable_global_interrupts(core_if);
 
 		if (dwc_otg_is_host_mode(core_if))
@@ -179,39 +174,36 @@ void w_wakeup_core(void *p)
 void w_shutdown_core(void *p)
 {
 	dwc_otg_core_if_t *core_if = p;
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-	u32 freq_eco = 0;
-#endif
-	printk("USBD][%s] entered\n",__func__);
 	if (core_if) {
+	dwc_otg_core_global_regs_t *global_regs = core_if->core_global_regs;
+
+	/* Clear any pending OTG Interrupts */
+	dwc_write_reg32(&global_regs->gotgint, 0xFFFFFFFF);
+
+	/* Clear any pending interrupts */
+	dwc_write_reg32(&global_regs->gintsts, 0xFFFFFFFF);
+
+	dwc_otg_disable_global_interrupts(core_if);
+
 #ifdef CONFIG_USB_DELAYED_SUSPEND_POWER_SAVING
 		DWC_TIMER_CANCEL(core_if->suspend_power_saving_timer);
 #endif
-
-		if ((core_if->op_state == B_PERIPHERAL) &&
-			    core_if->xceiver->state != OTG_STATE_UNDEFINED) {
-			if (dwc_otg_is_device_mode(core_if)) {
-				core_if->lx_state = DWC_OTG_L0;
-				/* Make sure PHY clock is on */
-				dwc_otg_start_stop_phy_clk(core_if, true);
-				cil_pcd_stop(core_if);
-				dwc_otg_start_stop_phy_clk(core_if, false);
+	if ((core_if->op_state == B_PERIPHERAL) &&
+		core_if->xceiver->state != OTG_STATE_UNDEFINED) {
+		if (dwc_otg_is_device_mode(core_if)) {
+			core_if->lx_state = DWC_OTG_L0;
+			/* Make sure PHY clock is on */
+			dwc_otg_start_stop_phy_clk(core_if, true);
+			cil_pcd_stop(core_if);
+			dwc_otg_start_stop_phy_clk(core_if, false);
 
 #ifdef CONFIG_USB_OTG_UTILS
-				if (core_if->xceiver->shutdown)
-					otg_shutdown(core_if->xceiver);
+			if (core_if->xceiver->shutdown)
+				usb_phy_shutdown(core_if->xceiver);
 #endif
-
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-				freq_eco = get_cpu_freq_from_opp(PI_OPP_ECONOMY);
-				if (freq_eco != 0){
-					printk("%s-cpufreq_update_lmt_req(ECONOMY)\n",__func__);
-					cpufreq_update_lmt_req(&cpufreq_min_lmt_node_usb,
-									freq_eco);
-				}
-#endif
-
 			}
+
+			core_if->xceiver->state = OTG_STATE_UNDEFINED;
 		}
 	}
 }
@@ -222,7 +214,7 @@ void w_vbus_draw(void *p)
 	dwc_otg_core_if_t *core_if = p;
 
 	if (core_if->xceiver->set_power)
-		otg_set_power(core_if->xceiver, core_if->vbus_ma);
+		usb_phy_set_power(core_if->xceiver, core_if->vbus_ma);
 #endif
 }
 
@@ -283,9 +275,6 @@ dwc_otg_core_if_t *dwc_otg_cil_init(const uint32_t *reg_base_addr)
 	dwc_otg_host_if_t *host_if = 0;
 	uint8_t *reg_base = (uint8_t *)reg_base_addr;
 	int i = 0;
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-	u32 freq_turbo = 0;
-#endif
 
 	DWC_DEBUGPL(DBG_CILV, "%s(%p)\n", __func__, reg_base_addr);
 
@@ -493,9 +482,9 @@ dwc_otg_core_if_t *dwc_otg_cil_init(const uint32_t *reg_base_addr)
 	/*
 	 * Get OTG transceiver driver.
 	 */
-	core_if->xceiver = otg_get_transceiver();
+	core_if->xceiver = usb_get_transceiver();
 	if (!core_if->xceiver) {
-		DWC_WARN("otg_get_transceiver failed\n");
+		DWC_WARN("usb_get_transceiver failed\n");
 		dwc_free(host_if);
 		dwc_free(dev_if);
 		DWC_WORKQ_FREE(core_if->wq_otg);
@@ -512,21 +501,12 @@ dwc_otg_core_if_t *dwc_otg_cil_init(const uint32_t *reg_base_addr)
 	}
 
 	core_if->otg_xceiv_nb.notifier_call = dwc_otg_xceiv_nb_callback;
-	otg_register_notifier(core_if->xceiver, &core_if->otg_xceiv_nb);
+	usb_register_notifier(core_if->xceiver, &core_if->otg_xceiv_nb);
 #endif
 
 	/** ADP initialization */
 	if (core_if->adp_enable)
 		dwc_otg_adp_init(core_if);
-
-#ifdef CONFIG_CPU_AT_TURBO_WHILE_USB_ON
-	freq_turbo = get_cpu_freq_from_opp(PI_OPP_ECONOMY);
-	if (freq_turbo != 0){
-		cpufreq_add_lmt_req(&cpufreq_min_lmt_node_usb, "rhea_usb",
-						freq_turbo, MIN_LIMIT);
-		printk("%s-cpufreq_add_lmt_req(ECONOMY)\n",__func__);
-	}
-#endif
 
 	return core_if;
 }
@@ -546,9 +526,9 @@ void dwc_otg_cil_remove(dwc_otg_core_if_t *core_if)
 
 #ifdef CONFIG_USB_OTG_UTILS
 	if (core_if->xceiver) {
-		otg_unregister_notifier(core_if->xceiver,
+		usb_unregister_notifier(core_if->xceiver,
 					&core_if->otg_xceiv_nb);
-		otg_put_transceiver(core_if->xceiver);
+		usb_put_transceiver(core_if->xceiver);
 	}
 #endif
 
@@ -1514,7 +1494,7 @@ static uint32_t calc_num_out_eps(dwc_otg_core_if_t *core_if)
  * @param core_if Programming view of the DWC_otg controller
  *
  */
-void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
+int dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 {
 	int i = 0;
 	dwc_otg_core_global_regs_t *global_regs = core_if->core_global_regs;
@@ -1542,8 +1522,13 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 	 * the core later anyway. Otherwise, reset it here
 	 */
 	if (core_if->phy_init_done) {
+		int rc=0;
 		/* Reset the Controller */
-		dwc_otg_core_reset(core_if);
+		rc = dwc_otg_core_reset(core_if);
+		if(rc){
+			printk("%s-Fail to core reset\n",__func__);
+			return rc;
+		}
 	}
 
 	core_if->adp_enable = core_if->core_params->adp_supp_enable;
@@ -1589,6 +1574,8 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 		/* core_init() is now called on every switch so only call the
 		 * following for the first time through. */
 		if (!core_if->phy_init_done) {
+			int rc=0;
+			
 			core_if->phy_init_done = 1;
 			DWC_DEBUGPL(DBG_CIL, "FS_PHY detected\n");
 			usbcfg.d32 = dwc_read_reg32(&global_regs->gusbcfg);
@@ -1596,7 +1583,11 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 			dwc_write_reg32(&global_regs->gusbcfg, usbcfg.d32);
 
 			/* Reset after a PHY select */
-			dwc_otg_core_reset(core_if);
+			rc = dwc_otg_core_reset(core_if);
+			if(rc){
+				printk("%s-Fail to core reset\n",__func__);
+				return rc;
+			}
 		}
 
 		/* Program DCFG.DevSpd or HCFG.FSLSPclkSel to
@@ -1627,6 +1618,8 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 	else {
 		/* High speed PHY. */
 		if (!core_if->phy_init_done) {
+			int rc=0;
+			
 			core_if->phy_init_done = 1;
 			/* HS PHY parameters.  These parameters are preserved
 			 * during soft reset so only program the first time.  Do
@@ -1650,7 +1643,11 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 
 			dwc_write_reg32(&global_regs->gusbcfg, usbcfg.d32);
 			/* Reset after setting the PHY parameters */
-			dwc_otg_core_reset(core_if);
+			rc = dwc_otg_core_reset(core_if);
+			if(rc){
+				printk("%s-Fail to core reset\n",__func__);
+				return rc;
+			}
 		}
 	}
 
@@ -1702,7 +1699,13 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 	case DWC_INT_DMA_ARCH:
 		DWC_DEBUGPL(DBG_CIL, "Internal DMA Mode\n");
 
-		if (get_chip_rev_id() >= RHEA_CHIP_REV_B1)
+#if defined(CONFIG_ARCH_RHEA)
+		if (get_chip_id() >= RHEA_CHIP_ID(RHEA_CHIP_REV_B1))
+#elif defined(CONFIG_ARCH_HAWAII)
+		if (get_chip_id() >= HAWAII_CHIP_ID(HAWAII_CHIP_REV_A0))
+#else
+#error "unsupported platform"
+#endif
 			ahbcfg.b.hburstlen = DWC_GAHBCFG_INT_DMA_BURST_INCR8;
 		else {
 			/* Default to single burst */
@@ -1840,6 +1843,7 @@ void dwc_otg_core_init(dwc_otg_core_if_t *core_if)
 		dwc_otg_core_dev_init(core_if);
 #endif
 	}
+	return 0;
 }
 
 /**
@@ -1913,12 +1917,10 @@ void dwc_otg_enable_device_interrupts(dwc_otg_core_if_t *core_if)
 #endif /* DWC_EN_ISOC */
 
 	/** @todo NGS: Should this be a module parameter? */
-#ifdef USE_PERIODIC_EP
 	intr_mask.b.isooutdrop = 1;
 	intr_mask.b.eopframe = 1;
 	intr_mask.b.incomplisoin = 1;
 	intr_mask.b.incomplisoout = 1;
-#endif
 
 	dwc_modify_reg32(&global_regs->gintmsk, intr_mask.d32, intr_mask.d32);
 
@@ -2434,8 +2436,8 @@ void dwc_otg_core_host_init(dwc_otg_core_if_t *core_if)
 			hprt0.b.prtpwr = 1;
 			dwc_write_reg32(host_if->hprt0, hprt0.d32);
 #ifdef CONFIG_USB_OTG_UTILS
-			if (core_if->xceiver->set_vbus)
-				core_if->xceiver->set_vbus(core_if->xceiver,
+			if (core_if->xceiver->otg->set_vbus)
+				core_if->xceiver->otg->set_vbus(core_if->xceiver->otg,
 							   true);
 			cil_hcd_session_start(core_if);
 #endif
@@ -2837,6 +2839,53 @@ void hc_xfer_timeout(void *ptr)
 		 xfer_info->core_if->start_hcchar_val[hc_num]);
 }
 #endif
+
+void ep_xfer_timeout(void *ptr)
+{
+	struct ep_xfer_info *xfer_info = NULL;
+	int ep_num = 0;
+	dctl_data_t dctl = {.d32 = 0 };
+	gintsts_data_t gintsts = {.d32 = 0 };
+	gintmsk_data_t gintmsk = {.d32 = 0 };
+
+	if (ptr)
+		xfer_info = (struct ep_xfer_info *) ptr;
+	else {
+		DWC_ERROR("ptr == NULL\n");
+		return;
+	}
+
+	if (!xfer_info->ep) {
+		DWC_ERROR("xfer_info->ep = %p\n", xfer_info->ep);
+		return;
+	}
+
+	ep_num = xfer_info->ep->num;
+	DWC_WARN("%s: timeout on endpoit %d\n", __func__, ep_num);
+	/* Put the sate to 2 as it was time outed */
+	xfer_info->state = 2;
+
+	dctl.d32 = DWC_READ_REG32(&xfer_info->core_if->
+		dev_if->dev_global_regs->dctl);
+	gintsts.d32 = DWC_READ_REG32(&xfer_info->core_if->
+		core_global_regs->gintsts);
+	gintmsk.d32 = DWC_READ_REG32(&xfer_info->core_if->
+		core_global_regs->gintmsk);
+
+	if (!gintmsk.b.goutnakeff) {
+		/* Unmask it */
+		gintmsk.b.goutnakeff = 1;
+		DWC_WRITE_REG32(&xfer_info->core_if->
+			core_global_regs->gintmsk, gintmsk.d32);
+
+	}
+
+	if (!gintsts.b.goutnakeff)
+		dctl.b.sgoutnak = 1;
+	DWC_WRITE_REG32(&xfer_info->core_if->dev_if->
+		dev_global_regs->dctl, dctl.d32);
+
+}
 
 void set_pid_isoc(dwc_hc_t *hc)
 {
@@ -3283,6 +3332,47 @@ uint32_t dwc_otg_get_frame_number(dwc_otg_core_if_t *core_if)
 }
 
 /**
+ * Calculates and gets the frame Interval value of HFIR register according PHY
+ * type and speed.The application can modify a value of HFIR register only after
+ * the Port Enable bit of the Host Port Control and Status register
+ * (HPRT.PrtEnaPort) has been set.
+*/
+
+uint32_t calc_frame_interval(dwc_otg_core_if_t *core_if)
+{
+	gusbcfg_data_t usbcfg;
+	hwcfg2_data_t hwcfg2;
+	hprt0_data_t hprt0;
+	int clock = 60;		/* default value */
+	usbcfg.d32 = DWC_READ_REG32(&core_if->core_global_regs->gusbcfg);
+	hwcfg2.d32 = DWC_READ_REG32(&core_if->core_global_regs->ghwcfg2);
+	hprt0.d32 = DWC_READ_REG32(core_if->host_if->hprt0);
+	if (!usbcfg.b.physel && usbcfg.b.ulpi_utmi_sel && !usbcfg.b.phyif)
+		clock = 60;
+	if (usbcfg.b.physel && hwcfg2.b.fs_phy_type == 3)
+		clock = 48;
+	if (!usbcfg.b.phylpwrclksel && !usbcfg.b.physel &&
+	    !usbcfg.b.ulpi_utmi_sel && usbcfg.b.phyif)
+		clock = 30;
+	if (!usbcfg.b.phylpwrclksel && !usbcfg.b.physel &&
+	    !usbcfg.b.ulpi_utmi_sel && !usbcfg.b.phyif)
+		clock = 60;
+	if (usbcfg.b.phylpwrclksel && !usbcfg.b.physel &&
+	    !usbcfg.b.ulpi_utmi_sel && usbcfg.b.phyif)
+		clock = 48;
+	if (usbcfg.b.physel && !usbcfg.b.phyif && hwcfg2.b.fs_phy_type == 2)
+		clock = 48;
+	if (usbcfg.b.physel && hwcfg2.b.fs_phy_type == 1)
+		clock = 48;
+	if (hprt0.b.prtspd == 0)
+		/* High speed case */
+		return 125 * clock;
+	else
+		/* FS/LS case */
+		return 1000 * clock;
+}
+
+/**
  * This function reads a setup packet from the Rx FIFO into the destination
  * buffer. This function is called from the Rx Status Queue Level (RxStsQLvl)
  * Interrupt routine when a SETUP packet has been received in Slave mode.
@@ -3414,6 +3504,9 @@ void dwc_otg_ep_activate(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 			diepmsk.b.ahberr = 1;
 			diepmsk.b.intknepmis = 1;
 			diepmsk.b.txfifoundrn = 1;	/* ????? */
+			if (ep->type == DWC_OTG_EP_TYPE_ISOC)
+				diepmsk.b.nak = 1;
+
 /*
 			if (core_if->dma_desc_enable) {
 				diepmsk.b.bna = 1;
@@ -3432,6 +3525,8 @@ void dwc_otg_ep_activate(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 			doepmsk.b.xfercompl = 1;
 			doepmsk.b.ahberr = 1;
 			doepmsk.b.epdisabled = 1;
+			if (ep->type == DWC_OTG_EP_TYPE_ISOC)
+				doepmsk.b.outtknepdis = 1;
 
 /*
 
@@ -3450,6 +3545,21 @@ void dwc_otg_ep_activate(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 		dwc_modify_reg32(&dev_if->dev_global_regs->deachintmsk,
 				 0, daintmsk.d32);
 	} else {
+		if (ep->type == DWC_OTG_EP_TYPE_ISOC) {
+			if (ep->is_in) {
+				diepmsk_data_t diepmsk = {.d32 = 0 };
+				diepmsk.b.nak = 1;
+				DWC_MODIFY_REG32(
+					&dev_if->dev_global_regs->diepmsk,
+					0, diepmsk.d32);
+			} else {
+				doepmsk_data_t doepmsk = {.d32 = 0 };
+				doepmsk.b.outtknepdis = 1;
+				DWC_MODIFY_REG32(
+					&dev_if->dev_global_regs->doepmsk,
+					0, doepmsk.d32);
+			}
+		}
 		dwc_modify_reg32(&dev_if->dev_global_regs->daintmsk,
 				 0, daintmsk.d32);
 	}
@@ -3687,6 +3797,60 @@ static void init_dma_desc_chain(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 }
 
 /**
+ * This function is called when to write ISOC data into appropriate dedicated
+ * periodic FIFO.
+ */
+static int32_t write_isoc_tx_fifo(dwc_otg_core_if_t *core_if,
+	dwc_ep_t *dwc_ep)
+{
+	dwc_otg_dev_if_t *dev_if = core_if->dev_if;
+	dwc_otg_dev_in_ep_regs_t *ep_regs;
+	dtxfsts_data_t txstatus = {.d32 = 0 };
+	uint32_t len = 0;
+	int epnum = dwc_ep->num;
+	int dwords;
+
+	DWC_DEBUGPL(DBG_PCD, "Dedicated TxFifo Empty: %d\n", epnum);
+
+	ep_regs = core_if->dev_if->in_ep_regs[epnum];
+
+	len = dwc_ep->xfer_len - dwc_ep->xfer_count;
+
+	if (len > dwc_ep->maxpacket)
+		len = dwc_ep->maxpacket;
+
+	dwords = (len + 3) / 4;
+
+	/* While there is space in the queue and space in the FIFO and
+	 * More data to tranfer, Write packets to the Tx FIFO */
+	txstatus.d32 = DWC_READ_REG32(&dev_if->in_ep_regs[epnum]->dtxfsts);
+	DWC_DEBUGPL(DBG_PCDV, "b4 dtxfsts[%d]=0x%08x\n", epnum, txstatus.d32);
+
+	while (txstatus.b.txfspcavail > dwords &&
+	       dwc_ep->xfer_count < dwc_ep->xfer_len &&
+	       dwc_ep->xfer_len != 0) {
+		/* Write the FIFO */
+		dwc_otg_ep_write_packet(core_if, dwc_ep, 0);
+
+		len = dwc_ep->xfer_len - dwc_ep->xfer_count;
+		if (len > dwc_ep->maxpacket)
+			len = dwc_ep->maxpacket;
+
+		dwords = (len + 3) / 4;
+		txstatus.d32 =
+		    DWC_READ_REG32(&dev_if->in_ep_regs[epnum]->dtxfsts);
+		DWC_DEBUGPL(DBG_PCDV, "dtxfsts[%d]=0x%08x\n", epnum,
+			    txstatus.d32);
+	}
+
+	DWC_DEBUGPL(DBG_PCDV, "b4 dtxfsts[%d]=0x%08x\n", epnum,
+		    DWC_READ_REG32(&dev_if->in_ep_regs[epnum]->dtxfsts));
+
+
+	return 1;
+}
+
+/**
  * This function does the setup for a data transfer for an EP and
  * starts the transfer. For an IN transfer, the packets will be
  * loaded into the appropriate Tx FIFO in the ISR. For OUT transfers,
@@ -3802,6 +3966,30 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 
 					}
 				}
+			} else
+				write_isoc_tx_fifo(core_if, ep);
+
+		}
+		if (!core_if->core_params->en_multiple_tx_fifo &&
+			core_if->dma_enable)
+			depctl.b.nextep = core_if->nextep_seq[ep->num];
+
+		if (ep->type == DWC_OTG_EP_TYPE_ISOC) {
+			dsts_data_t dsts = {.d32 = 0};
+			if (ep->bInterval == 1) {
+				dsts.d32 =
+					DWC_READ_REG32(&core_if->
+					dev_if->dev_global_regs->dsts);
+				ep->frame_num = dsts.b.soffn + ep->bInterval;
+				if (ep->frame_num > 0x3FFF) {
+					ep->frm_overrun = 1;
+					ep->frame_num &= 0x3FFF;
+				} else
+					ep->frm_overrun = 0;
+				if (ep->frame_num & 0x1)
+					depctl.b.setd1pid = 1;
+				else
+					depctl.b.setd0pid = 1;
 			}
 		}
 
@@ -3901,6 +4089,26 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t *core_if, dwc_ep_t *ep)
 			}
 		} else {
 			dwc_write_reg32(&out_regs->doeptsiz, deptsiz.d32);
+		}
+
+		if (ep->type == DWC_OTG_EP_TYPE_ISOC) {
+			dsts_data_t dsts = {.d32 = 0};
+			if (ep->bInterval == 1) {
+				dsts.d32 =
+					DWC_READ_REG32(&core_if->dev_if->
+					dev_global_regs->dsts);
+				ep->frame_num = dsts.b.soffn + ep->bInterval;
+				if (ep->frame_num > 0x3FFF) {
+					ep->frm_overrun = 1;
+					ep->frame_num &= 0x3FFF;
+				} else
+					ep->frm_overrun = 0;
+
+				if (ep->frame_num & 0x1)
+					depctl.b.setd1pid = 1;
+				else
+					depctl.b.setd0pid = 1;
+			}
 		}
 
 		/* EP enable */
@@ -4981,11 +5189,12 @@ void dwc_otg_flush_rx_fifo(dwc_otg_core_if_t *core_if)
  * Do core a soft reset of the core.  Be careful with this because it
  * resets all the internal state machines of the core.
  */
-void dwc_otg_core_reset(dwc_otg_core_if_t *core_if)
+int dwc_otg_core_reset(dwc_otg_core_if_t *core_if)
 {
 	dwc_otg_core_global_regs_t *global_regs = core_if->core_global_regs;
 	volatile grstctl_t greset = {.d32 = 0 };
 	int count = 0;
+	bool repeat = false;
 
 	DWC_DEBUGPL(DBG_CILV, "%s\n", __func__);
 	/* Wait for AHB master IDLE state. */
@@ -4995,9 +5204,11 @@ void dwc_otg_core_reset(dwc_otg_core_if_t *core_if)
 		if (++count > 100000) {
 			DWC_WARN("%s() HANG! AHB Idle GRSTCTL=%0x\n", __func__,
 				 greset.d32);
-			return;
+			return -ENODEV;
 		}
 	} while (greset.b.ahbidle == 0);
+
+again:
 
 	/* Core Soft Reset */
 	count = 0;
@@ -5005,10 +5216,14 @@ void dwc_otg_core_reset(dwc_otg_core_if_t *core_if)
 	dwc_write_reg32(&global_regs->grstctl, greset.d32);
 	do {
 		greset.d32 = dwc_read_reg32(&global_regs->grstctl);
-		if (++count > 10000) {
+		if (++count > 30000) {
 			DWC_WARN("%s() HANG! Soft Reset GRSTCTL=%0x\n",
 				 __func__, greset.d32);
-			break;
+			if (!repeat) {
+				repeat = true;
+				goto again;
+			}
+			return -ENODEV;
 		}
 		dwc_udelay(1);
 	} while (greset.b.csftrst == 1);
@@ -5017,6 +5232,7 @@ void dwc_otg_core_reset(dwc_otg_core_if_t *core_if)
 
 	/* Wait 60ms after core reset for right ID/mode to take effect */
 	dwc_mdelay(60);
+	return 0;
 }
 
 uint8_t dwc_otg_is_device_mode(dwc_otg_core_if_t *_core_if)
@@ -6665,8 +6881,8 @@ void dwc_otg_set_prtpower(dwc_otg_core_if_t *core_if, uint32_t val)
 	hprt0.b.prtpwr = val;
 	dwc_write_reg32(core_if->host_if->hprt0, hprt0.d32);
 #ifdef CONFIG_USB_OTG_UTILS
-	if (core_if->xceiver->set_vbus)
-		core_if->xceiver->set_vbus(core_if->xceiver,
+	if (core_if->xceiver->otg->set_vbus)
+		core_if->xceiver->otg->set_vbus(core_if->xceiver->otg,
 					   val ? true : false);
 	if (val)
 		cil_hcd_session_start(core_if);
@@ -6687,6 +6903,80 @@ void dwc_otg_set_prtsuspend(dwc_otg_core_if_t *core_if, uint32_t val)
 	hprt0.d32 = dwc_read_reg32(core_if->host_if->hprt0);
 	hprt0.b.prtsusp = val;
 	dwc_write_reg32(core_if->host_if->hprt0, val);
+}
+
+uint32_t dwc_otg_get_fr_interval(dwc_otg_core_if_t *core_if)
+{
+	hfir_data_t hfir;
+	hfir.d32 = DWC_READ_REG32(&core_if->host_if->host_global_regs->hfir);
+	return hfir.b.frint;
+
+}
+
+void dwc_otg_set_fr_interval(dwc_otg_core_if_t *core_if, uint32_t val)
+{
+	hfir_data_t hfir;
+	uint32_t fram_int;
+	fram_int = calc_frame_interval(core_if);
+	hfir.d32 = DWC_READ_REG32(&core_if->host_if->host_global_regs->hfir);
+	if (!core_if->core_params->reload_ctl) {
+		DWC_WARN(
+			"\nCan't reload HFIR reg.HFIR.HFIRRldCtrl bit isn't 1");
+		DWC_WARN(
+			"Load driver with reload_ctl=1 module parameter\n");
+		return;
+	}
+	switch (fram_int) {
+	case 3750:
+		if ((val < 3350) || (val > 4150)) {
+			DWC_WARN(
+		"HFIR interval HS 30 MHz should be 3350 to 4150\n");
+			return;
+		}
+		break;
+	case 30000:
+		if ((val < 26820) || (val > 33180)) {
+			DWC_WARN(
+		"HFIR interval FS/LS 30 MHz should be 26820 to 33180\n");
+			return;
+		}
+		break;
+	case 6000:
+		if ((val < 5360) || (val > 6640)) {
+			DWC_WARN(
+		"HFIR interval HS 48 MHz should be 5360 to 6640\n");
+			return;
+		}
+		break;
+	case 48000:
+		if ((val < 42912) || (val > 53088)) {
+			DWC_WARN(
+		"HFIR interval FS/LS 48 MHz should be 42912 to 53088\n");
+			return;
+		}
+		break;
+	case 7500:
+		if ((val < 6700) || (val > 8300)) {
+			DWC_WARN(
+		"HFIR interval HS core 60 MHz should be 6700 to 8300\n");
+			return;
+		}
+		break;
+	case 60000:
+		if ((val < 53640) || (val > 65536)) {
+			DWC_WARN(
+		"HFIR interval FS/LS core 60 MHz should be 53640 to 65536\n");
+			return;
+		}
+		break;
+	default:
+		DWC_WARN("Unknown frame interval\n");
+		return;
+		break;
+
+	}
+	hfir.b.frint = val;
+	DWC_WRITE_REG32(&core_if->host_if->host_global_regs->hfir, hfir.d32);
 }
 
 void dwc_otg_set_prtresume(dwc_otg_core_if_t *core_if, uint32_t val)
@@ -6887,6 +7177,7 @@ void dwc_otg_initiate_srp(dwc_otg_core_if_t *core_if)
 #ifdef CONFIG_USB_OTG_UTILS
 	if (core_if->xceiver->pullup_on)
 		core_if->xceiver->pullup_on(core_if->xceiver, true);
+
 #endif
 
 	DWC_INFO("Session Request Initated\n");	/* NOTICE */

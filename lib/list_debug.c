@@ -6,8 +6,10 @@
  * DEBUG_LIST.
  */
 
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/list.h>
+#include <linux/bug.h>
+#include <linux/kernel.h>
 
 /*
  * Insert a new entry between two known consecutive entries.
@@ -41,7 +43,7 @@ void __list_del_entry(struct list_head *entry)
 
 	prev = entry->prev;
 	next = entry->next;
-#if 0
+
 	if (WARN(next == LIST_POISON1,
 		"list_del corruption, %p->next is LIST_POISON1 (%p)\n",
 		entry, LIST_POISON1) ||
@@ -54,33 +56,7 @@ void __list_del_entry(struct list_head *entry)
 	    WARN(next->prev != entry,
 		"list_del corruption. next->prev should be %p, "
 		"but was %p\n", entry, next->prev))
-		return;
-#endif
-	if (next == LIST_POISON1) {
-		pr_err("list_del corruption, %p->next is LIST_POISON1 (%p)\n",
-			entry, LIST_POISON1);
 		BUG();
-	}
-		
-	if (prev == LIST_POISON2) {
-		pr_err("list_del corruption, %p->prev is LIST_POISON2 (%p)\n",
-			entry, LIST_POISON2);
-		BUG();
-	}
-
-	if (prev->next != entry) {
-		pr_err("list_del corruption. prev->next should be %p, "
-		"but was %p : prev %p entry %p next %p\n", entry, 
-		prev->next, prev, entry, next);
-		BUG();
-	}
-
-	if (next->prev != entry) {
-		pr_err("list_del corruption. next->prev should be %p, "
-		"but was %p : prev %p entry %p next %p\n", entry, 
-		next->prev, prev, entry, next);
-		BUG();
-	}		
 
 	__list_del(prev, next);
 }

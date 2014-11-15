@@ -26,6 +26,8 @@
 #define __HCI_CORE_H
 
 #include <net/bluetooth/hci.h>
+#include <linux/interrupt.h>
+#include <linux/module.h>
 
 /* HCI priority */
 #define HCI_PRIO_MAX	7
@@ -221,9 +223,9 @@ struct hci_dev {
 	struct delayed_work	service_cache;
 
 	struct timer_list	cmd_timer;
-	struct tasklet_struct	cmd_task;
-	struct tasklet_struct	rx_task;
-	struct tasklet_struct	tx_task;
+	struct tasklet_struct cmd_task;
+	struct tasklet_struct rx_task;
+	struct tasklet_struct tx_task;
 
 	struct sk_buff_head	rx_q;
 	struct sk_buff_head	raw_q;
@@ -611,6 +613,16 @@ static inline struct hci_dev *hci_dev_hold(struct hci_dev *d)
 #define hci_dev_lock_bh(d)	spin_lock_bh(&d->lock)
 #define hci_dev_unlock_bh(d)	spin_unlock_bh(&d->lock)
 
+static inline void *hci_get_drvdata(struct hci_dev *hdev)
+{
+	return dev_get_drvdata(&hdev->dev);
+}
+
+static inline void hci_set_drvdata(struct hci_dev *hdev, void *data)
+{
+	dev_set_drvdata(&hdev->dev, data);
+}
+
 struct hci_dev *hci_dev_get(int index);
 struct hci_dev *hci_get_route(bdaddr_t *src, bdaddr_t *dst);
 
@@ -914,14 +926,14 @@ static inline bool eir_has_data_type(u8 *data, size_t data_len, u8 type)
 	size_t parsed;
 
 /*
-	  * for (parsed = 0; parsed < data_len - 1; parsed += field_len) {
-	  */
+  * for (parsed = 0; parsed < data_len - 1; parsed += field_len) {
+  */
 	for (parsed = 0; parsed < data_len - 1; ) {
 		field_len = data[0];
 
 /*
-		  * if (field_len == 0)
-		  */
+  * if (field_len == 0)
+  */
 		if (field_len == 0 && data[1] == 0)
 			break;
 
@@ -964,8 +976,8 @@ static inline size_t eir_length(u8 *eir, size_t maxlen)
 		field_len = eir[0];
 
 /*
-		  * if (field_len == 0)
-		  */
+  * if (field_len == 0)
+  */
 		if (field_len == 0 && eir[1] == 0)
 			break;
 

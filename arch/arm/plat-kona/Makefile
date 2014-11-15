@@ -12,9 +12,8 @@
 # consent.
 #*****************************************************************************
 
-obj-y := irq.o kona_timer.o timer.o profile_timer.o pinmux.o sysfs.o scu.o kona_mic_bias.o
+obj-y := irq.o kona_timer.o timer.o profile_timer.o pinmux.o sysfs.o scu.o kona_mic_bias.o ns_ioremap.o
 obj-$(CONFIG_SMP) += headsmp.o platsmp.o
-obj-$(CONFIG_LOCAL_TIMERS) += localtimer.o
 obj-$(CONFIG_HOTPLUG_CPU)  += hotplug.o
 obj-$(CONFIG_ARCH_REQUIRE_GPIOLIB)  += gpio.o
 obj-$(CONFIG_HAVE_CLK) += clock.o
@@ -27,18 +26,15 @@ obj-$(CONFIG_MACH_RHEA_SS) += chal/
 obj-$(CONFIG_MACH_RHEA_SS_AMAZING) += chal/
 obj-$(CONFIG_MACH_RHEA_SS_LUCAS) += chal/
 obj-$(CONFIG_MACH_RHEA_SS_ZANIN) += chal/
+obj-$(CONFIG_MACH_RHEA_SS_ZANIN_02) += chal/
+obj-$(CONFIG_MACH_RHEA_SS_ZANIN_04) += chal/
 obj-$(CONFIG_MACH_RHEA_SS_IVORY) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_IVORYSS) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_CORSICA) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_CORSICASS) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_CORIPLUS) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_NEVIS) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_NEVISP) += chal/
-obj-$(CONFIG_MACH_RHEA_SS_NEVISDS) += chal/
 obj-$(CONFIG_MACH_RHEA_RAY_DEMO) += chal/
 obj-$(CONFIG_MACH_RHEA_BERRI) += chal/
 obj-$(CONFIG_MACH_RHEA_BERRI_EDN40) += chal/
 obj-$(CONFIG_MACH_RHEALC_BERRI) += chal/
+obj-$(CONFIG_ARCH_HAWAII) += chal/
+obj-$(CONFIG_ARCH_HAWAII) += csl/
 obj-$(CONFIG_MACH_RHEA_RAY) += csl/
 obj-$(CONFIG_MACH_RHEA_FARADAY_EB10) += csl/
 obj-$(CONFIG_MACH_RHEA_RAY_EDN1X) += csl/
@@ -48,14 +44,9 @@ obj-$(CONFIG_MACH_RHEA_SS) += csl/
 obj-$(CONFIG_MACH_RHEA_SS_AMAZING) += csl/
 obj-$(CONFIG_MACH_RHEA_SS_LUCAS) += csl/
 obj-$(CONFIG_MACH_RHEA_SS_ZANIN) += csl/
+obj-$(CONFIG_MACH_RHEA_SS_ZANIN_02) += csl/
+obj-$(CONFIG_MACH_RHEA_SS_ZANIN_04) += csl/
 obj-$(CONFIG_MACH_RHEA_SS_IVORY) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_IVORYSS) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_CORSICA) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_CORSICASS) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_CORIPLUS) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_NEVIS) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_NEVISP) += csl/
-obj-$(CONFIG_MACH_RHEA_SS_NEVISDS) += csl/
 obj-$(CONFIG_MACH_RHEA_RAY_DEMO) += csl/
 obj-$(CONFIG_MACH_RHEA_BERRI) += csl/
 obj-$(CONFIG_MACH_RHEA_BERRI_EDN40) += csl/
@@ -70,17 +61,20 @@ obj-$(CONFIG_MACH_RHEA_STONE_EDN2X) += chal/
 # SAMOA RAY bringup only has keypad at this point, so no CSL
 #obj-$(CONFIG_MACH_SAMOA_RAY) += csl/
 obj-$(CONFIG_DMAC_PL330) += dmux.o dma.o
+#obj-$(CONFIG_DMAC_PL330) += dmux.o
 obj-$(CONFIG_KONA_CPU_PM_HANDLER) += kona_pm.o kona_pm_dbg.o
 obj-$(CONFIG_KONA_POWER_MGR) += pwr_mgr.o
 obj-$(CONFIG_KONA_PI_MGR) += pi_mgr.o
 obj-$(CONFIG_KONA_CPU_FREQ_DRV) += kona_cpufreq.o
-obj-$(CONFIG_KONA_AVS) += kona_avs.o
 obj-$(CONFIG_KONA_ATAG_DT) += atag_dt.o
-obj-$(CONFIG_KONA_USB_CONTROL) += bcm_hsotgctrl.o
+obj-$(CONFIG_KONA_USB_CONTROL) += bcm_hsotgctrl.o bcm_hsotgctrl_phy_mdio.o
 obj-$(CONFIG_PROC_PINMUX_DUMP)	+= pindump.o
 obj-$(CONFIG_KONA_DT_BCMPMU)	+= bcmpmu-dt.o
+obj-$(CONFIG_LOCAL_TIMERS)	+= localtimer.o
 
 # wfi_count.o is required for SW-7022.
 obj-$(CONFIG_KONA_WFI_WORKAROUND) += wfi_count.o
 #kona profiler
 obj-$(CONFIG_KONA_PROFILER) += profiler.o ccu_profiler.o pi_profiler.o
+obj-$(CONFIG_KONA_MEMC) += kona_memc.o
+obj-$(CONFIG_KONA_AXITRACE)	+= axitrace.o

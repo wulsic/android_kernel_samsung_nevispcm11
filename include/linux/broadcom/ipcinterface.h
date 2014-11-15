@@ -1,4 +1,4 @@
-/*******************************************************************************
+/*****************************************************************************
 *
 *     Copyright (c) 2007-2008 Broadcom Corporation
 *
@@ -9,8 +9,9 @@
 *
 *
 *  Notwithstanding the above, under no circumstances may you combine this
-*  software in any way with any other Broadcom software provided under a license
-*  other than the GPL, without Broadcom's express prior written consent.
+*  software in any way with any other Broadcom software provided under
+*  a license other than the GPL, without Broadcom's express prior
+*  written consent.
 *
 *******************************************************************************/
 
@@ -31,6 +32,30 @@
 #ifdef __cplusplus
 extern "C" {
 #endif	/* __cplusplus */
+
+#define IPC_IOREMAP_GUARD				(SZ_4K)
+#define IPC_CP_CRASH_SUMMARY_AREA_SZ	(SZ_4K)
+#define IPC_CP_ASSERT_BUF_AREA_SZ		(SZ_4K)
+#define IPC_CP_STRING_MAP_AREA_SZ		(SZ_4K)
+#define IPC_CP_RAMDUMP_BLOCK_AREA_SZ	(SZ_4K)
+#define IPC_CP_CRASH_SUMMARY_AREA		(0)
+#define IPC_CP_ASSERT_BUF_AREA			(IPC_CP_CRASH_SUMMARY_AREA + \
+			IPC_CP_CRASH_SUMMARY_AREA_SZ + IPC_IOREMAP_GUARD)
+#define IPC_CP_STRING_MAP_AREA			(IPC_CP_ASSERT_BUF_AREA + \
+			IPC_CP_ASSERT_BUF_AREA_SZ + IPC_IOREMAP_GUARD)
+#define IPC_CP_RAMDUMP_BLOCK_AREA		(IPC_CP_STRING_MAP_AREA + \
+			IPC_CP_STRING_MAP_AREA_SZ + IPC_IOREMAP_GUARD)
+
+#define IPC_CPMAP_NUM_PAGES ((IPC_CP_CRASH_SUMMARY_AREA_SZ + \
+			IPC_IOREMAP_GUARD + \
+			IPC_CP_ASSERT_BUF_AREA_SZ + \
+			IPC_IOREMAP_GUARD + \
+			IPC_CP_STRING_MAP_AREA_SZ + \
+			IPC_IOREMAP_GUARD +  \
+			IPC_CP_RAMDUMP_BLOCK_AREA_SZ + \
+			IPC_IOREMAP_GUARD) >> PAGE_SHIFT)
+
+#define free_size_ipc(size) (size + IPC_IOREMAP_GUARD)
 
 /*===========================================================*/
 /* Switch for direct IPC buffer allocate/send */
@@ -270,8 +295,10 @@ typedef IPC_U32 IPC_CrashCode_T;
 typedef void (*IPC_RaiseInterruptFPtr_T) (void);
 
 /**************************************************/
-typedef void (*IPC_EnableReEntrancyFPtr_T) (void);
-typedef void (*IPC_DisableReEntrancyFPtr_T) (void);
+typedef void * (*IPC_CreateLockFPtr_T) (void);
+typedef void (*IPC_AquireLockFPtr_T) (void * lock);
+typedef void (*IPC_ReleaseLockFPtr_T) (void * lock);
+typedef void (*IPC_DeleteLockFPtr_T) (void *lock);
 
 /**************************************************/
 typedef void *(*IPC_PhyAddrToOSAddrFPtr_T) (IPC_U32 PhysicalAddr);
@@ -283,6 +310,7 @@ typedef IPC_ReturnCode_T(*IPC_EventSetFPtr_T) (void *Event);
 typedef IPC_ReturnCode_T(*IPC_EventClearFPtr_T) (void *Event);
 typedef IPC_ReturnCode_T(*IPC_EventWaitFPtr_T) (void *Event,
 						 IPC_U32 MilliSeconds);
+typedef IPC_ReturnCode_T (*IPC_EventDeleteFPtr_T) (void *Event);
 
 /* Special values for MilliSeconds */
 #define IPC_WAIT_FOREVER	(~0)
@@ -322,13 +350,22 @@ typedef struct IPC_EventFunctions_S {
 	IPC_EventSetFPtr_T Set;
 	IPC_EventClearFPtr_T Clear;
 	IPC_EventWaitFPtr_T Wait;
+	IPC_EventDeleteFPtr_T Delete;
 } IPC_EventFunctions_T;
+
+/**************************************************/
+typedef struct IPC_LockFunctions_S
+{
+	IPC_CreateLockFPtr_T CreateLock;
+	IPC_AquireLockFPtr_T AcquireLock;
+	IPC_ReleaseLockFPtr_T ReleaseLock;
+	IPC_DeleteLockFPtr_T DeleteLock;
+}IPC_LockFunctions_T;
 
 /**************************************************/
 typedef struct IPC_ControlInfo_S {
 	IPC_RaiseInterruptFPtr_T RaiseEventFptr;
-	IPC_EnableReEntrancyFPtr_T EnableReEntrancyFPtr;
-	IPC_DisableReEntrancyFPtr_T DisableReEntrancyFPtr;
+	IPC_LockFunctions_T LockFunctions;
 	IPC_PhyAddrToOSAddrFPtr_T PhyToOSAddrFPtr;
 	IPC_OSAddrToPhyAddrFPtr_T OSToPhyAddrFPtr;
 	IPC_EventFunctions_T EventFunctions;

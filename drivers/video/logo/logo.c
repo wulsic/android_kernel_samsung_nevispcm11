@@ -21,7 +21,7 @@
 #include <asm/bootinfo.h>
 #endif
 
-static int nologo;
+static bool nologo;
 module_param(nologo, bool, 0);
 MODULE_PARM_DESC(nologo, "Disables startup logo");
 
@@ -99,6 +99,18 @@ const struct linux_logo * __init_refok fb_find_logo(int depth)
 #ifdef CONFIG_LOGO_M32R_CLUT224
 		/* M32R Linux logo */
 		logo = &logo_m32r_clut224;
+#endif
+#ifdef CONFIG_LOGO_UNICOM_720PV_CLUT224
+		/* CHINA UNICOM 720*1280 Linux logo */
+		logo = &logo_unicom_720pv_clut224;
+#endif
+#ifdef CONFIG_LOGO_UNICOM_480_854_CLUT224
+		/* CHINA UNICOM 480*854 Linux logo */
+		logo = &logo_unicom_480_854_clut224;
+#endif
+#ifdef CONFIG_LOGO_UNICOM_480_800_CLUT224
+		/* CHINA UNICOM 480*854 Linux logo */
+		logo = &logo_unicom_480_800_clut224;
 #endif
 	}
 	return logo;

@@ -601,8 +601,6 @@
 
     .extern dormant_trace_p
     .extern dormant_trace_v
-    .extern dormant_save
-    .extern dormant_restore
     .macro dormant_tracer_p trace scratch1 scratch2
     .if (DORMANT_TRACE_ENABLE == 1)
         ldr    \scratch1,=dormant_trace_p
@@ -623,22 +621,3 @@
         str    \scratch2,[\scratch1]
     .endif
     .endm
-    .macro dormant_trace_save_a9regs scratch1
-    .if (DORMANT_TRACE_ENABLE == 1)
-	PUSH   {\scratch1}
-        ldr    \scratch1,=dormant_save
-        ldr    \scratch1,[\scratch1]
-        stmfd  \scratch1!,{r1-r12,SP,LR}
-	POP    {\scratch1}
-    .endif
-    .endm
-    .macro dormant_trace_restore_a9regs scratch1
-    .if (DORMANT_TRACE_ENABLE == 1)
-        PUSH   {\scratch1}
-	ldr    \scratch1,=dormant_restore
-        ldr    \scratch1,[\scratch1]
-        stmfd  \scratch1!,{r1-r12,SP,LR}
-	POP    {\scratch1}
-    .endif
-    .endm
-

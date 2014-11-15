@@ -2168,6 +2168,7 @@ static int stop_discovery(struct sock *sk, u16 index)
 		goto unlock;
 	}
 
+	/* for LE SCAN stop */
 	if (hdev->discovery.state == DISCOVERY_LE_SCAN) {
 		err = hci_cancel_le_scan(hdev);
 		if (err < 0)
@@ -2467,6 +2468,7 @@ static int load_long_term_keys(struct sock *sk, u16 index,
 	return 0;
 }
 
+/* encrypt_link from QCT */
 static int encrypt_link(struct sock *sk, u16 index, unsigned char *data,
 									u16 len)
 {
@@ -2522,6 +2524,7 @@ failed:
 
 	return err;
 }
+/* encrypt_link from QCT end */
 
 static int set_le(struct sock *sk, u16 index, void *data, u16 len)
 {

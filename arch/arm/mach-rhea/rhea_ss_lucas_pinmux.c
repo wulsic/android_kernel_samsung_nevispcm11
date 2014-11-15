@@ -101,8 +101,8 @@ static struct __init pin_config board_pin_config[] = {
 //	PIN_CFG(TRACEDT01, PTI_DAT1, 0, OFF, ON, 0, 0, 8MA),	// N.C
 //	PIN_CFG(TRACEDT02, PTI_DAT2, 0, OFF, ON, 0, 0, 8MA),	// N.C
 //	PIN_CFG(TRACEDT03, PTI_DAT3, 0, OFF, ON, 0, 0, 8MA),	// N.C
-
 		
+
 	/* BSC1 - CAM */
 	PIN_BSC_CFG(BSC1CLK, BSC1CLK, 0x20),						// CAM_SCL
 	PIN_BSC_CFG(BSC1DAT, BSC1DAT, 0x20),						// CAM_SDA
@@ -155,9 +155,9 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(MMC1DAT3, MMC1DAT3, 0, OFF, ON, 0, 0, 8MA),		// WLAN_SDIO_DAT3
 	PIN_CFG(MMC1CK, MMC1CK, 0, OFF, ON, 0, 0, 8MA),			// WLAN_SDIO_CLK
 	PIN_CFG(MMC1CMD, MMC1CMD, 0, OFF, ON, 0, 0, 8MA),		// WLAN_SDIO_CMD
-	PIN_CFG(MMC1RST, GPIO70, 0, ON, OFF, 0, 0, 8MA),			// WLAN_REG_ON
-	PIN_CFG(UBCTSN, GPIO48, 0, ON, OFF, 0, 0, 8MA),				// WLAN_HOST_WAKE
-	PIN_CFG(CAMCS1, ANA_SYS_REQ2, 0, ON, OFF, 0, 0, 8MA), 		// WLAN_CLK_REQ
+	PIN_CFG(MMC1RST, GPIO70, 0, ON, OFF, 0, 0, 8MA),
+	PIN_CFG(UBCTSN, GPIO48, 0, ON, OFF, 0, 0, 8MA),
+	PIN_CFG(CAMCS1, ANA_SYS_REQ2, 0, ON, OFF, 0, 0, 8MA),
 
 	/* Touch */	
 	PIN_CFG(SSPSYN, GPIO85, 0, OFF, OFF, 0, 0, 16MA), 			/* TSP_SDA*/
@@ -180,20 +180,16 @@ static struct __init pin_config board_pin_config[] = {
 	PIN_CFG(GPIO32, GPIO32, 0, OFF, OFF, 0, 0, 8MA), 			/* SENSOR_SCL*/	
 	PIN_CFG(ICUSBDM, GPIO122, 0, OFF, ON, 0, 0, 8MA), 			/* PROXI_INT*/
 
+	PIN_CFG(MDMGPIO01, GPIO113, 0, OFF, ON, 0, 0, 8MA), 		//	S_SENSOR_INT
+	PIN_CFG(SPI0FSS, SSP0SYN, 0, ON, OFF, 0, 0, 8MA), 			//	S_SENSOR_FSS
+	PIN_CFG(SPI0CLK, SSP0CK, 0, ON, OFF, 0, 0, 8MA), 			//	S_SENSOR_CLK
+	PIN_CFG(SPI0TXD, SSP0DO, 0, ON, OFF, 0, 0, 8MA), 			//	S_SENSOR_TXD
+	PIN_CFG(SPI0RXD, SSP0DI, 0, ON, OFF, 0, 0, 8MA), 			//	S_SENSOR_RXD
+
 	/* SIMCARD */
 	PIN_CFG(SIMRST, SIMRST, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_RST
 	PIN_CFG(SIMDAT, SIMDAT, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_IO
-	PIN_CFG(SIMCLK, SIMCLK, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_CLK
-
-	/* Sensor(Finger Print Sensor) */
-        PIN_CFG(MDMGPIO01, GPIO113, 0, OFF, ON, 0, 0, 8MA), 			//	S_SENSOR_INT
-	PIN_CFG(SPI0FSS, SSP0SYN, 0, OFF, OFF, 0, 0, 8MA), 			//	S_SENSOR_FSS
-	PIN_CFG(SPI0CLK, SSP0CK, 0, OFF, OFF, 0, 0, 8MA), 			//	S_SENSOR_CLK
-	PIN_CFG(SPI0TXD, SSP0DO, 0, OFF, OFF, 0, 0, 8MA), 			//	S_SENSOR_TXD
-	PIN_CFG(SPI0RXD, SSP0DI, 0, OFF,  OFF, 0, 0, 8MA), 			//	S_SENSOR_RXD
-
-	/*HW Revision*/
-	PIN_CFG(GPIO26, GPIO26, 0, ON, OFF, 0, 0, 4MA), 			//	hw00 revision check
+	PIN_CFG(SPI0CLK, SIMCLK, 0, OFF, ON, 0, 0, 8MA), 			//	SIM_CLK
 };
 
 /* board level init */

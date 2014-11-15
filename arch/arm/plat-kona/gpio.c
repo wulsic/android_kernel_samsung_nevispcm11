@@ -33,6 +33,7 @@
 #include <mach/gpio.h>
 #include <mach/rdb/brcm_rdb_gpio.h>
 #include <mach/io_map.h>
+#include <mach/memory.h>
 
 #define KONA_GPIO_PASSWD (0x00a5a501)
 #define GPIO_PER_BANK (32)
@@ -215,11 +216,13 @@ static int kona_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
 static int kona_gpio_direction_output(struct gpio_chip *chip, unsigned gpio,
 				      int value)
 {
-	void __iomem *reg_base = kona_gpio.reg_base;
-	u32 val;
+	void * __iomem reg_base = kona_gpio.reg_base;
+	int bankId = GPIO_BANK(gpio);
+	int bit = GPIO_BIT(gpio);
+	u32 val, reg_offset;
 	unsigned long flags;
 
-	(void)chip;		/* unused input parameter */
+	(void)chip; /* unused input parameter */
 
 	spin_lock_irqsave(&kona_gpio.lock, flags);
 
@@ -228,12 +231,12 @@ static int kona_gpio_direction_output(struct gpio_chip *chip, unsigned gpio,
 	val |= GPIO_GPCTR0_IOTR_CMD_0UTPUT;
 	__raw_writel(val, reg_base + GPIO_CTRL(gpio));
 
-	val = __raw_readl(reg_base + GPIO_OUT_SET(GPIO_BANK(gpio)));
-	val =
-	    (value) ? (val | (1 << GPIO_BIT(gpio))) : (val &
-						       (~
-							(1 << GPIO_BIT(gpio))));
-	__raw_writel(val, reg_base + GPIO_OUT_SET(GPIO_BANK(gpio)));
+	reg_offset = value ? GPIO_OUT_SET(bankId) : GPIO_OUT_CLR(bankId);
+
+	val = __raw_readl(reg_base + reg_offset);
+	val |= 1 << bit;
+
+	__raw_writel(val, reg_base + reg_offset);
 
 	spin_unlock_irqrestore(&kona_gpio.lock, flags);
 
@@ -476,9 +479,20 @@ int __init kona_gpio_init(int num_bank)
 	struct kona_gpio_bank *bank;
 	int i;
 #ifdef CONFIG_KONA_ATAG_DT
-	uint32_t gpio, mask, j, val;
-	void __iomem *reg_base = kona_gpio.reg_base;
+	uint32_t gpio, mask, j;
 #endif
+
+#ifdef CONFIG_OF_GPIO
+	struct device_node *np = NULL;
+
+	/*
+	 * This isn't ideal, but it gets things hooked up until this
+	 * driver is converted into a platform_device
+	 */
+	np = of_find_compatible_node(NULL, NULL, "bcm,kona-gpio");
+	kona_gpio_chip.of_node = np;
+#endif
+
 
 	kona_gpio_reset(num_bank);
 
@@ -510,49 +524,15 @@ int __init kona_gpio_init(int num_bank)
 				if (mask & (1 << GPIO_BIT(gpio))) {
 					//printk(KERN_INFO "Configure GPIO%d to 0x%x\n", gpio, dt_gpio[gpio]);
 
+					gpio_request(gpio, "gpio");
 					if (dt_gpio[gpio] & DT_GPIO_INPUT) {
-						val =
-						    __raw_readl(reg_base +
-								GPIO_CTRL
-								(gpio));
-						val &= ~GPIO_GPCTR0_IOTR_MASK;
-						val |=
-						    GPIO_GPCTR0_IOTR_CMD_INPUT;
-						__raw_writel(val,
-							     reg_base +
-							     GPIO_CTRL(gpio));
+						gpio_direction_input(gpio);
 					} else {	/* output */
-						val =
-						    __raw_readl(reg_base +
-								GPIO_CTRL
-								(gpio));
-						val &= ~GPIO_GPCTR0_IOTR_MASK;
-						val |=
-						    GPIO_GPCTR0_IOTR_CMD_0UTPUT;
-						__raw_writel(val,
-							     reg_base +
-							     GPIO_CTRL(gpio));
-
-						val =
-						    __raw_readl(reg_base +
-								GPIO_OUT_SET
-								(GPIO_BANK
-								 (gpio)));
-						val =
-						    (dt_gpio[gpio] &
-						     DT_GPIO_OUTPUT_VAL) ? (val
-									    | (1
-									       <<
-									       GPIO_BIT
-									       (gpio)))
-						    : (val &
-						       (~
-							(1 << GPIO_BIT(gpio))));
-						__raw_writel(val,
-							     reg_base +
-							     GPIO_OUT_SET
-							     (GPIO_BANK(gpio)));
+						gpio_direction_output(gpio,
+							(dt_gpio[gpio] &
+							 DT_GPIO_OUTPUT_VAL));
 					}
+					gpio_free(gpio);
 					mask &= ~(1 << GPIO_BIT(gpio));
 				} else {
 					printk(KERN_ERR

@@ -26,11 +26,14 @@
 #include <linux/reboot.h>
 #include <linux/kmsg_dump.h>
 #include <linux/mfd/bcmpmu.h>
+#include <linux/module.h>
 #include <plat/kona_reset_reason.h>
 
 #ifdef CONFIG_KONA_TIMER_UNIT_TESTS
 #include <mach/kona_timer.h>
 #endif
+
+#include <mach/sram_config.h>
 
 struct kobject *bcm_kobj;
 
@@ -40,7 +43,10 @@ static char *str_reset_reason[] = {
 	"charging",
 	"ap_only",
 	"bootloader",
-	"recovery"
+	"recovery",
+#ifdef CONFIG_BCM_RTC_ALARM_BOOT
+	"rtc_alarm",
+#endif
 	"unknown"
 };
 
@@ -76,11 +82,20 @@ static unsigned int get_emu_reset_reason(unsigned int const emu)
 	return rst;
 }
 
+static void do_clear_emu_reset_reason(void)
+{
+	unsigned int *rst = (unsigned int *)ioremap(SRAM_RST_REASON_BASE, 0x4);
+
+	*rst = 0;
+
+	iounmap(rst);
+}
+
 unsigned int is_charging_state(void)
 {
 	unsigned int state;
 
-	state = get_emu_reset_reason(REG_EMU_AREA);
+	state = get_emu_reset_reason(SRAM_RST_REASON_BASE);
 
 	state = state & 0xf;
 
@@ -88,11 +103,11 @@ unsigned int is_charging_state(void)
 	return (state == CHARGING_STATE) ? 1 : 0;
 }
 
-
 void do_set_poweron_reset_boot(void)
 {
 	pr_info("%s\n", __func__);
-	set_emu_reset_reason(REG_EMU_AREA, POWERON_RESET);
+	do_clear_emu_reset_reason();
+	set_emu_reset_reason(SRAM_RST_REASON_BASE, POWERON_RESET);
 }
 EXPORT_SYMBOL(do_set_poweron_reset_boot);
 
@@ -100,21 +115,24 @@ EXPORT_SYMBOL(do_set_poweron_reset_boot);
 void do_set_bootloader_boot(void)
 {
 	pr_info("%s\n", __func__);
-	set_emu_reset_reason(REG_EMU_AREA, BOOTLOADER_BOOT);
+	do_clear_emu_reset_reason();
+	set_emu_reset_reason(SRAM_RST_REASON_BASE, BOOTLOADER_BOOT);
 }
 EXPORT_SYMBOL(do_set_bootloader_boot);
 
 void do_set_recovery_boot(void)
 {
 	pr_info("%s\n", __func__);
-	set_emu_reset_reason(REG_EMU_AREA, RECOVERY_BOOT);
+	do_clear_emu_reset_reason();
+	set_emu_reset_reason(SRAM_RST_REASON_BASE, RECOVERY_BOOT);
 }
 EXPORT_SYMBOL(do_set_recovery_boot);
 
 void do_set_ap_only_boot(void)
 {
 	pr_debug("%s\n", __func__);
-	set_emu_reset_reason(REG_EMU_AREA, AP_ONLY_BOOT);
+	do_clear_emu_reset_reason();
+	set_emu_reset_reason(SRAM_RST_REASON_BASE, AP_ONLY_BOOT);
 }
 EXPORT_SYMBOL(do_set_ap_only_boot);
 
@@ -122,13 +140,17 @@ void do_clear_ap_only_boot(void)
 {
 	unsigned int rst;
 
-	rst = get_emu_reset_reason(REG_EMU_AREA);
+	rst = get_emu_reset_reason(SRAM_RST_REASON_BASE);
 	rst = (rst & 0xf) & ~(AP_ONLY_BOOT);
 
-	set_emu_reset_reason(REG_EMU_AREA, rst);
+	set_emu_reset_reason(SRAM_RST_REASON_BASE, rst);
 }
 EXPORT_SYMBOL(do_clear_ap_only_boot);
 
+bool ap_only_boot;
+EXPORT_SYMBOL(ap_only_boot);
+
+core_param(ap_only_boot, ap_only_boot, bool, 0644);
 
 /**
  * This API checks to see if kernel boot is done for AP_ONLY mode
@@ -141,7 +163,10 @@ unsigned int is_ap_only_boot(void)
 {
 	unsigned int rst;
 
-	rst = get_emu_reset_reason(REG_EMU_AREA);
+	if (!ap_only_boot)
+		rst = get_emu_reset_reason(SRAM_RST_REASON_BASE);
+	else
+		rst = AP_ONLY_BOOT;
 	rst = rst & 0xf;
 
 	pr_debug("%s\n reset_reason = 0x%x", __func__, rst);
@@ -154,7 +179,7 @@ reset_reason_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	unsigned int index, rst;
 
-	rst = get_emu_reset_reason(REG_EMU_AREA);
+	rst = get_emu_reset_reason(SRAM_RST_REASON_BASE);
 
 	switch (rst) {
 	case 0x1:
@@ -172,6 +197,11 @@ reset_reason_show(struct device *dev, struct device_attribute *attr, char *buf)
 	case 0x6:
 		index = 5;
 		break;
+#ifdef CONFIG_BCM_RTC_ALARM_BOOT
+	case 0x7:
+		index = 6;
+		break;
+#endif
 	default:
 		index = 0;
 	}
@@ -198,7 +228,7 @@ reset_reason_store(struct device *dev, struct device_attribute *attr,
 				break;
 		}
 
-		set_emu_reset_reason(REG_EMU_AREA, (i + 1));
+		set_emu_reset_reason(SRAM_RST_REASON_BASE, (i + 1));
 
 		return n;
 	}

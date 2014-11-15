@@ -48,10 +48,6 @@
 
 #define TIMER_PERIOD 4
 
-#define BZHW_HOST_RESUME 1
-#define BZHW_HOST_SUSPEND 0
-
-int bcm_bzhw_host_state;
 /* BZHW states */
 enum bzhw_states_e {
 	BZHW_ASLEEP,
@@ -99,7 +95,7 @@ void bcm_bzhw_timer_bt_wake(unsigned long data)
 		__func__);
 
 		pi_mgr_qos_request_update(&priv->qos_node,
-				   PI_MGR_QOS_DEFAULT_VALUE);
+				      PI_MGR_QOS_DEFAULT_VALUE);
 		priv->bzhw_state = BZHW_ASLEEP;
 		del_timer(&sleep_timer_bw);
 #ifdef CONFIG_HAS_WAKELOCK
@@ -126,7 +122,7 @@ void bcm_bzhw_timer_bt_wake(unsigned long data)
 				__func__);
 		}
 	}
-	}
+}
 
 void bcm_bzhw_timer_host_wake(unsigned long data)
 {
@@ -285,8 +281,6 @@ int bcm_bzhw_assert_bt_wake(int bt_wake_gpio, struct pi_mgr_qos_node *lqos_node,
 	gpio_set_value(bt_wake_gpio, BZHW_BT_WAKE_ASSERT);
 	pr_debug("%s BLUETOOTH:ASSERT BT_WAKE\n", __func__);
 	rc = pi_mgr_qos_request_update(lqos_node, 0);
-	if (priv_g != NULL && priv_g->uport != NULL)
-		serial8250_togglerts_afe(priv_g->uport, 1);
 #ifdef CONFIG_HAS_WAKELOCK
 	if (priv_g != NULL) {
 		if (!wake_lock_active(&priv_g->bzhw_data.bt_wake_lock))
@@ -300,20 +294,18 @@ int bcm_bzhw_deassert_bt_wake(int bt_wake_gpio, int host_wake_gpio)
 {
 	int ret;
 	pr_debug("%s BLUETOOTH:DEASSERT BT_WAKE\n", __func__);
-	if (priv_g != NULL && priv_g->uport != NULL)
-		serial8250_togglerts_afe(priv_g->uport, 0);
 	gpio_set_value(bt_wake_gpio, BZHW_BT_WAKE_DEASSERT);
 	if (gpio_get_value(host_wake_gpio) == BZHW_HOST_WAKE_DEASSERT) {
 		ret = timer_pending(&sleep_timer_bw);
 		if (ret) {
 			pr_debug("%s: Bluetooth: Is timer pending Yes, so do nothing\n",
 			__func__);
-#ifdef CONFIG_HAS_WAKELOCK
-	if (priv_g != NULL) {
-		if (wake_lock_active(&priv_g->bzhw_data.bt_wake_lock))
-			wake_unlock(&priv_g->bzhw_data.bt_wake_lock);
-	}
-#endif
+		#ifdef CONFIG_HAS_WAKELOCK
+		if (priv_g != NULL) {
+			if (wake_lock_active(&priv_g->bzhw_data.bt_wake_lock))
+				wake_unlock(&priv_g->bzhw_data.bt_wake_lock);
+			}
+			#endif
 		} else {
 			pr_debug("%s: Bluetooth: Is timer pending : No\n",
 				__func__);
@@ -391,25 +383,19 @@ static irqreturn_t bcm_bzhw_host_wake_isr(int irq, void *dev)
 		wake_lock(&priv->bzhw_data.host_wake_lock);
 #endif
 		ret = pi_mgr_qos_request_update(&priv->qos_node, 0);
-		if (bcm_bzhw_host_state == BZHW_HOST_RESUME) {
-			if (priv_g != NULL && priv_g->uport != NULL)
-				serial8250_togglerts_afe(priv_g->uport, 1);
-		}
 		priv->bzhw_state = BZHW_AWAKE;
 		spin_unlock_irqrestore(&priv->bzhw_lock, flags);
 	} else {
 		pr_debug("%s BLUETOOTH: hostwake ISR DeAssert\n", __func__);
-		if (priv_g != NULL && priv_g->uport != NULL)
-			serial8250_togglerts_afe(priv_g->uport, 0);
-			if (priv->bzhw_state == BZHW_ASLEEP) {
-				spin_unlock_irqrestore(&priv->bzhw_lock, flags);
-			} else {
+		if (priv->bzhw_state == BZHW_ASLEEP) {
+			spin_unlock_irqrestore(&priv->bzhw_lock, flags);
+		} else {
 			priv->bzhw_state = BZHW_AWAKE_TO_ASLEEP;
 			mod_timer(&priv->sleep_timer_hw,
 				jiffies + TIMER_PERIOD*HZ);
-				spin_unlock_irqrestore(&priv->bzhw_lock, flags);
-			}
+		spin_unlock_irqrestore(&priv->bzhw_lock, flags);
 		}
+	}
 	return IRQ_HANDLED;
 }
 
@@ -458,7 +444,6 @@ struct bcmbzhw_struct *bcm_bzhw_start(struct tty_struct* tty)
 	int rc;
 	if (priv_g != NULL) {
 		pr_debug("%s: BLUETOOTH: data pointer is valid\n", __func__);
-		bcm_bzhw_host_state = BZHW_HOST_RESUME;
 		priv_g->bcmtty = tty;
 		state = tty->driver_data;
 		port = state->uart_port;
@@ -530,9 +515,8 @@ void bcm_bzhw_stop(struct bcmbzhw_struct *hw_val)
 	if (wake_lock_active(&hw_val->bzhw_data.bt_wake_lock))
 		wake_unlock(&hw_val->bzhw_data.bt_wake_lock);
 
-	/* unsigned value is always true */
-	/* if (hw_val->bzhw_data.host_irq >= 0) */
-	free_irq(hw_val->bzhw_data.host_irq, hw_val);
+	if (hw_val->bzhw_data.host_irq >= 0)
+		free_irq(hw_val->bzhw_data.host_irq, hw_val);
 
 }
 
@@ -569,18 +553,18 @@ static int bcm_bzhw_probe(struct platform_device *pdev)
 
 static int bcm_bzhw_remove(struct platform_device *pdev)
 {
-	struct bcm_bzhw_platform_data *pdata =
-		(struct bcm_bzhw_platform_data *)pdev->dev.platform_data;
+	struct bcmbzhw_struct *priv = NULL;
+	priv->pdata = pdev->dev.platform_data;
 
-	if (pdata) {
-		del_timer(&priv_g->sleep_timer_hw);
-		bcm_bzhw_clean_bt_wake(priv_g);
-		bcm_bzhw_clean_host_wake(priv_g);
-		if (pi_mgr_qos_request_remove(&priv_g->qos_node))
+	if (priv->pdata) {
+		del_timer(&priv->sleep_timer_hw);
+		bcm_bzhw_clean_bt_wake(priv);
+		bcm_bzhw_clean_host_wake(priv);
+		if (pi_mgr_qos_request_remove(&priv->qos_node))
 			pr_info("%s failed to unregister qos client\n",
 				__func__);
 	}
-	kfree(priv_g);
+	kfree(priv);
 	return 0;
 }
 
@@ -590,7 +574,6 @@ static int bcm_bzhw_suspend(struct platform_device *pdev, pm_message_t state)
 		return 0;
 	if (priv_g->uport != NULL)
 		serial8250_togglerts_afe(priv_g->uport, 0);
-	bcm_bzhw_host_state = BZHW_HOST_SUSPEND;
 	return 0;
 }
 
@@ -600,7 +583,6 @@ static int bcm_bzhw_resume(struct platform_device *pdev)
 		return 0;
 	if (priv_g->uport != NULL)
 		serial8250_togglerts_afe(priv_g->uport, 1);
-	bcm_bzhw_host_state = BZHW_HOST_RESUME;
 	return 0;
 }
 

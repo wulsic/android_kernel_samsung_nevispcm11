@@ -696,15 +696,16 @@ static int bcmpmu_i2c_probe(struct i2c_client *i2c,
 	bcmpmu = kzalloc(sizeof(struct bcmpmu), GFP_KERNEL);
 	if (bcmpmu == NULL) {
 		printk(KERN_ERR "%s: failed to alloc mem.\n", __func__);
+		kfree(i2c);
 		ret = -ENOMEM;
-		goto err_alloc_bcmpmu;
+		goto err;
 	}
 
 	bcmpmu_i2c = kzalloc(sizeof(struct bcmpmu_i2c), GFP_KERNEL);
 	if (bcmpmu_i2c == NULL) {
 		printk(KERN_ERR "%s: failed to alloc mem.\n", __func__);
 		ret = -ENOMEM;
-		goto err_alloc_bcmpmu_i2c;
+		goto err;
 	}
 
 	i2c_set_clientdata(i2c, bcmpmu);
@@ -714,11 +715,8 @@ static int bcmpmu_i2c_probe(struct i2c_client *i2c,
 	adp = i2c_get_adapter(pdata->i2c_adapter_id);
 	clt = i2c_new_dummy(adp, pdata->i2c_board_info_map1->addr);
 	if (!clt)
-	{
-		printk(KERN_ERR "%s: add new device for map1 failed\n", __func__);
-   	ret = -ENOMEM;
-		goto err_add_clt;
-	}
+		printk(KERN_ERR "%s: add new device for map1 failed\n",
+		       __func__);
 
 	clt->dev.platform_data = pdata;
 	bcmpmu_i2c->i2c_client1 = clt;
@@ -733,7 +731,7 @@ static int bcmpmu_i2c_probe(struct i2c_client *i2c,
 	/**
 	 * Initialize the power manager sequencer
 	 */
-	rhea_pwr_mgr_init_sequencer();
+	mach_init_sequencer();
 	bcmpmu->read_dev = bcmpmu_i2c_pwrmgr_read;
 	bcmpmu->write_dev = bcmpmu_i2c_pwrmgr_write;
 	bcmpmu->read_dev_drct = bcmpmu_i2c_pwrmgr_read_direct;
@@ -757,21 +755,13 @@ static int bcmpmu_i2c_probe(struct i2c_client *i2c,
 	bcmpmu->accinfo = bcmpmu_i2c;
 
 	bcmpmu_core_device.dev.platform_data = bcmpmu;
-	ret = platform_device_register(&bcmpmu_core_device);
-	if(ret < 0)
-		goto err_reg_plat;
+	platform_device_register(&bcmpmu_core_device);
 
 	return ret;
 
-err_reg_plat:
-	i2c_unregister_device(clt);
-err_add_clt:
-	kfree(bcmpmu_i2c);
-err_alloc_bcmpmu_i2c:
+      err:
+	kfree(bcmpmu->accinfo);
 	kfree(bcmpmu);
-err_alloc_bcmpmu:
-	kfree(i2c);
-
 	return ret;
 }
 

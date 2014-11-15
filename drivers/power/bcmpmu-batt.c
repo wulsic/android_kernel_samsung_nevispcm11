@@ -24,15 +24,10 @@
 #include <linux/fs.h>
 
 #include <linux/mfd/bcmpmu.h>
-
-#define BATT_TYPE "SDI_SDI"
-
 #define BCMPMU_PRINT_ERROR (1U << 0)
 #define BCMPMU_PRINT_INIT (1U << 1)
 #define BCMPMU_PRINT_FLOW (1U << 2)
 #define BCMPMU_PRINT_DATA (1U << 3)
-
-#define CONFIG_SEC_BATT_EXT_ATTRS 1
 
 static int debug_mask = BCMPMU_PRINT_ERROR | BCMPMU_PRINT_INIT;
 #define pr_batt(debug_level, args...) \
@@ -42,24 +37,10 @@ static int debug_mask = BCMPMU_PRINT_ERROR | BCMPMU_PRINT_INIT;
 		} \
 	} while (0)
 
-struct ss_batt_status {
-	int capacity;
-	int voltage;
-	int temp;
-	int temp_adc;
-	int present;
-	int capacity_lvl;
-	int status;
-	int health;
-	int lp_charging;
-	int charging_source;
-};
-
 struct bcmpmu_batt {
 	struct bcmpmu *bcmpmu;
 	struct power_supply batt;
-	//struct bcmpmu_batt_state state;
-	struct ss_batt_status state;
+	struct bcmpmu_batt_state state;
 	wait_queue_head_t wait;
 	struct mutex lock;
 	char model[30];
@@ -69,7 +50,6 @@ struct bcmpmu_batt {
 static void bcmpmu_batt_isr(enum bcmpmu_irq irq, void *data)
 {
 	struct bcmpmu_batt *pbatt = (struct bcmpmu_batt *)data;
-  struct bcmpmu *bcmpmu = pbatt->bcmpmu;
 
 	switch (irq) {
 	case PMU_IRQ_BATRM:
@@ -112,7 +92,6 @@ static enum power_supply_property bcmpmu_batt_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_TEMP,
-	POWER_SUPPLY_PROP_BATT_TEMP_ADC,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 };
@@ -143,7 +122,7 @@ static int bcmpmu_get_batt_property(struct power_supply *battery,
 		break;
 
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		propval->intval = pbatt->state.voltage * 1000;
+		propval->intval = pbatt->state.voltage;
 		break;
 
 	case POWER_SUPPLY_PROP_TEMP:
@@ -162,9 +141,6 @@ static int bcmpmu_get_batt_property(struct power_supply *battery,
 		propval->strval = pbatt->model;
 		break;
 
-	case POWER_SUPPLY_PROP_BATT_TEMP_ADC:
-		propval->intval = pbatt->state.temp_adc;
-		break;
 	default:
 		ret = -EINVAL;
 		break;
@@ -203,10 +179,6 @@ static int bcmpmu_set_batt_property(struct power_supply *ps,
 
 	case POWER_SUPPLY_PROP_PRESENT:
 		pbatt->state.present = propval->intval;
-		break;
-
-	case POWER_SUPPLY_PROP_BATT_TEMP_ADC:
-		pbatt->state.temp_adc = propval->intval;
 		break;
 
 	default:
@@ -250,9 +222,8 @@ reset_store(struct device *dev, struct device_attribute *attr,
 {
 	struct bcmpmu *bcmpmu = dev->platform_data;
 	unsigned long val = simple_strtoul(buf, NULL, 0);
-	if ((val == 1) && (bcmpmu->em_reset))
+	if ((val == 0) && (bcmpmu->em_reset))
 		bcmpmu->em_reset(bcmpmu);	
-   
 	return count;
 }
 
@@ -267,7 +238,6 @@ reset_show(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%d\n", status);
 }
 
-
 static DEVICE_ATTR(reset, 0644, reset_show, reset_store);
 static struct attribute *bcmpmu_batt_attrs[] = {
 	&dev_attr_reset.attr,
@@ -277,178 +247,6 @@ static const struct attribute_group bcmpmu_batt_attr_group = {
 	.attrs = bcmpmu_batt_attrs,
 };
 
-#if defined(CONFIG_SEC_BATT_EXT_ATTRS)
-enum
-{
-	SS_BATT_LP_CHARGING,
-	SS_BATT_CHARGING_SOURCE,
-	SS_BATT_TEMP_AVER,
-	SS_BATT_TEMP_ADC_AVER,
-	SS_BATT_TYPE,
-	SS_BATT_READ_ADJ_SOC,
-	SS_BATT_RESET_SOC,
-};
-
-static ssize_t ss_batt_ext_attrs_show(struct device *pdev, struct device_attribute *attr, char *buf);
-static ssize_t ss_batt_ext_attrs_store(struct device *pdev, struct device_attribute *attr, const char *buf, size_t count);
-
-static struct device_attribute ss_batt_ext_attrs[]=
-{
-	__ATTR(batt_lp_charging, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store),
-	__ATTR(batt_charging_source, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store),
-	__ATTR(batt_temp_aver, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store),
-	__ATTR(batt_temp_adc_aver, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store),
-	__ATTR(batt_type, 0644, ss_batt_ext_attrs_show, NULL),
-	__ATTR(batt_read_adj_soc, 0644, ss_batt_ext_attrs_show , NULL),
-	__ATTR(batt_reset_soc, 0664, NULL, ss_batt_ext_attrs_store),
-};
-
-static ssize_t ss_batt_ext_attrs_show(struct device *pdev, struct device_attribute *attr, char *buf)
-{
-	ssize_t count=0;
-	int lp_charging=0;
-
-	struct bcmpmu *bcmpmu=pdev->parent->platform_data;
-	struct bcmpmu_batt *pbatt=(struct bcmpmu_batt *)bcmpmu->battinfo;
-
-	const ptrdiff_t off = attr-ss_batt_ext_attrs;
-
-
-	struct power_supply *ps;
-	union power_supply_propval propval;
-	propval.intval=0;
-	propval.strval=0;
-
-	ps=power_supply_get_by_name("charger");
-
-	if(ps==0)
-	{
-		printk("%s: Failed to get power_supply charger\n",__func__);
-		return 0;
-	}
-
-	switch(off)
-	{
-		case SS_BATT_LP_CHARGING:
-			//lp_charging = (0 != pbatt->state.lp_charging)? 1:0;
-			lp_charging = pbatt->state.lp_charging;
-			count+=scnprintf(buf+count, PAGE_SIZE-count, "%d\n", lp_charging);
-			break;
-		case SS_BATT_CHARGING_SOURCE:
-			{
-				unsigned int charger_type=0;
-				unsigned int bc_status=0;
-				bc_status=bcmpmu->accy_info_get(bcmpmu, SS_ACCY_GET_BC_STATUS);
-				switch(bc_status)
-				{
-					case PMU_CHRGR_TYPE_DCP:
-						charger_type=POWER_SUPPLY_TYPE_MAINS;
-					case PMU_CHRGR_TYPE_SDP:
-					case PMU_CHRGR_TYPE_CDP:
-						charger_type=POWER_SUPPLY_TYPE_USB;
-						break;
-					default:
-						break;
-				}
-				count+=scnprintf(buf+count, PAGE_SIZE-count, "%d\n", charger_type);
-			}
-			break;
-		case SS_BATT_TEMP_AVER:
-			{
-				int i=0;
-				int temp_aver=0;
-
-				for(i=0; i<5 ; i++)
-				{
-					temp_aver+=pbatt->state.temp;
-					temp_aver/=5;
-					msleep(100);
-				}
-
-				count+=scnprintf(buf+count, PAGE_SIZE-count, "%d\n", temp_aver);
-			}
-			break;
-		case SS_BATT_TEMP_ADC_AVER:
-			{
-				int i=0;
-				int temp_adc_aver=0;
-
-				for(i=0 ; i < 5 ; i++)
-				{
-					temp_adc_aver+=pbatt->state.temp_adc;
-					temp_adc_aver/=5;
-					msleep(100);
-				}
-
-				count+=scnprintf(buf+count, PAGE_SIZE-count, "%d\n", temp_adc_aver);
-			}
-			break;
-		case SS_BATT_TYPE:
-			count+=scnprintf(buf+count, PAGE_SIZE-count, "%s\n", BATT_TYPE);
-			break;
-		case SS_BATT_READ_ADJ_SOC:
-			count+=scnprintf(buf+count, PAGE_SIZE-count, "%d\n", pbatt->state.capacity);
-			break;
-		default:
-			break;
-	}
-
-
-	return count;
-}
-
-static ssize_t ss_batt_ext_attrs_store(struct device *pdev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct bcmpmu *bcmpmu=pdev->parent->platform_data;
-	struct bcmpmu_batt *pbatt=(struct bcmpmu_batt *)bcmpmu->battinfo;
-
-	const ptrdiff_t off = attr-ss_batt_ext_attrs;
-
-	struct power_supply *ps;
-	union power_supply_propval propval;
-	propval.intval=0;
-	propval.strval=0;
-
-	ps=power_supply_get_by_name("charger");
-
-	if(ps==0)
-	{
-		printk("%s: Failed to get power_supply charger\n",__func__);
-	return 0;
-}
-
-	switch(off)
-	{
-		case SS_BATT_RESET_SOC:
-			{
-				count=0;
-
-				unsigned long val = simple_strtoul(buf, NULL, 0);
-				if ((val == 1) && (bcmpmu->em_reset))
-					bcmpmu->em_reset(bcmpmu);	
-			}
-			break;
-		default:
-			break;
-	}
-
-	return count;
-}
-
-// poweroff charging : check for charging mode.
-//DEVICE_ATTR(batt_lp_charging, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store);
-//DEVICE_ATTR(batt_charging_source, 0644, ss_batt_ext_attrs_show, ss_batt_ext_attrs_store);
-
-unsigned int lp_boot_mode;
-static int get_boot_mode(char *str)
-{
-	get_option(&str, &lp_boot_mode);
-
-	return 1;
-}
-__setup("lpcharge=",get_boot_mode);
-
-#endif
 
 static int __devinit bcmpmu_batt_probe(struct platform_device *pdev)
 {
@@ -483,34 +281,6 @@ static int __devinit bcmpmu_batt_probe(struct platform_device *pdev)
 	if (ret)
 		goto err;
 
-	pbatt->batt.dev->platform_data = (void *)(pbatt->bcmpmu);
-
-	//pbatt->state.lp_charging=pbatt->bcmpmu->ss_check_lp_charging(pbatt->bcmpmu);
-	pbatt->state.lp_charging=lp_boot_mode;
-
-	#if defined(CONFIG_SEC_BATT_EXT_ATTRS)
-	{
-		int i=0;
-		for(i=0; i < ARRAY_SIZE(ss_batt_ext_attrs) ; i++)
-		{
-			device_create_file(pbatt->batt.dev, &ss_batt_ext_attrs[i]);
-		}
-	}
-	#endif
-
-	// hot temp. for stop : 60'C, 0x3F
-	bcmpmu->write_dev_drct(bcmpmu, 0, 0x13, 0x3F, 0xFF);
-	// hot temp. for restore : 40'C, 0x78
-	bcmpmu->write_dev_drct(bcmpmu, 0, 0x14, 0x78, 0xFF);
-	// cold temp. for stop : -5'C, 0x21B => 0b10, 0x1B
-	bcmpmu->write_dev_drct(bcmpmu, 0, 0x16, 0x1B, 0xFF);
-	// cold temp. for restore : 0'C, 0x1CF => 0b01, 0xCF
-	bcmpmu->write_dev_drct(bcmpmu, 0, 0x15, 0xCF, 0xFF);
-	// set high 2bit for cold temp.
-	// NTCHT_rise / NTCHT_fall / NTCCT_rise / NTCCT_fall
-	//	00			00				01			10      => 0x06
-	bcmpmu->write_dev_drct(bcmpmu, 0, 0x1D, 0x6, 0xFF);
-
 	bcmpmu->register_irq(bcmpmu, PMU_IRQ_BATINS, bcmpmu_batt_isr, pbatt);
 	bcmpmu->register_irq(bcmpmu, PMU_IRQ_BATRM, bcmpmu_batt_isr, pbatt);
 	bcmpmu->register_irq(bcmpmu, PMU_IRQ_GBAT_PLUG_IN, bcmpmu_batt_isr, pbatt);
@@ -534,7 +304,6 @@ static int __devinit bcmpmu_batt_probe(struct platform_device *pdev)
 	ret = sysfs_create_group(&pdev->dev.kobj, &bcmpmu_batt_dbg_attr_group);
 #endif
 	ret = sysfs_create_group(&pdev->dev.kobj, &bcmpmu_batt_attr_group);
-
 	return 0;
 
 err:
@@ -561,16 +330,6 @@ static int __devexit bcmpmu_batt_remove(struct platform_device *pdev)
 	bcmpmu->unregister_irq(bcmpmu, PMU_IRQ_BBLOW);
 	bcmpmu->unregister_irq(bcmpmu, PMU_IRQ_LOWBAT);
 	bcmpmu->unregister_irq(bcmpmu, PMU_IRQ_VERYLOWBAT);
-
-	#if defined(CONFIG_SEC_BATT_EXT_ATTRS)
-	{
-		int i=0;
-		for(i=0; i < ARRAY_SIZE(ss_batt_ext_attrs) ; i++)
-		{
-			device_remove_file(pbatt->batt.dev, &ss_batt_ext_attrs[i]);
-		}
-	}
-	#endif
 #ifdef CONFIG_MFD_BCMPMU_DBG
 	sysfs_remove_group(&pdev->dev.kobj, &bcmpmu_batt_attr_group);
 #endif

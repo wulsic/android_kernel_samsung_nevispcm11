@@ -13,8 +13,16 @@
 #*****************************************************************************
 obj-y += chal_keypad.o
 obj-$(CONFIG_ARCH_RHEA) += chal_aci.o
-obj-$(CONFIG_FB_BRCM_RHEA) += chal_dsi.o chal_smi.o chal_dma_vc4lite.o \
-	chal_tectl_vc4lite.o chal_spi_vc4lite.o chal_keypad.o
+obj-$(CONFIG_ARCH_HAWAII) += chal_aci.o
+ifeq ($(CONFIG_SPLIT_VIDEO_CMD_MODE_INTERFACE),y)
+obj-$(CONFIG_KONA_DSI) += chal_dsi_video.o
+else
+obj-$(CONFIG_KONA_DSI) += chal_dsi.o
+endif
+obj-$(CONFIG_KONA_SMI) += chal_smi.o
+obj-$(CONFIG_KONA_VC4LITE) += chal_dma_vc4lite.o \
+	chal_tectl_vc4lite.o chal_spi_vc4lite.o
+obj-$(CONFIG_KONA_KEYPAD) += chal_keypad.o
 obj-$(CONFIG_BCM_STM) += chal_trace.o
 obj-$(CONFIG_SPI_SSPI_KONA) += chal_sspi.o
 obj-$(CONFIG_KONA_CHAL_CAMERA) += chal_cam.o

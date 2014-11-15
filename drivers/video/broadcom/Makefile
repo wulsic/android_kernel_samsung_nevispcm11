@@ -1,5 +1,6 @@
-EXTRA_CFLAGS += -D_RHEA_
+obj-y += lcd/
+obj-y += pv/
+obj-y += axipv/
+obj-y += dsi/
 
-obj-y += /lcd/
-
-obj-y += rhea_fb.o
+obj-$(CONFIG_FB_BRCM_KONA) += kona_fb.o

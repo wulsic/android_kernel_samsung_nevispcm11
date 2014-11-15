@@ -26,11 +26,12 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/module.h>
 #include <asm/mach/arch.h>
 #include <mach/io_map.h>
+#include <mach/memory.h>
 #include <mach/rdb/brcm_rdb_root_rst_mgr_reg.h>
 #include <mach/rdb/brcm_rdb_chipreg.h>
 #include <mach/rdb/brcm_rdb_mm_clk_mgr_reg.h>
@@ -43,7 +44,6 @@
 #include <mach/pi_mgr.h>
 #include <plat/pwr_mgr.h>
 #include <plat/pi_mgr.h>
-#include <mach/pm.h>
 
 #include "pm_params.h"
 
@@ -91,11 +91,8 @@ static struct pi_state arm_core_states[] = {
 #ifdef CONFIG_RHEA_A9_RETENTION_CSTATE
 	PI_STATE(ARM_CORE_STATE_RETENTION, RETN_POLICY, 100, 0),
 #endif
-	PI_STATE(ARM_CORE_STATE_DORMANT, RETN_POLICY, RHEA_C4_TARGET_RESIDENCY
-							, 0),
+	PI_STATE(ARM_CORE_STATE_DORMANT, RETN_POLICY, 10000, 0),
 
-	PI_STATE(ARM_CORE_STATE_DS_DORMANT,
-		RETN_POLICY,RHEA_C5_TARGET_RESIDENCY, 0),
 };
 #ifdef CONFIG_KONA_PI_DFS_STATS
 static cputime64_t arm_core_time_in_state[ARM_PI_NUM_OPP];

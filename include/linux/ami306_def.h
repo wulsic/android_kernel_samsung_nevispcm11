@@ -26,14 +26,12 @@ typedef unsigned long u32;
 #define AMI_OVERFLOW	-20		/**< mag overflow */
 #define	AMI_ERROR	-99		/**< other Error  */
 
-/* Self Test result code */
 #define AMI_ST_OK			0	/* OK */
 #define AMI_ST_ERR_COMMUNICATION	1	/* Communication Error */
 #define AMI_ST_ERR_OTP			2	/* OTP Error */
 #define AMI_ST_ERR_TEMP_SENSOR		3	/* Temp sensor Error */
 #define AMI_ST_ERR_MI_ELEMENT		4	/* MI element Error */
 #define AMI_ST_ERR_DIGITAL_CIRCUIT	5	/* Digital circuit Error */
-
 /******************************************************************************
  Struct definition
  ******************************************************************************/
@@ -94,5 +92,6 @@ struct ami306_platform_data {
 	int gpio_drdy;
 	int dir;
 	int polarity;
+	const char *supply_name;
 };
 #endif

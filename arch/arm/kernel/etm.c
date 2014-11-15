@@ -25,6 +25,7 @@
 #include <linux/miscdevice.h>
 #include <linux/vmalloc.h>
 #include <linux/mutex.h>
+#include <linux/module.h>
 #include <asm/hardware/coresight.h>
 #include <asm/sections.h>
 
@@ -42,6 +43,7 @@ struct tracectx {
 	unsigned long	flags;
 	int		ncmppairs;
 	int		etm_portsz;
+	int		etm_contextid_size;
 	u32		etb_fc;
 	unsigned long	range_start;
 	unsigned long	range_end;
@@ -50,6 +52,10 @@ struct tracectx {
 	bool		dump_initial_etb;
 	struct device	*dev;
 	struct clk	*emu_clk;
+#ifdef	ETM_BRCM_MOD
+	struct clk	*tpiu_clk;
+	struct clk	*pti_clk;
+#endif
 	struct mutex	mutex;
 };
 
@@ -108,12 +114,22 @@ static int trace_start_etm(struct tracectx *t, int id)
 	unsigned long timeout = TRACER_TIMEOUT;
 
 	v = ETMCTRL_OPTS | ETMCTRL_PROGRAM | ETMCTRL_PORTSIZE(t->etm_portsz);
+	v |= ETMCTRL_CONTEXTIDSIZE(t->etm_contextid_size);
 
 	if (t->flags & TRACER_CYCLE_ACC)
 		v |= ETMCTRL_CYCLEACCURATE;
 
+	if (t->flags & TRACER_BRANCHOUTPUT)
+		v |= ETMCTRL_BRANCH_OUTPUT;
+
 	if (t->flags & TRACER_TRACE_DATA)
 		v |= ETMCTRL_DATA_DO_ADDR;
+
+	if (t->flags & TRACER_TIMESTAMP)
+		v |= ETMCTRL_TIMESTAMP_EN;
+
+	if (t->flags & TRACER_RETURN_STACK)
+		v |= ETMCTRL_RETURN_STACK_EN;
 
 	etm_unlock(t, id);
 
@@ -172,6 +188,10 @@ static int trace_start(struct tracectx *t)
 	int id;
 	u32 etb_fc = t->etb_fc;
 
+#ifdef ETM_BRCM_MOD
+	clk_enable(t->tpiu_clk);
+	clk_enable(t->pti_clk);
+#endif
 	etb_unlock(t);
 
 	t->dump_initial_etb = false;
@@ -199,11 +219,13 @@ static int trace_stop_etm(struct tracectx *t, int id)
 
 	etm_unlock(t, id);
 
-	etm_writel(t, id, 0x441, ETMR_CTRL);
+	etm_writel(t, id, 0x440, ETMR_CTRL);
 	while (!(etm_readl(t, id, ETMR_CTRL) & ETMCTRL_PROGRAM) && --timeout)
 		;
 	if (!timeout) {
-		dev_dbg(t->dev, "Waiting for progbit to assert timed out\n");
+		dev_err(t->dev,
+			"etm%d: Waiting for progbit to assert timed out\n",
+			id);
 		etm_lock(t, id);
 		return -EFAULT;
 	}
@@ -212,18 +234,36 @@ static int trace_stop_etm(struct tracectx *t, int id)
 	return 0;
 }
 
+static int trace_power_down_etm(struct tracectx *t, int id)
+{
+	unsigned long timeout = TRACER_TIMEOUT;
+	etm_unlock(t, id);
+	while (!(etm_readl(t, id, ETMR_STATUS) & ETMST_PROGBIT) && --timeout)
+		;
+	if (!timeout) {
+		dev_err(t->dev, "etm%d: Waiting for status progbit to assert timed out\n",
+			id);
+		etm_lock(t, id);
+		return -EFAULT;
+	}
+
+	etm_writel(t, id, 0x441, ETMR_CTRL);
+
+	etm_lock(t, id);
+	return 0;
+}
+
 static int trace_stop(struct tracectx *t)
 {
 	int id;
-	int ret;
 	unsigned long timeout = TRACER_TIMEOUT;
 	u32 etb_fc = t->etb_fc;
 
-	for (id = 0; id < t->etm_regs_count; id++) {
-		ret = trace_stop_etm(t, id);
-		if (ret)
-			return ret;
-	}
+	for (id = 0; id < t->etm_regs_count; id++)
+		trace_stop_etm(t, id);
+
+	for (id = 0; id < t->etm_regs_count; id++)
+		trace_power_down_etm(t, id);
 
 	etb_unlock(t);
 	if (etb_fc) {
@@ -249,6 +289,10 @@ static int trace_stop(struct tracectx *t)
 
 	t->flags &= ~TRACER_RUNNING;
 
+#ifdef ETM_BRCM_MOD
+	clk_disable(t->tpiu_clk);
+	clk_disable(t->pti_clk);
+#endif
 	return 0;
 }
 
@@ -316,6 +360,7 @@ static struct sysrq_key_op sysrq_etm_op = {
 	.action_msg = "etm",
 };
 
+#ifndef ETM_BRCM_MOD
 static int etb_open(struct inode *inode, struct file *file)
 {
 	if (!tracer.etb_regs)
@@ -408,12 +453,36 @@ static struct miscdevice etb_miscdev = {
 	.minor = 0,
 	.fops = &etb_fops,
 };
+#endif
 
 static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id)
 {
 	struct tracectx *t = &tracer;
 	int ret = 0;
+#ifdef ETM_BRCM_MOD
+	struct etb_platform_data *etb_data = dev->dev.platform_data;
 
+	if (!etb_data)
+		return -EINVAL;
+
+	etb_data->config_funnels();
+
+	/* TPIU & PTI clocks should be enabled. Otherwise
+	 * Replicators will stall */
+	t->tpiu_clk = clk_get(&dev->dev, etb_data->tpiu_clk_name);
+	if (IS_ERR(t->tpiu_clk)) {
+		dev_dbg(&dev->dev, "Failed to obtain %s.\n",
+				etb_data->tpiu_clk_name);
+		return -ENODEV;
+	}
+
+	t->pti_clk = clk_get(&dev->dev, etb_data->pti_clk_name);
+	if (IS_ERR(t->pti_clk)) {
+		dev_dbg(&dev->dev, "Failed to obtain %s.\n",
+				etb_data->pti_clk_name);
+		return -ENODEV;
+	}
+#endif
 	ret = amba_request_regions(dev, NULL);
 	if (ret)
 		goto out;
@@ -438,7 +507,13 @@ static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id
 	etb_writel(t, 0x1000, ETBR_FORMATTERCTRL);
 	etb_lock(t);
 	mutex_unlock(&t->mutex);
-
+	/*
+	* This is not required at the moment.
+	* Android is not booting with this enabled.
+	* we are not using misc device to read the etb buffer
+	* To be revisited.
+	*/
+#ifndef ETM_BRCM_MOD
 	etb_miscdev.parent = &dev->dev;
 
 	ret = misc_register(&etb_miscdev);
@@ -447,6 +522,9 @@ static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id
 
 	/* Get optional clock. Currently used to select clock source on omap3 */
 	t->emu_clk = clk_get(&dev->dev, "emu_src_ck");
+#else
+	t->emu_clk = clk_get(&dev->dev, "etb_apb");
+#endif
 	if (IS_ERR(t->emu_clk))
 		dev_dbg(&dev->dev, "Failed to obtain emu_src_ck.\n");
 	else
@@ -456,12 +534,13 @@ static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id
 
 out:
 	return ret;
-
+#ifndef	ETM_BRCM_MOD
 out_unmap:
 	mutex_lock(&t->mutex);
 	amba_set_drvdata(dev, NULL);
 	iounmap(t->etb_regs);
 	t->etb_regs = NULL;
+#endif
 
 out_release:
 	mutex_unlock(&t->mutex);
@@ -626,6 +705,133 @@ static ssize_t trace_mode_store(struct kobject *kobj,
 static struct kobj_attribute trace_mode_attr =
 	__ATTR(trace_mode, 0644, trace_mode_show, trace_mode_store);
 
+static ssize_t trace_contextid_size_show(struct kobject *kobj,
+					 struct kobj_attribute *attr,
+					 char *buf)
+{
+	/* 0: No context id tracing, 1: One byte, 2: Two bytes, 3: Four bytes */
+	return sprintf(buf, "%d\n", (1 << tracer.etm_contextid_size) >> 1);
+}
+
+static ssize_t trace_contextid_size_store(struct kobject *kobj,
+					  struct kobj_attribute *attr,
+					  const char *buf, size_t n)
+{
+	unsigned int contextid_size;
+
+	if (sscanf(buf, "%u", &contextid_size) != 1)
+		return -EINVAL;
+
+	if (contextid_size == 3 || contextid_size > 4)
+		return -EINVAL;
+
+	mutex_lock(&tracer.mutex);
+	tracer.etm_contextid_size = fls(contextid_size);
+	mutex_unlock(&tracer.mutex);
+
+	return n;
+}
+
+static struct kobj_attribute trace_contextid_size_attr =
+	__ATTR(trace_contextid_size, 0644,
+		trace_contextid_size_show, trace_contextid_size_store);
+
+static ssize_t trace_branch_output_show(struct kobject *kobj,
+					struct kobj_attribute *attr,
+					char *buf)
+{
+	return sprintf(buf, "%d\n", !!(tracer.flags & TRACER_BRANCHOUTPUT));
+}
+
+static ssize_t trace_branch_output_store(struct kobject *kobj,
+					 struct kobj_attribute *attr,
+					 const char *buf, size_t n)
+{
+	unsigned int branch_output;
+
+	if (sscanf(buf, "%u", &branch_output) != 1)
+		return -EINVAL;
+
+	mutex_lock(&tracer.mutex);
+	if (branch_output) {
+		tracer.flags |= TRACER_BRANCHOUTPUT;
+		/* Branch broadcasting is incompatible with the return stack */
+		tracer.flags &= ~TRACER_RETURN_STACK;
+	} else {
+		tracer.flags &= ~TRACER_BRANCHOUTPUT;
+	}
+	mutex_unlock(&tracer.mutex);
+
+	return n;
+}
+
+static struct kobj_attribute trace_branch_output_attr =
+	__ATTR(trace_branch_output, 0644,
+		trace_branch_output_show, trace_branch_output_store);
+
+static ssize_t trace_return_stack_show(struct kobject *kobj,
+				  struct kobj_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "%d\n", !!(tracer.flags & TRACER_RETURN_STACK));
+}
+
+static ssize_t trace_return_stack_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t n)
+{
+	unsigned int return_stack;
+
+	if (sscanf(buf, "%u", &return_stack) != 1)
+		return -EINVAL;
+
+	mutex_lock(&tracer.mutex);
+	if (return_stack) {
+		tracer.flags |= TRACER_RETURN_STACK;
+		/* Return stack is incompatible with branch broadcasting */
+		tracer.flags &= ~TRACER_BRANCHOUTPUT;
+	} else {
+		tracer.flags &= ~TRACER_RETURN_STACK;
+	}
+	mutex_unlock(&tracer.mutex);
+
+	return n;
+}
+
+static struct kobj_attribute trace_return_stack_attr =
+	__ATTR(trace_return_stack, 0644,
+		trace_return_stack_show, trace_return_stack_store);
+
+static ssize_t trace_timestamp_show(struct kobject *kobj,
+				  struct kobj_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "%d\n", !!(tracer.flags & TRACER_TIMESTAMP));
+}
+
+static ssize_t trace_timestamp_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t n)
+{
+	unsigned int timestamp;
+
+	if (sscanf(buf, "%u", &timestamp) != 1)
+		return -EINVAL;
+
+	mutex_lock(&tracer.mutex);
+	if (timestamp)
+		tracer.flags |= TRACER_TIMESTAMP;
+	else
+		tracer.flags &= ~TRACER_TIMESTAMP;
+	mutex_unlock(&tracer.mutex);
+
+	return n;
+}
+
+static struct kobj_attribute trace_timestamp_attr =
+	__ATTR(trace_timestamp, 0644,
+		trace_timestamp_show, trace_timestamp_store);
+
 static ssize_t trace_range_show(struct kobject *kobj,
 				  struct kobj_attribute *attr,
 				  char *buf)
@@ -703,6 +909,10 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 	int ret = 0;
 	void __iomem **new_regs;
 	int new_count;
+	u32 etmccr;
+	u32 etmidr;
+	u32 etmccer = 0;
+	u8 etm_version = 0;
 
 	mutex_lock(&t->mutex);
 	new_count = t->etm_regs_count + 1;
@@ -729,15 +939,23 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 
 	amba_set_drvdata(dev, t->etm_regs[t->etm_regs_count]);
 
-	t->flags = TRACER_CYCLE_ACC | TRACER_TRACE_DATA;
+	t->flags = TRACER_CYCLE_ACC | TRACER_TRACE_DATA | TRACER_BRANCHOUTPUT;
 	t->etm_portsz = 1;
+	t->etm_contextid_size = 3;
 
 	etm_unlock(t, t->etm_regs_count);
 	(void)etm_readl(t, t->etm_regs_count, ETMMR_PDSR);
 	/* dummy first read */
 	(void)etm_readl(&tracer, t->etm_regs_count, ETMMR_OSSRR);
 
-	t->ncmppairs = etm_readl(t, t->etm_regs_count, ETMR_CONFCODE) & 0xf;
+	etmccr = etm_readl(t, t->etm_regs_count, ETMR_CONFCODE);
+	t->ncmppairs = etmccr & 0xf;
+	if (etmccr & ETMCCR_ETMIDR_PRESENT) {
+		etmidr = etm_readl(t, t->etm_regs_count, ETMR_ID);
+		etm_version = ETMIDR_VERSION(etmidr);
+		if (etm_version >= ETMIDR_VERSION_3_1)
+			etmccer = etm_readl(t, t->etm_regs_count, ETMR_CCE);
+	}
 	etm_writel(t, t->etm_regs_count, 0x441, ETMR_CTRL);
 	etm_writel(t, t->etm_regs_count, new_count, ETMR_TRACEIDR);
 	etm_lock(t, t->etm_regs_count);
@@ -756,14 +974,47 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 	if (ret)
 		dev_dbg(&dev->dev, "Failed to create trace_mode in sysfs\n");
 
+	ret = sysfs_create_file(&dev->dev.kobj,
+				&trace_contextid_size_attr.attr);
+	if (ret)
+		dev_dbg(&dev->dev,
+			"Failed to create trace_contextid_size in sysfs\n");
+
+	ret = sysfs_create_file(&dev->dev.kobj,
+				&trace_branch_output_attr.attr);
+	if (ret)
+		dev_dbg(&dev->dev,
+			"Failed to create trace_branch_output in sysfs\n");
+
+	if (etmccer & ETMCCER_RETURN_STACK_IMPLEMENTED) {
+		ret = sysfs_create_file(&dev->dev.kobj,
+					&trace_return_stack_attr.attr);
+		if (ret)
+			dev_dbg(&dev->dev,
+			      "Failed to create trace_return_stack in sysfs\n");
+	}
+
+	if (etmccer & ETMCCER_TIMESTAMPING_IMPLEMENTED) {
+		ret = sysfs_create_file(&dev->dev.kobj,
+					&trace_timestamp_attr.attr);
+		if (ret)
+			dev_dbg(&dev->dev,
+				"Failed to create trace_timestamp in sysfs\n");
+	}
+
 	ret = sysfs_create_file(&dev->dev.kobj, &trace_range_attr.attr);
 	if (ret)
 		dev_dbg(&dev->dev, "Failed to create trace_range in sysfs\n");
 
-	ret = sysfs_create_file(&dev->dev.kobj, &trace_data_range_attr.attr);
-	if (ret)
-		dev_dbg(&dev->dev,
-			"Failed to create trace_data_range in sysfs\n");
+	if (etm_version < ETMIDR_VERSION_PFT_1_0) {
+		ret = sysfs_create_file(&dev->dev.kobj,
+					&trace_data_range_attr.attr);
+		if (ret)
+			dev_dbg(&dev->dev,
+				"Failed to create trace_data_range in sysfs\n");
+	} else {
+		tracer.flags &= ~TRACER_TRACE_DATA;
+	}
 
 	dev_dbg(&dev->dev, "ETM AMBA driver initialized.\n");
 

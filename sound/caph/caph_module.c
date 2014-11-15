@@ -37,6 +37,7 @@ the GPL, without Broadcom's express prior written consent.
 #include <linux/moduleparam.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
+#include <linux/module.h>
 
 #include <linux/broadcom/bcm_major.h>
 #include <sound/core.h>
@@ -72,7 +73,7 @@ MODULE_DESCRIPTION("Broadcom CAPH sound interface");
 MODULE_LICENSE("GPL");
 
 /* global */
-int gAudioDebugLevel = 7; /*Default log level: ALSA INTR + Audio Cntl, Drv */
+int gAudioDebugLevel; /* No default audio logging */
 module_param(gAudioDebugLevel, int, 0);
 
 brcm_alsa_chip_t *sgpCaph_chip;
@@ -111,6 +112,9 @@ static int __devinit DriverProbe(struct platform_device *pdev)
 
 	aTrace(LOG_ALSA_INTERFACE, "\n %lx:DriverProbe\n", jiffies);
 
+	err = -ENODEV;
+
+	err = -ENOMEM;
 	err = snd_card_create(SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
 			      THIS_MODULE, sizeof(brcm_alsa_chip_t), &card);
 

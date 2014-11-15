@@ -5,8 +5,7 @@
 #include <linux/device.h>
 #include <asm/gpio.h>
 #include <mach/kona.h>
-#include <mach/rhea.h>
-#include <asm/mach/map.h>
+#include <mach/hawaii.h>
 #include <linux/power_supply.h>
 #include <linux/mfd/bcm590xx/core.h>
 #include <linux/mfd/bcm590xx/pmic.h>
@@ -15,7 +14,7 @@
 #include <linux/clk.h>
 #include <linux/bootmem.h>
 #include <plat/pi_mgr.h>
-#include <linux/sysdev.h>
+#include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/version.h>
 #include <linux/vmalloc.h>
@@ -30,12 +29,16 @@
 
 #define CAM_ERROR_PRINTK(format, arg...)    printk(format, ## arg)
 
- #define CAMDRV_SS_DEBUG 
+#define CAMDRV_SS_DEBUG
 
 #ifdef CAMDRV_SS_DEBUG
 #define CAM_INFO_PRINTK(format, arg...)    printk(format, ## arg)
 #else
 #define CAM_INFO_PRINTK(format, arg...)
+#endif
+
+#ifdef CONFIG_VIDEO_UNICAM_CAMERA
+extern bool camdrv_ss_power(int cam_id , int bOn);
 #endif
 
 
@@ -131,6 +134,7 @@ struct camdrv_ss_state {
 	int currentScene;
 	int currentWB;
 	int currentMetering;
+	int currentEffect;
 	int bStartFineSearch;
 	v4l2_touch_area touch_area;
 	bool bTouchFocus;
@@ -212,17 +216,18 @@ struct camdrv_ss_sensor_cap {
 	int  (*set_touch_focus_area)(struct v4l2_subdev *sd, enum v4l2_touch_af touch_af, v4l2_touch_area *touch_area);
 	int  (*set_touch_focus)(struct v4l2_subdev *sd, enum v4l2_touch_af touch_af, v4l2_touch_area *touch_area);
 	int  (*get_touch_focus_status)(struct v4l2_subdev *sd, struct v4l2_control *ctrl);
-	int (*AAT_flash_control)(struct v4l2_subdev *sd, int control_mode);
+	int (*flash_control)(struct v4l2_subdev *sd, int control_mode);
 	int (*i2c_set_data_burst)(struct i2c_client *client, regs_t reg_buffer[], int num_of_regs, char *name);
 	bool (*check_flash_needed)(struct v4l2_subdev *sd);
 	int (*get_light_condition)(struct v4l2_subdev *sd, int *Result);
 	int (*sensor_power)(int on);
 	bool (*getEsdStatus)(struct v4l2_subdev *sd);
-	int (*get_mode_change_reg)(struct v4l2_subdev *sd);
+	enum camdrv_ss_capture_mode_state
+		(*get_mode_change_reg)(struct v4l2_subdev *sd);
 	int (*set_scene_mode)(struct v4l2_subdev *sd, struct v4l2_control *ctrl);  /* denis */
 	void (*smartStayChangeInitSetting)(struct camdrv_ss_sensor_cap *sensor);
-        int(* get_prefalsh_on) (struct v4l2_subdev *sd, struct v4l2_control *ctrl); //nikhil
-
+        int(* get_prefalsh_on) (struct v4l2_subdev *sd, struct v4l2_control *ctrl); //Backporting Rhea to Hawaii: added to call sensor Specific preflash rotuine
+    void (* rear_camera_vendorid) (char *);// add vendor id
 /************************/
 /* REGISTER TABLE SETTINGS */
 /************************/
@@ -232,6 +237,10 @@ struct camdrv_ss_sensor_cap {
 	const regs_t *vt_mode_regs;
 
 	const regs_t *preview_camera_regs;
+
+	const regs_t *	enterpreview_vga;
+	const regs_t *	preview_50hz_setting;
+	const regs_t *	preview_60hz_setting;
 
 	/* snapshot mode */
 	const regs_t *snapshot_normal_regs;
@@ -381,6 +390,8 @@ struct camdrv_ss_sensor_cap {
 	const regs_t *preview_size_800x600_regs;
 	const regs_t *preview_size_1024x600_regs;
 	const regs_t *preview_size_1024x768_regs;
+	const regs_t *HD_Camcorder_regs;
+	const regs_t *HD_Camcorder_Disable_regs;
 	const regs_t *preview_size_1280x960_regs;
 	const regs_t *preview_size_1600x960_regs;
 	const regs_t *preview_size_1600x1200_regs;
@@ -454,10 +465,29 @@ struct camdrv_ss_sensor_cap {
 	const regs_t *af_return_inf_pos;
 	const regs_t *af_return_macro_pos;
         const  regs_t *main_flash_off_regs; //Add for nevis
+        const regs_t *Pre_Flash_Start_EVT1;
+        const regs_t *Pre_Flash_End_EVT1;
+        const regs_t *Main_Flash_Start_EVT1;
+        const regs_t *Main_Flash_End_EVT1;
+        const regs_t *focus_mode_auto_regs_cancel1;
+        const regs_t *focus_mode_auto_regs_cancel2;
+        const regs_t *focus_mode_auto_regs_cancel3;
+        const regs_t *focus_mode_macro_regs_cancel1;
+        const regs_t *focus_mode_macro_regs_cancel2;
+        const regs_t *focus_mode_macro_regs_cancel3;
+
+	/* flicker */
+	const regs_t *antibanding_50hz_regs;
+	const regs_t *antibanding_60hz_regs;
+        
 	/* NO OF ROWS OF EACH REGISTER SETTING */
 	int  rows_num_init_regs;
 	int  rows_num_vt_mode_regs;
 	int  rows_num_preview_camera_regs;
+	int  rows_num_preview_50hz_setting;
+	int  rows_num_preview_60hz_setting;
+	int rows_num_enterpreview_vga;
+
 
 	/* snapshot mode */
 	int  rows_num_snapshot_normal_regs;
@@ -607,6 +637,8 @@ struct camdrv_ss_sensor_cap {
 	int  rows_num_preview_size_800x600_regs;
 	int  rows_num_preview_size_1024x600_regs;
 	int  rows_num_preview_size_1024x768_regs;
+	int  rows_num_HD_Camcorder_regs;
+	int  rows_num_HD_Camcorder_Disable_regs;
 	int  rows_num_preview_size_1280x960_regs;
 	int  rows_num_preview_size_1600x960_regs;
 	int  rows_num_preview_size_1600x1200_regs;
@@ -682,18 +714,28 @@ struct camdrv_ss_sensor_cap {
 	int rows_num_af_return_inf_pos;
 	int rows_num_af_return_macro_pos;
         int  rows_num_main_flash_off_regs; //Add for nevis
-};
 
+  int rows_num_Pre_Flash_Start_EVT1;
+  int rows_num_Pre_Flash_End_EVT1;
+  int rows_num_Main_Flash_Start_EVT1;
+  int rows_num_Main_Flash_End_EVT1;
+  int rows_num_focus_mode_auto_regs_cancel1;
+  int rows_num_focus_mode_auto_regs_cancel2;
+  int rows_num_focus_mode_auto_regs_cancel3;
+  int rows_num_focus_mode_macro_regs_cancel1;
+  int rows_num_focus_mode_macro_regs_cancel2;
+  int rows_num_focus_mode_macro_regs_cancel3;
+
+	/* flicker */
+	int rows_num_antibanding_60hz_regs;        
+	int rows_num_antibanding_50hz_regs;
+};
 /************************/
 /* EXTERN */
 /************************/
 extern bool camdrv_ss_sensor_init_main(bool bOn, struct camdrv_ss_sensor_cap *sensor);
 #if defined(CONFIG_SOC_SUB_CAMERA)
 extern bool camdrv_ss_sensor_init_sub(bool bOn, struct camdrv_ss_sensor_cap *sensor);
-extern void camdrv_ss_sensor_sub_name(struct camdrv_ss_sensor_cap * sensror);//Nikhil
-#endif
-#if defined(CONFIG_SOC_CAMERA)
-extern void camdrv_ss_sensor_main_name(struct camdrv_ss_sensor_cap * sensror);//Nikhil
 #endif
 
 extern unsigned int HWREV;

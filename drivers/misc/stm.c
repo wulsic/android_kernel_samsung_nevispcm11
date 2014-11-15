@@ -18,16 +18,14 @@
 #include <trace/stm.h>
 #ifdef CONFIG_BCM_STM
 #include "linux/broadcom/mobcom_types.h"
-#ifdef CONFIG_ARCH_RHEA
 #include "mach/rdb/brcm_rdb_padctrlreg.h"
-#endif
 #include "mach/rdb/brcm_rdb_util.h"
 #include "mach/rdb/brcm_rdb_chipreg.h"
 #include <mach/hardware.h>
-#include <mach/clock.h>
 #include <plat/chal/chal_trace.h>
 #include <mach/io_map.h>
 #endif
+#include <mach/clock.h>
 
 /* define to disable PTI for ETM and PTM */
 #define PTI_OFF	0x013
@@ -82,15 +80,11 @@ static CHAL_TRACE_DEV_t trace_base_addr = {
 	.AXITRACE_base[CHAL_TRACE_AXITRACE11] = KONA_AXITRACE11_VA,
 	.AXITRACE_base[CHAL_TRACE_AXITRACE12] = KONA_AXITRACE12_VA,
 	.AXITRACE_base[CHAL_TRACE_AXITRACE16] = KONA_AXITRACE16_VA,
-#ifdef CONFIG_ARCH_RHEA
 	.AXITRACE_base[CHAL_TRACE_AXITRACE17] = KONA_AXITRACE17_VA,
-#endif
 	.AXITRACE_base[CHAL_TRACE_AXITRACE18] = KONA_AXITP18_VA,
 	.AXITRACE_base[CHAL_TRACE_AXITRACE19] = KONA_AXITRACE19_VA,
 	.CTI_base[CHAL_TRACE_HUB_CTI] = KONA_HUB_CTI_VA,
-#ifdef CONFIG_ARCH_RHEA
 	.CTI_base[CHAL_TRACE_MM_CTI] = KONA_MM_CTI_VA,
-#endif
 	.CTI_base[CHAL_TRACE_FAB_CTI] = KONA_FAB_CTI_VA,
 	.CTI_base[CHAL_TRACE_A9CTI0] = KONA_A9CTI0_VA,
 	.CTI_base[CHAL_TRACE_R4_CTI] = KONA_BMODEM_CTI_VA,
@@ -202,7 +196,7 @@ int kona_trace_set_sw_stm(int on)
 	return status;
 }
 
-static int __init kona_trace_init(void)
+static int __devinit kona_trace_init(void)
 {
 	int status = -EIO;
 	int base;
@@ -299,32 +293,15 @@ void stm_trace_buffer_start(int channel)
 	uint8_t trace_type = 0x72;	/* make it configurable */
 	uint32_t pti_read;
 
-#if defined(CONFIG_ARCH_RHEA)
 	pti_read =
 	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_PERIPH_SPARE_CONTROL1,
 				PTI_CLK_IS_IDLE);
-#elif defined(CONFIG_ARCH_ISLAND)
-	pti_read =
-	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				PTI_CLK_IS_IDLE);
-#endif
 	if (pti_read == 1) {
-#if defined(CONFIG_ARCH_RHEA)
 		pti_enable(1);
-
-#elif defined(CONFIG_ARCH_ISLAND)
-		BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				     PTI_CLK_IS_IDLE, 0);
-#endif
 	}
 	kona_trace_stm_write(channel, FALSE, 1, &trace_type);
-/* leave it on when enabled by DFSD */
-#if defined(CONFIG_ARCH_RHEA)
+	/* leave it on when enabled by DFSD */
 	pti_enable(pti_read);
-#elif defined(CONFIG_ARCH_ISLAND)
-	BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-			     PTI_CLK_IS_IDLE, pti_read);
-#endif
 }
 
 void stm_trace_buffer_end(int channel)
@@ -332,62 +309,29 @@ void stm_trace_buffer_end(int channel)
 	uint8_t termination = 0;
 	uint32_t pti_read;
 
-#if defined(CONFIG_ARCH_RHEA)
 	pti_read =
 	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_PERIPH_SPARE_CONTROL1,
 				PTI_CLK_IS_IDLE);
-#elif defined(CONFIG_ARCH_ISLAND)
-	pti_read =
-	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				PTI_CLK_IS_IDLE);
-#endif
 	if (pti_read == 1) {
-#if defined(CONFIG_ARCH_RHEA)
 		pti_enable(1);
-#elif defined(CONFIG_ARCH_ISLAND)
-		BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				     PTI_CLK_IS_IDLE, 0);
-#endif
 	}
 	kona_trace_stm_write(channel, TRUE, 1, &termination);
-/* leave it on when enabled by DFSD */
-#if defined(CONFIG_ARCH_RHEA)
+	/* leave it on when enabled by DFSD */
 	pti_enable(pti_read);
-#elif defined(CONFIG_ARCH_ISLAND)
-	BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-			     PTI_CLK_IS_IDLE, pti_read);
-#endif
 }
 
 int stm_trace_buffer_data(int channel, const void *data_ptr, size_t length)
 {
 	uint32_t pti_read;
-#if defined(CONFIG_ARCH_RHEA)
 	pti_read =
 	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_PERIPH_SPARE_CONTROL1,
 				PTI_CLK_IS_IDLE);
-#elif defined(CONFIG_ARCH_ISLAND)
-	pti_read =
-	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				PTI_CLK_IS_IDLE);
-#endif
-
 	if (pti_read == 1) {
-#if defined(CONFIG_ARCH_RHEA)
 		pti_enable(1);
-#elif defined(CONFIG_ARCH_ISLAND)
-		BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				     PTI_CLK_IS_IDLE, 0);
-#endif
 	}
 	kona_trace_stm_write(channel, FALSE, length, (uint8_t *) data_ptr);
-/* leave it on when enabled by DFSD */
-#if defined(CONFIG_ARCH_RHEA)
+	/* leave it on when enabled by DFSD */
 	pti_enable(pti_read);
-#elif defined(CONFIG_ARCH_ISLAND)
-	BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-			     PTI_CLK_IS_IDLE, pti_read);
-#endif
 	return length;
 }
 
@@ -399,23 +343,11 @@ int stm_trace_send_bytes(int channel, const void *data_ptr, size_t length)
 
 	/* DFSD enables PTI clock for HW trace. Read here and if enabled by it,
 	 * then do not disable the clock. */
-#if defined(CONFIG_ARCH_RHEA)
 	pti_read =
 	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_PERIPH_SPARE_CONTROL1,
 				PTI_CLK_IS_IDLE);
-#elif defined(CONFIG_ARCH_ISLAND)
-	pti_read =
-	    BRCM_READ_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				PTI_CLK_IS_IDLE);
-#endif
-
 	if (pti_read == 1) {
-#if defined(CONFIG_ARCH_RHEA)
 		pti_enable(1);
-#elif defined(CONFIG_ARCH_ISLAND)
-		BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-				     PTI_CLK_IS_IDLE, 0);
-#endif
 	}
 
 	/* send trace type to start STM message */
@@ -423,13 +355,8 @@ int stm_trace_send_bytes(int channel, const void *data_ptr, size_t length)
 	kona_trace_stm_write(channel, FALSE, length, (uint8_t *) data_ptr);
 	kona_trace_stm_write(channel, TRUE, 1, &termination);
 
-/* leave it on when enabled by DFSD */
-#if defined(CONFIG_ARCH_RHEA)
+	/* leave it on when enabled by DFSD */
 	pti_enable(pti_read);
-#elif defined(CONFIG_ARCH_ISLAND)
-	BRCM_WRITE_REG_FIELD(KONA_CHIPREG_VA, CHIPREG_ARM_PERI_CONTROL,
-			     PTI_CLK_IS_IDLE, pti_read);
-#endif
 	return length;
 }
 

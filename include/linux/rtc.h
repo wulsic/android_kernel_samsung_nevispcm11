@@ -148,12 +148,10 @@ struct rtc_class_ops {
 	int (*set_time)(struct device *, struct rtc_time *);
 	int (*read_alarm)(struct device *, struct rtc_wkalrm *);
 	int (*set_alarm)(struct device *, struct rtc_wkalrm *);
-/*[[_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15 [Mod] [P120503-3333]
-add auto power alarm for CHN feature */
-#if defined(CONFIG_MACH_ZANIN_CHN_OPEN)
-	int (*set_alarm_boot)(struct device *, struct rtc_wkalrm *);
-#endif
-/*]]_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15*/
+#ifdef CONFIG_RTC_AUTO_PWRON	
+	int (*read_bootalarm)(struct device *, struct rtc_wkalrm *);
+	int (*set_bootalarm)(struct device *, struct rtc_wkalrm *);
+#endif	
 	int (*proc)(struct device *, struct seq_file *);
 	int (*set_mmss)(struct device *, unsigned long secs);
 	int (*read_callback)(struct device *, int data);
@@ -208,7 +206,8 @@ struct rtc_device
 	struct hrtimer pie_timer; /* sub second exp, so needs hrtimer */
 	int pie_enabled;
 	struct work_struct irqwork;
-
+	/* Some hardware can't support UIE mode */
+	int uie_unsupported;
 
 #ifdef CONFIG_RTC_INTF_DEV_UIE_EMUL
 	struct work_struct uie_task;
@@ -237,18 +236,14 @@ extern int rtc_read_alarm(struct rtc_device *rtc,
 			struct rtc_wkalrm *alrm);
 extern int rtc_set_alarm(struct rtc_device *rtc,
 				struct rtc_wkalrm *alrm);
-/*[[_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15 [Mod] [P120503-3333]
-add auto power alarm for CHN feature */
-#if defined(CONFIG_MACH_ZANIN_CHN_OPEN)
-extern int rtc_set_alarm_boot(struct rtc_device *rtc,
-				struct rtc_wkalrm *alarm);
-#endif
-/*]]_SHP_STMC_BSP:ming2010.fan@samsung.com 2012-5-15*/
 extern int rtc_initialize_alarm(struct rtc_device *rtc,
 				struct rtc_wkalrm *alrm);
 extern void rtc_update_irq(struct rtc_device *rtc,
 			unsigned long num, unsigned long events);
-
+#ifdef CONFIG_RTC_AUTO_PWRON
+extern int rtc_set_bootalarm(struct rtc_device *rtc, char* alarm_data);
+extern int rtc_get_bootalarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm);				
+#endif
 extern struct rtc_device *rtc_class_open(char *name);
 extern void rtc_class_close(struct rtc_device *rtc);
 

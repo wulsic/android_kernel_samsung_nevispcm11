@@ -44,7 +44,7 @@ struct spa_batt_status
         int lp_charging;
         int charging_source;
 
-	
+
 		int ac_online;
 		int usb_online;
 };
@@ -316,8 +316,10 @@ __setup("lpcharge=",get_boot_mode);
 int spa_ps_init(struct platform_device *pdev)
 {
 	int ret=0;
-	
+
 	struct spa_ps *spa_ps;
+
+	printk("%s : spa_ps start\n", __func__);
 
 	spa_ps = kzalloc(sizeof(struct spa_ps), GFP_KERNEL);
 	if(spa_ps == NULL)
@@ -366,9 +368,11 @@ int spa_ps_init(struct platform_device *pdev)
 		printk("%s : Failed to register ps usb\n", __func__);
 		goto LB_SPA_PS_PROBE_ERR_S1;
 	}
+
 	spa_ps->state.ac_online=0;
 	spa_ps->state.usb_online=0;
-	spa_ps->state.status = POWER_SUPPLY_STATUS_DISCHARGING;
+
+	spa_ps->state.status=POWER_SUPPLY_STATUS_DISCHARGING;
 	spa_ps->state.temp=0;
 	spa_ps->state.temp_adc=0;
 	spa_ps->state.health=POWER_SUPPLY_HEALTH_GOOD;
@@ -377,6 +381,7 @@ int spa_ps_init(struct platform_device *pdev)
 	spa_ps->state.present=1;
 	power_supply_changed(&spa_ps->batt);
 
+	printk("%s : spa_ps end\n", __func__);
 	goto LB_SPA_PS_PROBE_SUCCESS;
 
 LB_SPA_PS_PROBE_ERR_S1:

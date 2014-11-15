@@ -56,7 +56,6 @@
 #include <mach/kona_headset_pd.h>
 #include <mach/kona.h>
 #include <mach/rhea.h>
-#include <mach/pinmux.h>
 #include <asm/mach/map.h>
 #include <linux/power_supply.h>
 #include <linux/mfd/bcm590xx/core.h>
@@ -67,10 +66,6 @@
 #include <linux/bootmem.h>
 #include <plat/pi_mgr.h>
 #include "common.h"
-#include "common.h"
-#ifdef CONFIG_KEYBOARD_BCM
-#include <mach/bcm_keypad.h>
-#endif
 #ifdef CONFIG_DMAC_PL330
 #include <mach/irqs.h>
 #include <plat/pl330-pdata.h>
@@ -108,22 +103,6 @@
 #include <linux/broadcom/bcm_bzhw.h>
 #endif
 
-#if defined(CONFIG_BCMI2CNFC)
-#include <linux/bcmi2cnfc.h>
-#endif
-
-#if defined  (CONFIG_SENSORS_K3DH)
-#include <linux/k3dh_dev.h>
-#endif
-
-#if defined  (CONFIG_SENSORS_HSCDTD006A) || defined(CONFIG_SENSORS_HSCDTD008A) 
-#include <linux/hscd_i2c_dev.h>
-#endif
-
-#if defined(CONFIG_SENSORS_GP2AP002)
-#include <linux/gp2ap002_dev.h>
-#endif
-
 #ifdef CONFIG_I2C_GPIO
 
 #include <linux/i2c-gpio.h>
@@ -157,18 +136,16 @@
 #include <mach/rdb/brcm_rdb_sysmap.h>
 #include <mach/rdb/brcm_rdb_padctrlreg.h>
 #include <linux/delay.h>
-
+#include <plat/pi_mgr.h>
+#ifdef CONFIG_KEYBOARD_BCM
+#include <mach/bcm_keypad.h>
+#endif
 #ifdef CONFIG_KEYBOARD_EXPANDER
 #include <linux/input/matrix_keypad.h>
-#include <linux/input/stmpe1801_key.h>
+#include <linux/input/stmpe1801.h>
 #endif
 #ifdef CONFIG_WD_TAPPER
 #include <linux/broadcom/wd-tapper.h>
-#endif
-
-#if defined(CONFIG_SEC_CHARGING_FEATURE)
-// Samsung charging feature
-#include <linux/spa_power.h>
 #endif
 
 #ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
@@ -213,7 +190,6 @@ struct regulator_consumer_supply hv3_supply[] = {
 #endif
 
 extern bool camdrv_ss_power(int cam_id,int bOn);
-int configure_sdio_pullup(bool pull_up);
 
 #ifdef CONFIG_MFD_BCMPMU
 void __init board_pmu_init(void);
@@ -416,77 +392,146 @@ struct platform_device bcm_kp_device = {
 	.id = -1,
 };
 
-/*	Keymap for Ray board plug-in 64-key keypad.
-	Since LCD block has used pin GPIO00, GPIO01, GPIO02, GPIO03,
-	GPIO08, GPIO09, GPIO10 and GPIO11, SSP3 and camera used GPIO06,
-	GPIO07, GPIO12, GPIO13, for now keypad can only be set as a 2x2 matrix
-	by using pin GPIO04, GPIO05, GPIO14 and GPIO15 */
+/*
+ * Keymap for Zanin board plug-in 64-key keypad.
+ * A GPIO expander chip is used 
+ */
+#ifdef CONFIG_MACH_RHEA_SS_ZANIN_02
 static struct bcm_keymap newKeymap[] = {
-	{BCM_KEY_ROW_0, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_0, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_1, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_2, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_3, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_4, "Volume Up", KEY_VOLUMEUP},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_4, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_4, "Volume Down", KEY_VOLUMEDOWN},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_5, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_6, BCM_KEY_COL_7, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_0, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_1, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_2, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_3, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_4, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_5, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_6, "unused", 0},
-	{BCM_KEY_ROW_7, BCM_KEY_COL_7, "unused", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_0, "Q", KEY_Q},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_1, "W", KEY_W},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_2, "E", KEY_E},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_3, "R", KEY_R},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_4, "T", KEY_T},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_5, "Y", KEY_Y},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_6, "VOL UP", KEY_VOLUMEUP},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_7, "unused_0", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_0, "U", KEY_U},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_1, "I", KEY_I},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_2, "O", KEY_O},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_3, "P", KEY_P},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_4, "A", KEY_A},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_5, "S", KEY_S},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_6, "VOL DOWN", KEY_VOLUMEDOWN},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_7, "unused_1", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_0, "D", KEY_D},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_1, "F", KEY_F},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_2, "G", KEY_G},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_3, "H", KEY_H},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_4, "J", KEY_J},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_5, "K", KEY_K},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_6, "unused_2", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_7, "unused_3", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_0, "L", KEY_L},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_1, "Key up", KEY_UP},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_2, "Shift", KEY_LEFTSHIFT},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_3, "Z", KEY_Z},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_4, "X", KEY_X},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_5, "C", KEY_C},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_6, "unused_4", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_7, "unused_5", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_0, "V", KEY_V},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_1, "B", KEY_B},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_2, "N", KEY_N},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_3, "M", KEY_M},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_4, "Question", KEY_QUESTION},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_5, "Enter", KEY_ENTER},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_6, "unused_6", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_7, "unused_7", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_0, "Alt", KEY_RIGHTALT},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_1, "Sym", KEY_CANCEL},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_2, "0", KEY_0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_3, "Space", KEY_SPACE},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_4, "Sensor", KEY_SEARCH},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_5, "Dot", KEY_DOT},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_6, "unused_8", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_7, "unused_9", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_0, "INT", KEY_IMAGES},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_1, "REC", KEY_RECORD},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_2, "Menu", KEY_MENU},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_3, "Home", KEY_HOME},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_4, "Back", KEY_BACK},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_5, "Zoom", KEY_MAIL},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_6, "unused_10", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_7, "unused_11", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_0, "Key Backspace", KEY_BACKSPACE},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_1, "unused_12", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_2, "unused_13", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_3, "unused_14", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_4, "unused_15", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_5, "unused_16", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_6, "unused_17", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_7, "unused_18", 0},
 };
+#elif defined CONFIG_MACH_RHEA_SS_ZANIN || defined CONFIG_MACH_RHEA_SS_ZANIN_04
+/* Only the VOLUP and VOLDOWN keys are connected directly */
+static struct bcm_keymap newKeymap[] = {
+	{BCM_KEY_ROW_0, BCM_KEY_COL_0, "Q", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_1, "W", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_2, "E", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_3, "R", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_4, "T", 9},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_5, "Y", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_6, "VOL UP", 0},
+	{BCM_KEY_ROW_0, BCM_KEY_COL_7, "unused_0",0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_0, "U", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_1, "I", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_2, "O", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_3, "P", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_4, "A", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_5, "S", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_6, "VOL DOWN", 0},
+	{BCM_KEY_ROW_1, BCM_KEY_COL_7, "unused_1", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_0, "D", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_1, "F", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_2, "G", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_3, "H", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_4, "J", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_5, "K", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_6, "unused_2", 0},
+	{BCM_KEY_ROW_2, BCM_KEY_COL_7, "unused_3", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_0, "L", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_1, "Key Backspace", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_2, "Shift", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_3, "Z", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_4, "X", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_5, "C", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_6, "unused_4", 0},
+	{BCM_KEY_ROW_3, BCM_KEY_COL_7, "unused_5", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_0, "V", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_1, "B", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_2, "N", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_3, "M", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_4, "VOL UP", KEY_VOLUMEUP},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_5, "Enter", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_6, "unused_6", 0},
+	{BCM_KEY_ROW_4, BCM_KEY_COL_7, "unused_7", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_0, "Alt", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_1, "Sym", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_2, "0", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_3, "Space", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_4, "VOL DOWN", KEY_VOLUMEDOWN},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_5, "Dot", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_6, "unused_8", 0},
+	{BCM_KEY_ROW_5, BCM_KEY_COL_7, "unused_9", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_0, "Internet", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_1, "E-Mail", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_2, "Menu", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_3, "Home", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_4, "Back", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_5, "Zoom", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_6, "unused_10", 0},
+	{BCM_KEY_ROW_6, BCM_KEY_COL_7, "unused_11", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_0, "unused_19", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_1, "unused_12", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_2, "unused_13", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_3, "unused_14", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_4, "unused_15", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_5, "unused_16", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_6, "unused_17", 0},
+	{BCM_KEY_ROW_7, BCM_KEY_COL_7, "unused_18", 0},
+};
+#endif // CONFIG_MACH_RHEA_SS_ZANIN || ZANIN_04
 
 static struct bcm_keypad_platform_info bcm_keypad_data = {
 	.row_num = 8,
@@ -526,7 +571,7 @@ static const unsigned int cust_keymap[] = {
 	KEY(3, 0, KEY_S),
 	KEY(3, 1, KEY_A),
 	KEY(3, 2, KEY_ENTER),
-	KEY(3, 3, KEY_COMMA),
+	KEY(3, 3, KEY_QUESTION),
 	KEY(3, 4, KEY_M),
 	KEY(3, 5, KEY_N),
 	KEY(3, 6, KEY_RESERVED),
@@ -539,8 +584,8 @@ static const unsigned int cust_keymap[] = {
 	KEY(4, 5, KEY_LEFTSHIFT),
 	KEY(4, 6, KEY_RESERVED),
 	KEY(4, 7, KEY_RESERVED),
-	KEY(5, 0, KEY_MAIL ),  /*Customized*/
-	KEY(5, 1, KEY_IMAGES ), /* ChatOn*/
+	KEY(5, 0, KEY_IMAGES), /* ChatOn*/
+	KEY(5, 1, KEY_MAIL), /*Customized*/
 	KEY(5, 2, KEY_DOT),
 	KEY(5, 3, KEY_SPACE),
 	KEY(5, 4, KEY_RESERVED),
@@ -764,7 +809,10 @@ static struct i2c_board_info __initdata pca953x_2_info[] = {
 
 #define TSP_INT_GPIO_PIN      (86)
 
-#if defined (CONFIG_TOUCHSCREEN_BT403_ZANIN)
+
+
+
+
 static struct i2c_board_info __initdata zinitix_i2c_devices[] = {
 	{
 		I2C_BOARD_INFO("zinitix_isp", 0x50),
@@ -774,111 +822,57 @@ static struct i2c_board_info __initdata zinitix_i2c_devices[] = {
 		.irq = gpio_to_irq(TSP_INT_GPIO_PIN),
 	},
 };
-#endif
 
-#if defined  (CONFIG_SENSORS_K3DH)
-static struct k3dh_platform_data k3dh_platform_data = {
-	.orientation = {
-	0, 1, 0,
-	1, 0, 0,
-	0, 0, -1},	      
-};
-#endif
-
-#if defined  (CONFIG_SENSORS_HSCDTD006A) || defined(CONFIG_SENSORS_HSCDTD008A) 
-static struct hscd_i2c_platform_data hscd_i2c_platform_data = {
-	.orientation = {
-	1, 0, 0,
-	0, -1, 0,
-	0, 0, -1},	      
-};
-#endif
-
-#if defined  (CONFIG_SENSORS_GP2AP002)
-#define PROXI_INT_GPIO_PIN      (92)
-static struct gp2ap002_platform_data gp2ap002_platform_data = {
-	.irq_gpio = PROXI_INT_GPIO_PIN,
-	.irq = gpio_to_irq(PROXI_INT_GPIO_PIN),        
-};
-#endif
+//PSJ
 
 static struct i2c_board_info __initdata rhea_ss_i2cgpio1_board_info[] = {
 
 #if defined  (CONFIG_SENSORS_K3DH)
 	{
 		I2C_BOARD_INFO("k3dh", 0x19),
-		.platform_data = &k3dh_platform_data,                        
 	},
 #endif
 
-#if defined  (CONFIG_SENSORS_HSCDTD006A) || defined(CONFIG_SENSORS_HSCDTD008A) 
+#if defined  (CONFIG_SENSORS_HSCD)
 	{
 		I2C_BOARD_INFO("hscd_i2c", 0x0c),
-		.platform_data = &hscd_i2c_platform_data,               
 	},
  #endif
 	
-#if defined  (CONFIG_SENSORS_GP2AP002)
+#if defined  (CONFIG_SENSORS_GP2A)
 	{
-		I2C_BOARD_INFO("gp2ap002", 0x44),
-		.platform_data = &gp2ap002_platform_data,            
+		I2C_BOARD_INFO("gp2a_prox", 0x44),
 	},
 #endif
 
 };
+
 
 #ifdef CONFIG_KEYBOARD_EXPANDER
 
 #define GPOIO_EXPANDER_INT 91 //SPI0TXD
 
-// STMPE1801 Ghost key combination
-static const unsigned int gho_keymap[] = {
-// STMPE1801_GHOST_KEY_VAL(row_1, col_1, row_2, col_2, row_g, col_g) 
-// row_1, col_1/row_2, col_2 ߻ Ű  Է  row_g/col_g ϴ Ű Է
-         STMPE1801_GHOST_KEY_VAL(0,0, 0,1, 6,0), 
-         STMPE1801_GHOST_KEY_VAL(1,0, 1,1, 6,0), 
-         STMPE1801_GHOST_KEY_VAL(2,0, 2,1, 6,0), 
-         STMPE1801_GHOST_KEY_VAL(3,0, 3,1, 6,0), 
-         STMPE1801_GHOST_KEY_VAL(4,0, 4,1, 6,0), 
-         STMPE1801_GHOST_KEY_VAL(5,0, 5,1, 6,0), 
-};
-
-static const struct matrix_keymap_data stmpe1801_ghostkey_data = {
-         .keymap         = gho_keymap,
-         .keymap_size    = ARRAY_SIZE(gho_keymap),
-};
-
-
-
-static struct stmpe1801_keypad_data stmpe1801_keypad = {
+static struct stmpe_keypad_platform_data stmpe1801_keypad_data = {
+	.debounce_ms    = 64,
+	.scan_count     = 8,
+	.no_autorepeat  = true,
 	.keymap_data    = &stmpe1801_keymap_data,
-    .ghost_data = &stmpe1801_ghostkey_data,
-    .scan_freq = STMPE1801_SCAN_FREQ_275HZ /*STMPE1801_SCAN_FREQ_60HZ*/,
-    .scan_cnt = 2 /*10*/,
-    .autorepeat = false,
 };
 
-#define STMPE1801_IRQ_GPIO  91
-
- 
-
-static struct stmpe1801_platform_data stmpe1801_data = {
-//	.id				=	1,
-	.blocks = STMPE1801_BLOCK_KEY,
-	.debounce = STMPE1801_DEBOUNCE_210US,
-//	.pinmask_keypad = 0x3F7F, // ex) Row0, Col0, Col1  -> 0x00301 (Key   mask ǥ)
-    .pinmask_keypad_row = 0x7f, //pinmask row/colи
-    .pinmask_keypad_col = 0x3f,
-	.int_gpio_no = STMPE1801_IRQ_GPIO, // INT
-	.keypad	= 	&stmpe1801_keypad,
-    .power_on = NULL,    // power on user callback
-    .power_off = NULL, // power off user callback
+static struct stmpe_platform_data stmpe1801_data = {
+	.id				=	1,
+	//.blocks			=	STMPE_BLOCK_GPIO| STMPE_BLOCK_KEYPAD,
+	//.irq_trigger   	 	= 	IRQF_TRIGGER_FALLING,
+	//.irq_base       		= 	gpio_to_irq(GPOIO_EXPANDER_INT),
+	.keypad			= 	&stmpe1801_keypad_data,
+	.autosleep   	=	 true,
+	.autosleep_timeout = 	1024,
 };
 
 static struct i2c_board_info __initdata rhea_ss_i2cgpio2_board_info[] = {
 
 	{
-		I2C_BOARD_INFO(STMPE1801_DRV_NAME, 0x40),		
+		I2C_BOARD_INFO("stmpe1801", 0x40),
 		.irq = gpio_to_irq(GPOIO_EXPANDER_INT),
 		.platform_data = &stmpe1801_data,
 	},
@@ -1030,21 +1024,17 @@ static struct i2c_board_info __initdata mpu6050_info[] =
 #ifdef CONFIG_KONA_HEADSET_MULTI_BUTTON
 
 #define HS_IRQ		gpio_to_irq(31)
-#define HSB_IRQ		BCM_INT_ID_AUXMIC_COMP1
-#define HSI_IRQ		BCM_INT_ID_AUXMIC_COMP2
-#define HSR_IRQ 	   BCM_INT_ID_AUXMIC_COMP2_INV
+#define HSB_IRQ		BCM_INT_ID_AUXMIC_COMP2
+#define HSB_REL_IRQ 	BCM_INT_ID_AUXMIC_COMP2_INV
 
-/*
- * Default table used if the platform does not pass one
- */ 
-static unsigned int  rheass_button_adc_values [3][2] = 
+static unsigned int rheass_button_adc_values [3][2] =
 {
 	/* SEND/END Min, Max*/
-        {0,     95},
+	{0,	94},
 	/* Volume Up  Min, Max*/
-        {96,    200},
+	{95,	189},
 	/* Volue Down Min, Max*/
-        {201,   480},
+	{190,	400},
 };
 
 static struct kona_headset_pd headset_data = {
@@ -1076,12 +1066,9 @@ static struct kona_headset_pd headset_data = {
 	.gpio_for_accessory_detection = 1,
 
 	/*
-	 * Pass the board specific button detection range 
+	 * Pass the board specific button detection range
 	 */
-	.button_adc_values = rheass_button_adc_values,
-
-	/* ldo for MICBIAS */
-	.ldo_id = "hv1",
+	.button_adc_values_high = rheass_button_adc_values,
 
 };
 
@@ -1096,24 +1083,28 @@ static struct resource board_headset_resource[] = {
 		.end = ACI_BASE_ADDR + SZ_4K - 1,
 		.flags = IORESOURCE_MEM,
 	},
-	{	/* For GPIO Headset IRQ */
+	{	/* For Headset IRQ */
 		.start = HS_IRQ,
 		.end = HS_IRQ,
 		.flags = IORESOURCE_IRQ,
 	},
-	{	/* For Headset insert IRQ */
-		.start = HSI_IRQ,
-		.end = HSI_IRQ,
-		.flags = IORESOURCE_IRQ,
-	},
-	{	/* For Headset remove IRQ */
-		.start = HSR_IRQ,
-		.end = HSR_IRQ,
-		.flags = IORESOURCE_IRQ,
-	},
-	{	/* COMP1 for Button*/
+	{	/* For Headset button  press IRQ */
 		.start = HSB_IRQ,
 		.end = HSB_IRQ,
+		.flags = IORESOURCE_IRQ,
+	},
+	{	/* For Headset button  release IRQ */
+		.start = HSB_REL_IRQ,
+		.end = HSB_REL_IRQ,
+		.flags = IORESOURCE_IRQ,
+	},
+		/* For backward compatibility keep COMP1
+		 * as the last resource. The driver which
+		 * uses only GPIO and COMP2, might not use this at all
+		 */
+	{	/* COMP1 for type detection */
+		.start = BCM_INT_ID_AUXMIC_COMP1,
+		.end = HSB_REL_IRQ,
 		.flags = IORESOURCE_IRQ,
 	},
 };
@@ -1157,7 +1148,7 @@ static struct platform_device pl330_dmac_device = {
  * SPI board info for the slaves
  */
 static struct spi_board_info spi_slave_board_info[] __initdata = {
-#if 0 //def CONFIG_SPI_SPIDEV
+#ifdef CONFIG_SPI_SPIDEV
 	{
 	 .modalias = "spidev",	/* use spidev generic driver */
 	 .max_speed_hz = 13000000,	/* use max speed */
@@ -1165,7 +1156,7 @@ static struct spi_board_info spi_slave_board_info[] __initdata = {
 	 .chip_select = 0,	/* for each slave */
 	 .platform_data = NULL,	/* no spi_driver specific */
 	 .irq = 0,		/* IRQ for this device */
-	 .mode = SPI_MODE_1,	/* SPI mode 1 */
+	 .mode = SPI_LOOP,	/* SPI mode 0 */
 	 },
 #endif
 	/* TODO: adding more slaves here */
@@ -1231,6 +1222,7 @@ static struct resource board_sdio2_resource[] = {
 	},
 };
 
+#ifdef CONFIG_MACH_RHEA_RAY_EDN1X
 static struct resource board_sdio3_resource[] = {
 	[0] = {
 		.start = SDIO3_BASE_ADDR,
@@ -1243,6 +1235,23 @@ static struct resource board_sdio3_resource[] = {
 		.flags = IORESOURCE_IRQ,
 	},
 };
+#endif
+
+#if defined(CONFIG_MACH_RHEA_RAY_EDN2X) || defined(CONFIG_MACH_RHEA_SS) || defined(CONFIG_MACH_RHEA_SS_AMAZING) || defined(CONFIG_MACH_RHEA_SS_LUCAS) || defined(CONFIG_MACH_RHEA_SS_ZANIN)\
+|| defined(CONFIG_MACH_RHEA_SS_ZANIN_02) || defined(CONFIG_MACH_RHEA_SS_ZANIN_04)
+static struct resource board_sdio3_resource[] = {
+	[0] = {
+		.start = SDIO3_BASE_ADDR,
+		.end = SDIO3_BASE_ADDR + SZ_64K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = BCM_INT_ID_SDIO_NAND,
+		.end = BCM_INT_ID_SDIO_NAND,
+		.flags = IORESOURCE_IRQ,
+	},
+};
+#endif
 
 #ifdef CONFIG_MACH_RHEA_RAY_EDN2XT
 static struct resource board_sdio4_resource[] = {
@@ -1274,7 +1283,6 @@ static struct sdio_platform_cfg board_sdio_param[] = {
                 .vddo_regulator_name = "vdd_sdio",
 	 	/*The SD controller regulator*/
 	 	.vddsdxc_regulator_name = "vdd_sdxc",
-        .configure_sdio_pullup = configure_sdio_pullup,
 	},
 	{ /* SDIO2 */
 		.id = 1,
@@ -1287,14 +1295,15 @@ static struct sdio_platform_cfg board_sdio_param[] = {
 		.sleep_clk_name = "sdio2_sleep_clk",
 		.peri_clk_rate = 52000000,
 	},
+#ifdef CONFIG_MACH_RHEA_RAY_EDN1X
 	{ /* SDIO3 */
 		.id = 2,
 		.data_pullup = 0,
 		.devtype = SDIO_DEV_TYPE_WIFI,
 		.wifi_gpio = {
-			.reset		= 70,		/* WLAN_REG_ON : GPIO70 */
+			.reset		= 70,
 			.reg		= -1,
-			.host_wake	= 7,		/* WLAN_HOST_WAKE : GPIO48 */
+			.host_wake	= -1,
 			.shutdown	= -1,
 		},
 		.flags = KONA_SDIO_FLAGS_DEVICE_REMOVABLE,
@@ -1302,10 +1311,60 @@ static struct sdio_platform_cfg board_sdio_param[] = {
 		.ahb_clk_name = "sdio3_ahb_clk",
 		.sleep_clk_name = "sdio3_sleep_clk",
 		.peri_clk_rate = 48000000,
-#ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
-		.register_status_notify = rhea_wifi_status_register,
+	},
 #endif
+
+#if defined(CONFIG_MACH_RHEA_RAY_EDN2X) || defined(CONFIG_MACH_RHEA_SS)
+	{ /* SDIO3 */
+		.id = 2,
+		.data_pullup = 0,
+		.devtype = SDIO_DEV_TYPE_WIFI,
+		.wifi_gpio = {
+			.reset		= 70,
+			.reg		= -1,
+			.host_wake	= 89,
+			.shutdown	= -1,
 		},
+		.flags = KONA_SDIO_FLAGS_DEVICE_NON_REMOVABLE,
+		.peri_clk_name = "sdio3_clk",
+		.ahb_clk_name = "sdio3_ahb_clk",
+		.sleep_clk_name = "sdio3_sleep_clk",
+		.peri_clk_rate = 48000000,
+	},
+#endif
+
+#if defined(CONFIG_MACH_RHEA_SS_ZANIN) || defined(CONFIG_MACH_RHEA_SS_ZANIN_02) || defined(CONFIG_MACH_RHEA_SS_ZANIN_04)
+	#ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
+	{ /* SDIO3 */
+		.id = 2,
+		.data_pullup = 0,
+		.devtype = SDIO_DEV_TYPE_WIFI,
+		.flags = KONA_SDIO_FLAGS_DEVICE_REMOVABLE,
+		.peri_clk_name = "sdio3_clk",
+		.ahb_clk_name = "sdio3_ahb_clk",
+		.sleep_clk_name = "sdio3_sleep_clk",
+		.peri_clk_rate = 48000000,
+		.register_status_notify=rhea_wifi_status_register,
+	},
+	#else
+	{ /* SDIO3 */
+		.id = 2,
+		.data_pullup = 0,
+		.devtype = SDIO_DEV_TYPE_WIFI,
+		.wifi_gpio = {
+			.reset		= 70,
+			.reg		= -1,
+			.host_wake	= 48,
+			.shutdown	= -1,
+		},
+		.flags = KONA_SDIO_FLAGS_DEVICE_REMOVABLE,
+		.peri_clk_name = "sdio3_clk",
+		.ahb_clk_name = "sdio3_ahb_clk",
+		.sleep_clk_name = "sdio3_sleep_clk",
+		.peri_clk_rate = 48000000,
+	},
+	#endif
+#endif
 };
 
 static struct platform_device board_sdio1_device = {
@@ -1331,8 +1390,15 @@ static struct platform_device board_sdio2_device = {
 static struct platform_device board_sdio3_device = {
 	.name = "sdhci",
 	.id = 2,
+#ifdef CONFIG_MACH_RHEA_RAY_EDN1X
 	.resource = board_sdio3_resource,
 	.num_resources   = ARRAY_SIZE(board_sdio3_resource),
+#endif
+#if defined(CONFIG_MACH_RHEA_RAY_EDN2X) || defined(CONFIG_MACH_RHEA_SS) || defined(CONFIG_MACH_RHEA_SS_AMAZING) || defined(CONFIG_MACH_RHEA_SS_LUCAS) || defined(CONFIG_MACH_RHEA_SS_ZANIN)\
+|| defined(CONFIG_MACH_RHEA_SS_ZANIN_02) || defined(CONFIG_MACH_RHEA_SS_ZANIN_04)
+	.resource = board_sdio3_resource,
+	.num_resources   = ARRAY_SIZE(board_sdio3_resource),
+#endif
 	.dev      = {
 		.platform_data = &board_sdio_param[2],
 	},
@@ -1345,99 +1411,6 @@ static struct platform_device *board_sdio_plat_devices[] __initdata = {
 	&board_sdio3_device,
 	&board_sdio1_device,
 };
-
-void dump_rhea_pin_config(struct pin_config *debug_pin_config)
-{
-
-	printk("%s-drv_sth:%d, input_dis:%d, slew_rate_ctrl:%d, pull_up:%d, pull_dn:%d, hys_en:%d, sel:%d\n"
-				,__func__
-				,debug_pin_config->reg.b.drv_sth
-				,debug_pin_config->reg.b.input_dis
-				,debug_pin_config->reg.b.slew_rate_ctrl
-				,debug_pin_config->reg.b.pull_up
-				,debug_pin_config->reg.b.pull_dn
-				,debug_pin_config->reg.b.hys_en
-				,debug_pin_config->reg.b.sel);
-
-}
-
-
-int configure_sdio_pullup(bool pull_up)
-{
-	int ret=0;
-	char i;
-	struct pin_config new_pin_config;
-
-	pr_err("%s, Congifure Pin with pull_up:%d\n",__func__,pull_up);
-	
-	new_pin_config.name = PN_SDCMD;
-
-	ret = pinmux_get_pin_config(&new_pin_config);
-	if(ret){
-		printk("%s, Error pinmux_get_pin_config():%d\n",__func__,ret);
-		return ret;
-	}
-	
-	printk("%s-Before setting pin with new setting\n",__func__);
-	dump_rhea_pin_config(&new_pin_config);	
-	if(pull_up){
-		new_pin_config.reg.b.pull_up =PULL_UP_ON;
-		new_pin_config.reg.b.pull_dn =PULL_DN_OFF;
-	}
-	else{
-		new_pin_config.reg.b.pull_up =PULL_UP_OFF;
-		new_pin_config.reg.b.pull_dn =PULL_DN_ON;
-	}
-		
-	ret = pinmux_set_pin_config(&new_pin_config);
-	if(ret){
-		pr_err("%s - fail to configure mmc_cmd:%d\n",__func__,ret);
-		return ret;
-	}
-		
-	ret = pinmux_get_pin_config(&new_pin_config);
-	if(ret){
-		pr_err("%s, Error pinmux_get_pin_config():%d\n",__func__,ret);
-		return ret;
-	}
-	printk("%s-after setting pin with new setting\n",__func__);
-	dump_rhea_pin_config(&new_pin_config);
-
-	for(i=0;i<4;i++){
-		new_pin_config.name = (PN_SDDAT0+i);	
-		ret = pinmux_get_pin_config(&new_pin_config);
-		if(ret){
-			printk("%s, Error pinmux_get_pin_config():%d\n",__func__,ret);
-			return ret;
-		}
-		printk("%s-Before setting pin with new setting\n",__func__);
-		dump_rhea_pin_config(&new_pin_config);	
-		if(pull_up){
-			new_pin_config.reg.b.pull_up =PULL_UP_ON;
-			new_pin_config.reg.b.pull_dn =PULL_DN_OFF;
-		}
-		else{
-			new_pin_config.reg.b.pull_up =PULL_UP_OFF;
-			new_pin_config.reg.b.pull_dn =PULL_DN_ON;
-		}
-		
-		ret = pinmux_set_pin_config(&new_pin_config);
-		if(ret){
-			pr_err("%s - fail to configure mmc_cmd:%d\n",__func__,ret);
-			return ret;
-		}
-		
-		ret = pinmux_get_pin_config(&new_pin_config);
-		if(ret){
-			pr_err("%s, Error pinmux_get_pin_config():%d\n",__func__,ret);
-			return ret;
-		}
-		printk("%s-after setting pin with new setting\n",__func__);
-		dump_rhea_pin_config(&new_pin_config);
-	}	
-
-	return ret;
-}
 
 void __init board_add_sdio_devices(void)
 {
@@ -1465,7 +1438,7 @@ static struct platform_device bcm_backlight_devices = {
 	},
 };
 
-#else
+#else 
 
 static struct platform_ktd259b_backlight_data bcm_ktd259b_backlight_data = {
 	.max_brightness = 255,
@@ -1475,7 +1448,7 @@ static struct platform_ktd259b_backlight_data bcm_ktd259b_backlight_data = {
 
 
 static struct platform_device bcm_backlight_devices = {
-    .name           = "panel",
+    .name           = "backlight-wire",
 	.id 		= -1,
 	.dev 	= {
 		.platform_data  =       &bcm_ktd259b_backlight_data,
@@ -1497,7 +1470,8 @@ static struct platform_device touchkeyled_device = {
 #if defined(CONFIG_MACH_RHEA_RAY) || defined(CONFIG_MACH_RHEA_RAY_EDN1X) \
 	|| defined(CONFIG_MACH_RHEA_FARADAY_EB10) \
 	|| defined(CONFIG_MACH_RHEA_DALTON) || defined(CONFIG_MACH_RHEA_RAY_EDN2X) || defined(CONFIG_MACH_RHEA_SS) \
-	|| defined(CONFIG_MACH_RHEA_RAY_DEMO) || defined(CONFIG_MACH_RHEA_SS_ZANIN)
+	|| defined(CONFIG_MACH_RHEA_RAY_DEMO) || defined(CONFIG_MACH_RHEA_SS_LUCAS)||defined (CONFIG_MACH_RHEA_SS_ZANIN)\
+	|| defined(CONFIG_MACH_RHEA_SS_ZANIN_02) || defined(CONFIG_MACH_RHEA_SS_ZANIN_04)
 #define GPIO_SIM2LDO_EN		99
 #endif
 #ifdef CONFIG_GPIO_PCA953X
@@ -1602,16 +1576,16 @@ static struct platform_device board_bcmbt_rfkill_device = {
 #define GPIO_BT_WAKE 6
 #define GPIO_HOST_WAKE 14
 static struct bcm_bzhw_platform_data bcm_bzhw_data = {
-        .gpio_bt_wake = GPIO_BT_WAKE,
-        .gpio_host_wake = GPIO_HOST_WAKE,
+	.gpio_bt_wake = GPIO_BT_WAKE,
+	.gpio_host_wake = GPIO_HOST_WAKE,
 };
 
 static struct platform_device board_bcm_bzhw_device = {
-        .name = "bcm_bzhw",
-        .id = -1,
-        .dev = {
-                .platform_data = &bcm_bzhw_data,
-                },
+	.name = "bcm_bzhw",
+	.id = -1,
+	.dev = {
+		.platform_data = &bcm_bzhw_data,
+		},
 };
 #endif
 
@@ -1639,7 +1613,7 @@ static struct platform_device board_bcmbt_lpm_device = {
 #define GPIO_GPS_HOST_WAKE 124 
 
 static struct gps_platform_data gps_hostwake_data= {
-	.gpio_interrupt = GPIO_GPS_HOST_WAKE,
+        .gpio_interrupt = GPIO_GPS_HOST_WAKE,
 	.i2c_pdata  = {ADD_I2C_SLAVE_SPEED(BSC_BUS_SPEED_400K),},
 };
 
@@ -1653,12 +1627,12 @@ static struct i2c_board_info __initdata gpsi2c[] = {
 };
 
 static struct platform_device gps_hostwake= {
-	.name = "gps-hostwake",
-	.id = -1,
-	.dev =
-	{
-		.platform_data=&gps_hostwake_data,
-	},
+        .name = "gps-hostwake",
+        .id = -1,
+        .dev =
+        {
+                .platform_data=&gps_hostwake_data,
+        },
 };
 #endif
 
@@ -1687,7 +1661,9 @@ static int rhea_camera_power(struct device *dev, int on)
 {
 		
 	printk("rhea_camera_power %d\n",on);
+	/*
 	if(!camdrv_ss_power(0,(bool)on))
+	*/
 		{
 		  printk("%s,camdrv_ss_power failed for MAIN CAM!! \n", __func__);
 			return -1;
@@ -1706,7 +1682,7 @@ static int rhea_camera_reset(struct device *dev)
 static struct v4l2_subdev_sensor_interface_parms sr200pc20m_if_params = {
 	.if_type = V4L2_SUBDEV_SENSOR_SERIAL,
 	.if_mode = V4L2_SUBDEV_SENSOR_MODE_SERIAL_CSI2,
-	.orientation = V4L2_SUBDEV_SENSOR_ORIENT_90,
+    .orientation =V4L2_SUBDEV_SENSOR_LANDSCAPE,
 	.facing = V4L2_SUBDEV_SENSOR_BACK,
 	.parms.serial = {
 		.lanes = 1,
@@ -1776,12 +1752,10 @@ static struct platform_device rhea_camera_sub = {
 
 #ifdef CONFIG_WD_TAPPER
 static struct wd_tapper_platform_data wd_tapper_data = {
-  /* Set the count to the time equivalent to the time-out in seconds
+  /* Set the count to the time equivalent to the time-out in milliseconds
    * required to pet the PMU watchdog to overcome the problem of reset in
    * suspend*/
-  .count = 300,
-  .lowbattcount = 120,
-  .verylowbattcount = 5,
+  .count = 120000,
   .ch_num = 1,
   .name = "aon-timer",
 };
@@ -1795,12 +1769,12 @@ static struct platform_device wd_tapper = {
 };
 #endif
 
+
 /* Rhea Ray specific platform devices */
 static struct platform_device *rhea_ray_plat_devices[] __initdata = {
 #ifdef CONFIG_KEYBOARD_BCM
 	&bcm_kp_device,
 #endif
-
 #ifdef CONFIG_KONA_HEADSET_MULTI_BUTTON
 	&headset_device,
 #endif
@@ -1820,7 +1794,7 @@ static struct platform_device *rhea_ray_plat_devices[] __initdata = {
 #endif
 #if 0
 #ifdef CONFIG_FB_BRCM_RHEA
-	&rhea_ss_smi_display_device,	
+	&r61531_display_device,	
 #endif
 #endif
 
@@ -1829,17 +1803,17 @@ static struct platform_device *rhea_ray_plat_devices[] __initdata = {
 #endif
 
 #ifdef CONFIG_BCM_BZHW
-        &board_bcm_bzhw_device,
+	&board_bcm_bzhw_device,
 #endif
 
 #ifdef CONFIG_BCM_BT_LPM
-    &board_bcmbt_lpm_device,
+	&board_bcmbt_lpm_device,
 #endif
 	&rhea_camera,
 	/* &rhea_camera_sub, */ /* no sub cam in Zanin */
 
 #ifdef CONFIG_GPS_IRQ
-	&gps_hostwake,
+        &gps_hostwake,
 #endif
 #ifdef CONFIG_WD_TAPPER
         &wd_tapper,
@@ -1882,6 +1856,9 @@ static void __init rhea_ray_add_i2c_devices (void)
 			pmu_info,
 			ARRAY_SIZE(pmu_info));
 #endif
+#ifdef CONFIG_MFD_BCMPMU
+	board_pmu_init();
+#endif
 #ifdef CONFIG_GPIO_PCA953X
 	i2c_register_board_info(1,
 			pca953x_info,
@@ -1918,7 +1895,12 @@ static void __init rhea_ray_add_i2c_devices (void)
 			ARRAY_SIZE(mpu6050_info));
 #endif
 
-i2c_register_board_info(0x3, zinitix_i2c_devices,
+#if 0
+i2c_register_board_info(0x3, rhea_ss_i2cgpio0_board_info,
+				ARRAY_SIZE(rhea_ss_i2cgpio0_board_info));
+#endif //PSJ
+
+     i2c_register_board_info(0x3, zinitix_i2c_devices,
 				ARRAY_SIZE(zinitix_i2c_devices)); //PSJ
 
 i2c_register_board_info(0x4, rhea_ss_i2cgpio1_board_info,
@@ -1927,23 +1909,21 @@ i2c_register_board_info(0x4, rhea_ss_i2cgpio1_board_info,
 	i2c_register_board_info(0x5, bcmi2cnfc, ARRAY_SIZE(bcmi2cnfc));
 #endif
 #ifdef CONFIG_KEYBOARD_EXPANDER
-i2c_register_board_info(0x6, rhea_ss_i2cgpio2_board_info,
+	i2c_register_board_info(0x6, rhea_ss_i2cgpio2_board_info,
 				ARRAY_SIZE(rhea_ss_i2cgpio2_board_info));
 #endif
 }
 
 static int __init rhea_ray_add_lateInit_devices (void)
 {
-
 	board_add_sdio_devices();
-
 #ifdef CONFIG_BRCM_UNIFIED_DHD_SUPPORT
 
-	printk(KERN_ERR "Calling WLAN_INIT!\n");
+	printk(KERN_INFO "Calling WLAN_INIT!\n");
 
 	rhea_wlan_init();
-	printk(KERN_ERR "DONE WLAN_INIT!\n");
-#endif	
+	printk(KERN_INFO "DONE WLAN_INIT!\n");
+#endif
 	return 0;
 }
 
@@ -1953,47 +1933,11 @@ static void __init rhea_ray_reserve(void)
 }
 
 
-/* uart platform data */
-
-#define KONA_UART0_PA	UARTB_BASE_ADDR
-#define KONA_UART1_PA	UARTB2_BASE_ADDR
-#define KONA_UART2_PA	UARTB3_BASE_ADDR
-
-#define KONA_UART_FCR_UART0	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_11)
-#define KONA_UART_FCR_UART1	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
-#define KONA_UART_FCR_UART2	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
-
-#define KONA_8250PORT(name, clk)				\
-{								\
-	.membase    = (void __iomem *)(KONA_##name##_VA),	\
-	.mapbase    = (resource_size_t)(KONA_##name##_PA),	\
-	.irq	    = BCM_INT_ID_##name,			\
-	.uartclk    = 26000000,					\
-	.regshift   = 2,				\
-	.iotype	    = UPIO_DWAPB,			\
-	.type	    = PORT_16550A,			\
-	.flags	    = UPF_BOOT_AUTOCONF | UPF_FIXED_TYPE | UPF_SKIP_TEST | \
-						UPF_LOW_LATENCY, \
-	.private_data = (void __iomem *)((KONA_##name##_VA) + \
-						UARTB_USR_OFFSET), \
-	.clk_name = clk,	\
-	.fcr = KONA_UART_FCR_##name, \
-}
-
-static struct plat_serial8250_port board_uart_data[] = {
-	KONA_8250PORT(UART0, "uartb_clk"),
-	KONA_8250PORT(UART1, "uartb2_clk"),
-	KONA_8250PORT(UART2, "uartb3_clk"),
-	{
-	 .flags = 0,
-	 },
-};
-
-/* For Samsung long duration testing wake_lock must be hold once UART 
- * cable is connected, so that system won't go to sleep. 
+/* For Samsung long duration testing wake_lock must be hold once UART
+ * cable is connected, so that system won't go to sleep.
  * uas_notify_init() will register for JIG_UART insertion and removal and
  * hold and release the wake_lock accordingly
-*/
+ */
 struct notifier_block nb[2];
 #ifdef CONFIG_HAS_WAKELOCK
 static struct wake_lock jig_uart_wl;
@@ -2004,11 +1948,10 @@ static struct pi_mgr_qos_node qos_node;
 #endif
 
 extern int bcmpmu_get_uas_sw_grp(void);
-extern int musb_info_handler(struct notifier_block *nb, unsigned long event, void *para);
 static int uas_jig_uart_handler(struct notifier_block *nb,
-		unsigned long event, void *para)
+				unsigned long event, void *para)
 {
-	switch(event) {
+	switch (event) {
 	case BCMPMU_JIG_EVENT_UART:
 		pr_info("%s: BCMPMU_JIG_EVENT_UART uart_connected\n", __func__);
 #ifdef CONFIG_HAS_WAKELOCK
@@ -2019,21 +1962,18 @@ static int uas_jig_uart_handler(struct notifier_block *nb,
 #ifdef CONFIG_KONA_PI_MGR
 		pi_mgr_qos_request_update(&qos_node, 0);
 #endif
-		musb_info_handler(NULL, 0, 1);
 		break;
-
 	case BCMPMU_USB_EVENT_ID_CHANGE:
 	default:
 		pr_info("%s: UART JIG SW GRP %d\n",
 			__func__, bcmpmu_get_uas_sw_grp());
-		if(bcmpmu_get_uas_sw_grp() != UAS_SW_GRP_UART_JIG) {
+		if (bcmpmu_get_uas_sw_grp() != UAS_SW_GRP_UART_JIG) {
 #ifdef CONFIG_HAS_WAKELOCK
 			if (wake_lock_active(&jig_uart_wl))
 				wake_unlock(&jig_uart_wl);
 #endif
-		musb_info_handler(NULL, 0, 0);
 #ifdef CONFIG_KONA_PI_MGR
-		pi_mgr_qos_request_update(&qos_node, PI_MGR_QOS_DEFAULT_VALUE);
+			pi_mgr_qos_request_update(&qos_node, PI_MGR_QOS_DEFAULT_VALUE);
 #endif
 		}
 		break;
@@ -2071,18 +2011,13 @@ static int __init uas_notify_init(void)
 	ret |= bcmpmu_add_notifier(BCMPMU_USB_EVENT_ID_CHANGE, &nb[1]);
 	if (ret) {
 		pr_info("%s: failed to register for JIG UART notification\n",
-				__func__);
+			__func__);
 		return -1;
 	}
 #ifdef CONFIG_KONA_PI_MGR
-	ret=pi_mgr_qos_add_request(&qos_node, "jig_uart", PI_MGR_PI_ID_ARM_SUB_SYSTEM,
-					PI_MGR_QOS_DEFAULT_VALUE);
-	if (ret)
-	{
-		pr_info("%s: failed to add jig_uart to qos\n",__func__);
-		return -1;
-	}
-#endif 
+	pi_mgr_qos_add_request(&qos_node, "jig_uart", PI_MGR_PI_ID_ARM_SUB_SYSTEM,
+			       PI_MGR_QOS_DEFAULT_VALUE);
+#endif
 #ifdef CONFIG_HAS_WAKELOCK
 	wake_lock_init(&jig_uart_wl, WAKE_LOCK_SUSPEND, "jig_uart_wake");
 #endif
@@ -2092,21 +2027,16 @@ static int __init uas_notify_init(void)
 		if (wake_lock_active(&jig_uart_wl) == 0)
 			wake_lock(&jig_uart_wl);
 #endif
-		musb_info_handler(NULL, 0, 1);
 #ifdef CONFIG_KONA_PI_MGR
-		ret=pi_mgr_qos_request_update(&qos_node, 0);
-		if (ret)
-		{
-			pr_info("%s: failed to request update qos_node\n",__func__);
-			return -1;
-		}
+		pi_mgr_qos_request_update(&qos_node, 0);
 #endif
 
-	}	
+	}
 	return 0;
 }
 
 late_initcall(uas_notify_init);
+
 
 
 #define TSP_SDA 85
@@ -2177,71 +2107,14 @@ static struct platform_device *gpio_i2c_devices[] __initdata = {
 #if defined(CONFIG_BCMI2CNFC)
 	&rhea_nfc_i2c_gpio_device,
 #endif /* CONFIG_BCMI2CNFC */
-	#ifdef CONFIG_KEYBOARD_EXPANDER
+#ifdef CONFIG_KEYBOARD_EXPANDER
 	&key_i2c_gpio_device,
-	#endif
+#endif
 
 #endif
 };
 
 #endif	
-#if defined(CONFIG_SEC_CHARGING_FEATURE)
-// Samsung charging feature
-// +++ for board files, it may contain changeable values
-struct spa_temp_tb batt_temp_tb[]=
-{
-	{869, -300},            /* -30 */
-	{769, -200},			/* -20 */
-	{643, -100},                    /* -10 */
-	{568, -50},				/* -5 */
-	{509,   0},                    /* 0   */
-	{382,  100},                    /* 10  */
-	{275,  200},                    /* 20  */
-	{231,  250},                    /* 25  */
-	{196,  300},                    /* 30  */
-	{138,  400},                    /* 40  */
-	{95 ,  500},                    /* 50  */
-	{68 ,  600},                    /* 60  */
-	{54 ,  650},                    /* 65  */
-	{46 ,  700},            /* 70  */
-	{34 ,  800},            /* 80  */
-};
-
-struct spa_power_data spa_power_pdata=
-{
-	.charger_name = "bcm59039_charger",
-	.eoc_current=100,
-	.recharge_voltage=4130,
-	.charging_cur_usb=450,
-	.charging_cur_wall=600,
-	.suspend_temp_hot=600,
-	.recovery_temp_hot=400,
-	.suspend_temp_cold=-50,
-	.recovery_temp_cold=0,
-	.batt_temp_tb=&batt_temp_tb[0],
-	.batt_temp_tb_len=ARRAY_SIZE(batt_temp_tb),
-};
-EXPORT_SYMBOL(spa_power_pdata);
-
-static struct platform_device spa_power_device=
-{
-	.name = "spa_power",
-	.id=-1,
-	.dev.platform_data = &spa_power_pdata,
-};
-static struct platform_device spa_ps_device=
-{
-	.name = "spa_ps",
-	.id=-1,
-};
-// --- for board files
-#endif
-
-static void __init rhea_ray_add_platform_data(void)
-{
-/* override the platform data in common.c */
-	board_serial_device.dev.platform_data = board_uart_data;
-}
 
 /* All Rhea Ray specific devices */
 static void __init rhea_ray_add_devices(void)
@@ -2265,11 +2138,6 @@ static void __init rhea_ray_add_devices(void)
 	
 #endif
 
-#if defined(CONFIG_SEC_CHARGING_FEATURE)
-// Samsung charging feature
-	platform_device_register(&spa_power_device);
-	platform_device_register(&spa_ps_device);
-#endif
 
 	spi_register_board_info(spi_slave_board_info,
 				ARRAY_SIZE(spi_slave_board_info));
@@ -2277,10 +2145,6 @@ static void __init rhea_ray_add_devices(void)
 #ifndef CONFIG_KONA_ATAG_DT
 static void __init board_config_default_gpio(void)
 {
-	gpio_request(122,"uart_sel");
-	gpio_direction_output(122,1);
-	gpio_free(122);
-
 	gpio_request(70, "WLAN_REG_ON"); 
 	gpio_direction_output(70,0); 
 	gpio_free(70);
@@ -2297,6 +2161,9 @@ static void __init board_config_default_gpio(void)
 	gpio_direction_output(25,0); 
 	gpio_free(25);
 	
+	gpio_request(34, "VT_CAM_STNBY"); 
+	gpio_direction_output(34,0); 
+	gpio_free(34);
 	
 }
 #endif
@@ -2307,7 +2174,11 @@ static void __init board_config_default_gpio(void)
 struct kona_fb_platform_data konafb_devices[] __initdata = {
 	{
 		.dispdrv_name  = "ILI9341", 
-		.dispdrv_entry = DISPDRV_GetFuncTable,
+#ifdef CONFIG_LCD_ILI9341_SUPPORT
+		.dispdrv_entry = DISPDRV_ili9341_GetFuncTable,
+#elif defined(CONFIG_LCD_R61531_SUPPORT)
+		.dispdrv_entry = DISPDRV_R61531_GetFuncTable,
+#endif
 		.parms = {
 			.w0 = {
 				.bits = { 
@@ -2317,7 +2188,7 @@ struct kona_fb_platform_data konafb_devices[] __initdata = {
 					.bus_ch     = RHEA_BUS_CH_1,
 					.bus_width  = RHEA_BUS_WIDTH_16,
 					.te_input   = RHEA_TE_IN_0_LCD,
-					.col_mode_i = RHEA_CM_I_XRGB888,	  
+					.col_mode_i = RHEA_CM_I_XRGB888,
 					.col_mode_o = RHEA_CM_O_RGB888, 
 				},	
 			

@@ -51,7 +51,6 @@
 #include <linux/input/stmpe1801.h>
 #include <linux/irq.h>
 
-
 /*
  * Definitions & global arrays.
  */
@@ -128,14 +127,6 @@ struct stmpe1801_kp {
 	int irq;
 
 };
-
-
-static unsigned char gExpanderKeyState = 0;
-
-unsigned char GetExpanderKeyStatus(void)
-{
-	return gExpanderKeyState;
-}
 
 static int stmpe1801_read_reg(struct i2c_client *client, unsigned char reg[], int cnum, u8 *buf, int num)
 {
@@ -263,11 +254,12 @@ static int init_stmpe1801(struct stmpe1801_kp *stmpe1801_kp)
 
 static enum hrtimer_restart st_kp_timer_func(struct hrtimer *timer)
 {
-	struct stmpe1801_kp *stmpe1801ts  = container_of(timer, struct stmpe1801_kp, timer);
 
 	#if USE_THREADED_IRQ
 	
 	#else
+	struct stmpe1801_kp *stmpe1801ts  = container_of(timer, struct stmpe1801_kp, timer);
+
 	queue_work(stmpe1801_wq, &stmpe1801ts->work);
 	#endif
 
@@ -276,8 +268,10 @@ static enum hrtimer_restart st_kp_timer_func(struct hrtimer *timer)
 
 static irqreturn_t kp_interrupt(int irq, void *handle)
 {
+#ifndef USE_THREADED_IRQ
 	struct stmpe1801_kp *stmpe1801_kp = handle;	
-	printk( "[KEYEP]stmpe1801 interrupt handling \n");
+#endif
+	//pr_debug( "[KEYEP]stmpe1801 interrupt handling, irq:%d  \n", irq);
 
 #if USE_THREADED_IRQ
 
@@ -325,23 +319,21 @@ static void kp_tasklet_proc(struct work_struct *work)
 				int code = MATRIX_SCAN_CODE(row, col, STMPE_KEYPAD_ROW_SHIFT);
 				bool up = val[j] & STMPE_KPC_DATA_UP;
 				
-				gExpanderKeyState = !up; /* 1 : Release , 0 : Press */
-				
                 if ((data & STMPE_KPC_DATA_NOKEY_MASK) == STMPE_KPC_DATA_NOKEY_MASK)
                 {
                     continue;
                 }
                 else
                 {
-					printk("[KEYEP] Data = %d 0x%x 0x%x 0x%x 0x%x 0x%x\n" , code, val[0], val[1], val[2], val[3], val[4]);
+		  //	pr_debug("[KEYEP] Data = %d 0x%x 0x%x 0x%x 0x%x 0x%x\n" , code, val[0], val[1], val[2], val[3], val[4]);
                 }
 
                 input_event(stmpe1801_kp->input_dev, EV_MSC, MSC_SCAN, code);
                 input_report_key(stmpe1801_kp->input_dev, stmpe1801_kp->keymap[code], !up);
-                printk("[KEYEP] Keycode = %d\n", stmpe1801_kp->keymap[code]);
+		//pr_debug("[KEYEP] Keycode = %d\n", stmpe1801_kp->keymap[code]);
                 input_sync(stmpe1801_kp->input_dev);				
 			}
-			//printk("KeyData = %x %x %x %x %x\n" , val[0], val[1], val[2], val[3], val[4]);
+			//	pr_debug("KeyData = %x %x %x %x %x\n" , val[0], val[1], val[2], val[3], val[4]);
 		}
 	}
 	
@@ -360,6 +352,12 @@ static void kp_tasklet_proc(struct work_struct *work)
 		enable_irq(stmpe1801_kp->client->irq);	
 		#endif		
 	}
+
+#if USE_THREADED_IRQ
+	return IRQ_HANDLED;
+#else
+#endif
+
 }
 
 
@@ -368,7 +366,7 @@ static int stm_kp_probe(struct i2c_client *client, const struct i2c_device_id *i
 	struct stmpe1801_kp *stmpe1801_kp = NULL;
 	int err = -ENOMEM;
 
-	printk( "[KEYEP] stmpe1801kp_probe start\n");
+	pr_info( "[KEYEP] stmpe1801kp_probe start\n");
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		goto fail;
 	
@@ -392,7 +390,7 @@ static int stm_kp_probe(struct i2c_client *client, const struct i2c_device_id *i
 	if(!stmpe1801_kp->input_dev)
 		goto fail;
 		
-	stmpe1801_kp->input_dev->name = "bcm_keypad_v2";
+	stmpe1801_kp->input_dev->name = "stmpe1801";
 	stmpe1801_kp->input_dev->phys = "stmpe1801/input0";
 	stmpe1801_kp->input_dev->id.bustype = BUS_I2C;	
 	stmpe1801_kp->input_dev->id.vendor = 0x0001;
@@ -434,7 +432,7 @@ static int stm_kp_probe(struct i2c_client *client, const struct i2c_device_id *i
 		stmpe1801_kp->timer.function = st_kp_timer_func;
 		hrtimer_start(&stmpe1801_kp->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
 	}
-	printk( "[KEYEP] stmpe1801kp_probe Done\n");
+	pr_info( "[KEYEP] stmpe1801kp_probe Done\n");
 	
 	return 0;
 fail:
@@ -443,7 +441,7 @@ fail:
 			input_free_device(stmpe1801_kp->input_dev);
 		kfree(stmpe1801_kp);
 	}
-	printk("[KEYEP] stmpe1801kp_probe fail ret=%d\n", err);
+	pr_err("[KEYEP] stmpe1801kp_probe fail ret=%d\n", err);
 	return err;	
 }
 
@@ -475,7 +473,7 @@ static struct i2c_driver stm_kp_driver = {
 
 static int __init stm_kp_init(void)
 {
-	printk("[KEYEP]Hello from init\n");
+	pr_info("[KEYEP]Hello from init\n");
 
 	gpio_request(KPEXP_INT, "stm_irq");
 	gpio_direction_input(KPEXP_INT);
@@ -506,7 +504,7 @@ static void __exit stm_kp_exit(void)
 	if (stmpe1801_wq)
 		destroy_workqueue(stmpe1801_wq);
 	#endif
-	printk("[KEYEP]Hello from exit\n"); 
+	pr_info("[KEYEP]Hello from exit\n"); 
 }
 
 MODULE_DESCRIPTION("STM Keypad IC Driver");

@@ -42,11 +42,9 @@
 #define PERIPHERAL_TO_HOST_DELAY_MS 100
 #define USBLDO_RAMP_UP_DELAY_IN_MS 2
 
-static struct otg_transceiver *local_otg_xceiver;
-
-static int bcmpmu_otg_xceiv_set_vbus(struct otg_transceiver *otg, bool enabled)
+static int bcmpmu_otg_xceiv_set_vbus(struct usb_otg *otg, bool enabled)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 	int stat;
 
 	/* The order of these operations has temporarily been
@@ -123,14 +121,14 @@ bool bcmpmu_otg_xceiv_check_id_rid_c(struct bcmpmu_otg_xceiv_data
 	return id_rid_c;
 }
 
-static void bcmpmu_otg_xceiv_shutdown(struct otg_transceiver *otg)
+static void bcmpmu_otg_xceiv_shutdown(struct usb_phy *phy)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(phy->dev);
 
 	if (xceiv_data) {
 		/* De-initialize OTG core and PHY */
 		bcm_hsotgctrl_phy_deinit();
-		xceiv_data->otg_xceiver.xceiver.state = OTG_STATE_UNDEFINED;
+		xceiv_data->otg_xceiver.phy.state = OTG_STATE_UNDEFINED;
 		if (!xceiv_data->otg_enabled) {
 			if (xceiv_data->bcm_hsotg_regulator &&
 				    xceiv_data->regulator_enabled) {
@@ -151,18 +149,18 @@ static void bcmpmu_otg_xceiv_set_def_state(
 
 	if (xceiv_data) {
 		if (default_host)
-			xceiv_data->otg_xceiver.xceiver.state =
+			xceiv_data->otg_xceiver.phy.state =
 				    OTG_STATE_A_IDLE;
 		else
-			xceiv_data->otg_xceiver.xceiver.state =
+			xceiv_data->otg_xceiver.phy.state =
 				    OTG_STATE_B_IDLE;
 	}
 
 }
 
-static int bcmpmu_otg_xceiv_start(struct otg_transceiver *otg)
+static int bcmpmu_otg_xceiv_start(struct usb_phy *phy)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(phy->dev);
 	bool id_default_host = false;
 
 	if (xceiv_data) {
@@ -192,9 +190,9 @@ static int bcmpmu_otg_xceiv_start(struct otg_transceiver *otg)
 	return 0;
 }
 
-static int bcmpmu_otg_xceiv_set_delayed_adp(struct otg_transceiver *otg)
+static int bcmpmu_otg_xceiv_set_delayed_adp(struct usb_otg *otg)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 
 	if (!xceiv_data)
 		return -EINVAL;
@@ -204,9 +202,9 @@ static int bcmpmu_otg_xceiv_set_delayed_adp(struct otg_transceiver *otg)
 	return 0;
 }
 
-static int bcmpmu_otg_xceiv_set_srp_reqd_handler(struct otg_transceiver *otg)
+static int bcmpmu_otg_xceiv_set_srp_reqd_handler(struct usb_otg *otg)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 
 	if (!xceiv_data)
 		return -EINVAL;
@@ -216,10 +214,10 @@ static int bcmpmu_otg_xceiv_set_srp_reqd_handler(struct otg_transceiver *otg)
 	return 0;
 }
 
-static int bcmpmu_otg_xceiv_set_otg_enable(struct otg_transceiver *otg,
+static int bcmpmu_otg_xceiv_set_otg_enable(struct usb_otg *otg,
 					   bool enable)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 
 	if (!xceiv_data)
 		return -EINVAL;
@@ -228,9 +226,11 @@ static int bcmpmu_otg_xceiv_set_otg_enable(struct otg_transceiver *otg,
 	return 0;
 }
 
-static int bcmpmu_otg_xceiv_pullup_on(struct otg_transceiver *otg, bool on)
+static int bcmpmu_otg_xceiv_pullup_on(struct usb_phy *phy,
+	bool on)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data =
+		dev_get_drvdata(phy->dev);
 
 	if (!xceiv_data)
 		return -EINVAL;
@@ -240,44 +240,16 @@ static int bcmpmu_otg_xceiv_pullup_on(struct otg_transceiver *otg, bool on)
 	return 0;
 }
 
-static void bcmpmu_otg_xceiv_suspend_core(void)
-{
-	struct bcmpmu_otg_xceiv_data *xceiv_data;
-
-	if (NULL == local_otg_xceiver)
-		return;
-
-	xceiv_data = dev_get_drvdata(local_otg_xceiver->dev);
-	atomic_notifier_call_chain(&xceiv_data->otg_xceiver.
-			xceiver.notifier, USB_EVENT_SUSPEND_CORE, NULL);
-}
-
-static void bcmpmu_otg_xceiv_wakeup_core(void)
-{
-	struct bcmpmu_otg_xceiv_data *xceiv_data;
-
-	if (NULL == local_otg_xceiver)
-		return;
-
-	xceiv_data = dev_get_drvdata(local_otg_xceiver->dev);
-	atomic_notifier_call_chain(&xceiv_data->otg_xceiver.
-			xceiver.notifier, USB_EVENT_WAKEUP_CORE, NULL);
-}
-
-
-
-static int bcmpmu_otg_xceiv_set_suspend(struct otg_transceiver *otg,
+static int bcmpmu_otg_xceiv_set_suspend(struct usb_phy *phy,
 					int suspend)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(phy->dev);
 
 	if (!xceiv_data)
 		return -EINVAL;
 
 	if (!xceiv_data->otg_enabled && suspend)
-		bcm_hsotgctrl_handle_bus_suspend(
-					bcmpmu_otg_xceiv_suspend_core,
-					bcmpmu_otg_xceiv_wakeup_core);
+		bcm_hsotgctrl_handle_bus_suspend();
 
 	return 0;
 }
@@ -347,7 +319,7 @@ static int bcmpmu_otg_xceiv_a_invalid_notif_handler(
 
 	/* This triggers shutdown that will turn off the clock */
 	atomic_notifier_call_chain(&xceiv_data->otg_xceiver.
-				   xceiver.notifier,
+				   phy.notifier,
 				   USB_EVENT_NONE, NULL);
 
 	return 0;
@@ -392,12 +364,14 @@ static int bcmpmu_otg_xceiv_id_chg_notif_handler(struct notifier_block *nb,
 	return 0;
 }
 
-static int bcmpmu_otg_xceiv_set_peripheral(struct otg_transceiver *otg,
+static int bcmpmu_otg_xceiv_set_peripheral(struct usb_otg *otg,
 					   struct usb_gadget *gadget)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 	int status = 0;
 	bool id_default_host = false;
+
+	printk(KERN_ERR "[murali] %s xceiv_data = %lx\n", __func__, (long unsigned int) xceiv_data);
 
 	dev_dbg(xceiv_data->dev, "Setting Peripheral\n");
 	otg->gadget = gadget;
@@ -421,7 +395,7 @@ static int bcmpmu_otg_xceiv_set_peripheral(struct otg_transceiver *otg,
 			    && (data != PMU_USB_TYPE_CDP)) {
 				/* Shutdown the core */
 				atomic_notifier_call_chain(&xceiv_data->
-							   otg_xceiver.xceiver.
+							   otg_xceiver.phy.
 							   notifier,
 							   USB_EVENT_NONE,
 							   NULL);
@@ -437,19 +411,19 @@ static int bcmpmu_otg_xceiv_set_peripheral(struct otg_transceiver *otg,
 	return status;
 }
 
-static int bcmpmu_otg_xceiv_set_vbus_power(struct otg_transceiver *otg,
+static int bcmpmu_otg_xceiv_set_vbus_power(struct usb_phy *phy,
 					   unsigned int ma)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(phy->dev);
 
 	return bcmpmu_usb_set(xceiv_data->bcmpmu,
 			       BCMPMU_USB_CTRL_CHRG_CURR_LMT, ma);
 }
 
-static int bcmpmu_otg_xceiv_set_host(struct otg_transceiver *otg,
+static int bcmpmu_otg_xceiv_set_host(struct usb_otg *otg,
 				     struct usb_bus *host)
 {
-	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->dev);
+	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(otg->phy->dev);
 	int status = 0;
 
 	dev_dbg(xceiv_data->dev, "Setting Host\n");
@@ -483,7 +457,7 @@ static ssize_t bcmpmu_otg_xceiv_wake_store(struct device *dev,
 	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(dev);
 	int error;
 
-	gadget = xceiv_data->otg_xceiver.xceiver.gadget;
+	gadget = xceiv_data->otg_xceiver.phy.otg->gadget;
 
 	result = sscanf(buf, "%u\n", &val);
 	if (result != 1) {
@@ -525,7 +499,7 @@ static ssize_t bcmpmu_otg_xceiv_vbus_store(struct device *dev,
 	struct bcmpmu_otg_xceiv_data *xceiv_data = dev_get_drvdata(dev);
 	int error;
 
-	hcd = bus_to_hcd(xceiv_data->otg_xceiver.xceiver.host);
+	hcd = bus_to_hcd(xceiv_data->otg_xceiver.phy.otg->host);
 
 	result = sscanf(buf, "%u\n", &val);
 	if (result != 1) {
@@ -690,7 +664,7 @@ static void bcmpmu_otg_xceiv_vbus_a_invalid_handler(struct work_struct *work)
 
 		if (!id_default_host) {
 			atomic_notifier_call_chain(&xceiv_data->otg_xceiver.
-						   xceiver.notifier,
+						   phy.notifier,
 						   USB_EVENT_NONE, NULL);
 		}
 	}
@@ -699,9 +673,9 @@ static void bcmpmu_otg_xceiv_vbus_a_invalid_handler(struct work_struct *work)
 void bcmpmu_otg_xceiv_do_srp(struct bcmpmu_otg_xceiv_data *xceiv_data)
 {
 #ifdef CONFIG_USB_OTG
-	if (xceiv_data->otg_xceiver.xceiver.gadget &&
-		    xceiv_data->otg_xceiver.xceiver.gadget->ops &&
-		    xceiv_data->otg_xceiver.xceiver.gadget->ops->wakeup &&
+	if (xceiv_data->otg_xceiver.phy.otg->gadget &&
+		    xceiv_data->otg_xceiver.phy.otg->gadget->ops &&
+		    xceiv_data->otg_xceiver.phy.otg->gadget->ops->wakeup &&
 		    xceiv_data->otg_enabled) {
 
 		bool vbus_status = 0;
@@ -713,8 +687,8 @@ void bcmpmu_otg_xceiv_do_srp(struct bcmpmu_otg_xceiv_data *xceiv_data)
 		if (!vbus_status) {
 			bcm_hsotgctrl_phy_set_non_driving(false);
 			/* Do SRP */
-			xceiv_data->otg_xceiver.xceiver.gadget->
-			    ops->wakeup(xceiv_data->otg_xceiver.xceiver.gadget);
+			xceiv_data->otg_xceiver.phy.otg->gadget->
+			    ops->wakeup(xceiv_data->otg_xceiver.phy.otg->gadget);
 			/* Start SRP failure timer to do ADP probes
 			 * if it expires
 			 */
@@ -763,6 +737,11 @@ static void bcmpmu_otg_xceiv_id_change_handler(struct work_struct *work)
 		BCMPMU_USB_CTRL_GET_ID_VALUE,
 		&new_id);
 
+	/* If ID is gnd, we need to turn on Vbus within 200ms
+	 * If ID is RID_A/B/C/FLOAT then we should not turn it on
+	 */
+	bcmpmu_otg_xceiv_set_vbus(&xceiv_data->otg_xceiver.
+		    otg, id_gnd ? true : false);
 	if (xceiv_data->prev_otg_id != new_id) {
 		id_gnd = bcmpmu_otg_xceiv_check_id_gnd(xceiv_data);
 		id_rid_a = bcmpmu_otg_xceiv_check_id_rid_a(xceiv_data);
@@ -775,7 +754,7 @@ static void bcmpmu_otg_xceiv_id_change_handler(struct work_struct *work)
 			 * Vbus within 200ms
 			 */
 			bcmpmu_otg_xceiv_set_vbus(&xceiv_data->otg_xceiver.
-				    xceiver, true);
+				    otg, true);
 		}
 
 		if (!id_rid_c)
@@ -783,10 +762,10 @@ static void bcmpmu_otg_xceiv_id_change_handler(struct work_struct *work)
 
 		if (id_gnd || id_rid_a || id_rid_c) {
 			bcm_hsotgctrl_phy_deinit();
-			xceiv_data->otg_xceiver.xceiver.state =
+			xceiv_data->otg_xceiver.phy.state =
 				OTG_STATE_UNDEFINED;
 			atomic_notifier_call_chain(&xceiv_data->
-				otg_xceiver.xceiver.notifier,
+				otg_xceiver.phy.notifier,
 				USB_EVENT_ID, NULL);
 		}
 	}
@@ -814,9 +793,9 @@ static void bcmpmu_otg_xceiv_chg_detect_handler(struct work_struct *work)
 			bcmpmu_otg_xceiv_check_id_gnd(xceiv_data) ||
 			bcmpmu_otg_xceiv_check_id_rid_a(xceiv_data);
 
-		if (!id_default_host && xceiv_data->otg_xceiver.xceiver.gadget)
+		if (!id_default_host && xceiv_data->otg_xceiver.phy.otg->gadget)
 			atomic_notifier_call_chain(&xceiv_data->otg_xceiver.
-						   xceiver.notifier,
+						   phy.notifier,
 						   USB_EVENT_VBUS, NULL);
 	}
 }
@@ -865,8 +844,10 @@ static int __devinit bcmpmu_otg_xceiv_probe(struct platform_device *pdev)
 
 	xceiv_data->dev = &pdev->dev;
 	xceiv_data->bcmpmu = bcmpmu;
-	xceiv_data->otg_xceiver.xceiver.dev = xceiv_data->dev;
-	xceiv_data->otg_xceiver.xceiver.label = "bcmpmu_otg_xceiv";
+	xceiv_data->otg_xceiver.phy.dev = xceiv_data->dev;
+	xceiv_data->otg_xceiver.phy.label = "bcmpmu_otg_xceiv";
+	xceiv_data->otg_xceiver.phy.otg = &xceiv_data->otg_xceiver.otg;
+	xceiv_data->otg_xceiver.otg.phy = &xceiv_data->otg_xceiver.phy;
 	xceiv_data->host = false;
 	xceiv_data->vbus_enabled = false;
 
@@ -903,26 +884,27 @@ static int __devinit bcmpmu_otg_xceiv_probe(struct platform_device *pdev)
 	 */
 	xceiv_data->prev_otg_id = 0;
 
-	xceiv_data->otg_xceiver.xceiver.state = OTG_STATE_UNDEFINED;
-	xceiv_data->otg_xceiver.xceiver.set_vbus = bcmpmu_otg_xceiv_set_vbus;
-	xceiv_data->otg_xceiver.xceiver.set_peripheral =
+	xceiv_data->otg_xceiver.phy.state = OTG_STATE_UNDEFINED;
+	xceiv_data->otg_xceiver.phy.otg->set_vbus = bcmpmu_otg_xceiv_set_vbus;
+	xceiv_data->otg_xceiver.phy.otg->set_peripheral =
 	    bcmpmu_otg_xceiv_set_peripheral;
-	xceiv_data->otg_xceiver.xceiver.set_power =
+	xceiv_data->otg_xceiver.phy.set_power =
 	    bcmpmu_otg_xceiv_set_vbus_power;
-	xceiv_data->otg_xceiver.xceiver.set_host = bcmpmu_otg_xceiv_set_host;
-	xceiv_data->otg_xceiver.xceiver.shutdown = bcmpmu_otg_xceiv_shutdown;
-	xceiv_data->otg_xceiver.xceiver.init = bcmpmu_otg_xceiv_start;
-	xceiv_data->otg_xceiver.xceiver.set_delayed_adp =
+	xceiv_data->otg_xceiver.phy.otg->set_host = bcmpmu_otg_xceiv_set_host;
+	xceiv_data->otg_xceiver.phy.shutdown = bcmpmu_otg_xceiv_shutdown;
+	xceiv_data->otg_xceiver.phy.init = bcmpmu_otg_xceiv_start;
+	xceiv_data->otg_xceiver.phy.otg->set_delayed_adp =
 	    bcmpmu_otg_xceiv_set_delayed_adp;
-	xceiv_data->otg_xceiver.xceiver.set_srp_reqd =
+	xceiv_data->otg_xceiver.phy.otg->set_srp_reqd =
 	    bcmpmu_otg_xceiv_set_srp_reqd_handler;
-	xceiv_data->otg_xceiver.xceiver.set_otg_enable =
+	xceiv_data->otg_xceiver.phy.otg->set_otg_enable =
 	    bcmpmu_otg_xceiv_set_otg_enable;
-	xceiv_data->otg_xceiver.xceiver.pullup_on = bcmpmu_otg_xceiv_pullup_on;
-	xceiv_data->otg_xceiver.xceiver.set_suspend =
+	xceiv_data->otg_xceiver.phy.pullup_on =
+		bcmpmu_otg_xceiv_pullup_on;
+	xceiv_data->otg_xceiver.phy.set_suspend =
 	    bcmpmu_otg_xceiv_set_suspend;
 
-	ATOMIC_INIT_NOTIFIER_HEAD(&xceiv_data->otg_xceiver.xceiver.notifier);
+	ATOMIC_INIT_NOTIFIER_HEAD(&xceiv_data->otg_xceiver.phy.notifier);
 
 	xceiv_data->bcm_otg_vbus_validity_notifier.notifier_call =
 	    bcmpmu_otg_xceiv_vbus_notif_handler;
@@ -972,8 +954,7 @@ static int __devinit bcmpmu_otg_xceiv_probe(struct platform_device *pdev)
 		goto error_attr_host;
 #endif
 
-	otg_set_transceiver(&xceiv_data->otg_xceiver.xceiver);
-	local_otg_xceiver = &xceiv_data->otg_xceiver.xceiver;
+	usb_set_transceiver(&xceiv_data->otg_xceiver.phy);
 
 	platform_set_drvdata(pdev, xceiv_data);
 
@@ -1001,12 +982,12 @@ static int __devinit bcmpmu_otg_xceiv_probe(struct platform_device *pdev)
 		&xceiv_data->prev_otg_id);
 
 	/* Check if we should default to A-device */
-	xceiv_data->otg_xceiver.xceiver.default_a =
+	xceiv_data->otg_xceiver.phy.otg->default_a =
 	    bcmpmu_otg_xceiv_check_id_gnd(xceiv_data) ||
 	    bcmpmu_otg_xceiv_check_id_rid_a(xceiv_data);
 
 	bcmpmu_otg_xceiv_set_def_state(xceiv_data,
-		xceiv_data->otg_xceiver.xceiver.default_a);
+		xceiv_data->otg_xceiver.phy.otg->default_a);
 
 	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
@@ -1033,7 +1014,7 @@ static int __exit bcmpmu_otg_xceiv_remove(struct platform_device *pdev)
 {
 	struct bcmpmu_otg_xceiv_data *xceiv_data = platform_get_drvdata(pdev);
 
-	xceiv_data->otg_xceiver.xceiver.state = OTG_STATE_UNDEFINED;
+	xceiv_data->otg_xceiver.phy.state = OTG_STATE_UNDEFINED;
 	device_remove_file(xceiv_data->dev, &dev_attr_wake);
 	device_remove_file(xceiv_data->dev, &dev_attr_vbus);
 	device_remove_file(xceiv_data->dev, &dev_attr_host);
@@ -1059,8 +1040,6 @@ static int __exit bcmpmu_otg_xceiv_remove(struct platform_device *pdev)
 	bcmpmu_otg_free_regulator(xceiv_data);
 	kfree(xceiv_data);
 	bcm_hsotgctrl_phy_deinit();
-
-	local_otg_xceiver = NULL;
 
 	return 0;
 }

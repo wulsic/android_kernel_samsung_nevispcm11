@@ -26,8 +26,9 @@
 */
 #define LDO_NORMAL              0	/* FOR LDO and Switchers it is NORMAL (
 					* NM/NM1 for SRs). */
-#define LDO_IDLE             1	/* FOR LDO and Swtichers it is LPM */
-#define LDO_STANDBY                 2	/* OFF. */
+#define LDO_STANDBY             1	/* FOR LDO and Swtichers it is STANDBY(
+					* LPM for SRs ). */
+#define LDO_OFF                 2	/* OFF. */
 #define LDO_RESERVED_SR_NM2     3	/* For LDO it is reserved. For CSR,
 					* IOSR, SDSR this is NM2 for SRs */
 #define LDO_MODE_MASK			3
@@ -82,7 +83,7 @@ static int bcmpmureg_is_enabled(struct regulator_dev *rdev)
 		return rc;
 	}
 	val >>= PM1_SHIFT;
-	return ((val & LDO_MODE_MASK) != LDO_STANDBY);
+	return ((val & LDO_MODE_MASK) != LDO_OFF);
 }
 
 /*
@@ -122,11 +123,11 @@ static int bcmpmureg_enable(struct regulator_dev *rdev)
 	/*
 	* set to off in DSM
 	*/
-	val |= ((LDO_STANDBY << PM0_SHIFT) | (LDO_STANDBY << PM2_SHIFT));
+	val |= ((LDO_OFF << PM0_SHIFT) | (LDO_OFF << PM2_SHIFT));
 	break;
 	case BCMPMU_REGL_LPM_IN_DSM:
 	val &= ~((LDO_MODE_MASK << PM0_SHIFT) | (LDO_MODE_MASK << PM2_SHIFT));
-	val |= ((LDO_IDLE << PM0_SHIFT) | (LDO_IDLE << PM2_SHIFT));
+	val |= ((LDO_STANDBY << PM0_SHIFT) | (LDO_STANDBY << PM2_SHIFT));
 	break;
 	case BCMPMU_REGL_ON_IN_DSM:
 	/*
@@ -154,8 +155,8 @@ static int bcmpmureg_disable(struct regulator_dev *rdev)
 	struct bcmpmu_reg_info *info = bcmpmu->rgltr_info + rdev_get_id(rdev);
 	struct bcmpmu_reg_map map = bcmpmu->regmap[info->reg_addr];
 
-	int rc = LDO_STANDBY << PM0_SHIFT | LDO_STANDBY << PM1_SHIFT |
-		LDO_STANDBY << PM2_SHIFT | LDO_STANDBY << PM3_SHIFT;
+	int rc = LDO_OFF << PM0_SHIFT | LDO_OFF << PM1_SHIFT |
+		LDO_OFF << PM2_SHIFT | LDO_OFF << PM3_SHIFT;
 
 	if ((map.addr == 0) && (map.mask == 0))
 		return -ENXIO;
@@ -190,20 +191,22 @@ static int bcmpmureg_get_status(struct regulator_dev *rdev)
 	switch (val) {
 	case LDO_NORMAL:
 		return REGULATOR_STATUS_NORMAL;
-	case LDO_IDLE:
-		return REGULATOR_STATUS_IDLE;
 	case LDO_STANDBY:
+		return REGULATOR_STATUS_STANDBY;
+	case LDO_OFF:
 		return REGULATOR_STATUS_OFF;
 	case LDO_RESERVED_SR_NM2:
 		if (ldo_or_sr == BCMPMU_SR)
 			return REGULATOR_STATUS_FAST;
-	}
+	else
 		return -EINVAL;
+	default:
+		return -EINVAL;
+	}
 }
 
 /*
 * @get_mode: Get the configured operating mode for the regulator.
-* this API would provide the mode for DSM (PM0 or PM2)
 */
 static unsigned int bcmpmureg_get_mode(struct regulator_dev *rdev)
 {
@@ -223,27 +226,29 @@ static unsigned int bcmpmureg_get_mode(struct regulator_dev *rdev)
 	}
 
 	/*
-	 * Read the mode from PM0 - PC1 will be low (DSM)
+	* Read the mode from PM1 - PC1 will be high AP is active
 	*/
-	val = (val >> PM0_SHIFT) & LDO_MODE_MASK;
+	val = (val >> PM1_SHIFT) & LDO_MODE_MASK;
 
 	switch (val) {
 	case LDO_NORMAL:
 	return REGULATOR_MODE_NORMAL;
-	case LDO_IDLE:
-		return REGULATOR_MODE_IDLE;
 	case LDO_STANDBY:
 	return REGULATOR_MODE_STANDBY;
+	case LDO_OFF:
+	return -EINVAL;
 	case LDO_RESERVED_SR_NM2:
 	if (ldo_or_sr == BCMPMU_SR)
 		return REGULATOR_MODE_FAST;
-	}
+	else
+		return -EINVAL;
+	default:
 	return -EINVAL;
+	}
 }
 
 /*
 * @set_mode: Set the configured operating mode for the regulator.
-* this API would set the mode for DSM (PM0 or PM2)
 */
 static int bcmpmureg_set_mode(struct regulator_dev *rdev, unsigned mode)
 {
@@ -265,9 +270,6 @@ static int bcmpmureg_set_mode(struct regulator_dev *rdev, unsigned mode)
 	case REGULATOR_MODE_NORMAL:
 	opmode = LDO_NORMAL;
 	break;
-	case REGULATOR_MODE_IDLE:
-		opmode = LDO_IDLE;
-		break;
 	case REGULATOR_MODE_STANDBY:
 	opmode = LDO_STANDBY;
 	break;
@@ -280,10 +282,10 @@ static int bcmpmureg_set_mode(struct regulator_dev *rdev, unsigned mode)
 	default:
 	return -EINVAL;
 	}
-	/* clear mode for PM0 and PM2 (DSM) */
-	val &= ~((LDO_MODE_MASK << PM0_SHIFT) |
-			(LDO_MODE_MASK << PM2_SHIFT));
-	val |= (opmode << PM0_SHIFT) | (opmode << PM2_SHIFT);
+	opmode = (opmode & LDO_MODE_MASK) << PM1_SHIFT;
+
+	val &= ~(LDO_MODE_MASK << PM1_SHIFT);
+	val |= opmode;
 
 	return bcmpmu->write_dev(bcmpmu, info->reg_addr, val, info->mode_mask);
 }
@@ -393,7 +395,7 @@ static int bcmpmu_regulator_probe(struct platform_device *pdev)
 		regl[i] = regulator_register(&bcmpmu->rgltr_desc[regl_id],
 					&pdev->dev,
 					(bcmpmu_regulators + i)->initdata,
-					bcmpmu);
+					bcmpmu, NULL);
 		if (IS_ERR(regl[i])) {
 			dev_err(&pdev->dev, "failed to register %s\n",
 				(bcmpmu->rgltr_desc + regl_id)->name);

@@ -43,7 +43,6 @@
 #include "csl_caph_srcmixer.h"
 #include "csl_caph_switch.h"
 #include "audio_trace.h"
-#include "csl_caph_hwctrl.h"
 
 /***************************************************************************/
 /*                       G L O B A L   S E C T I O N                       */
@@ -383,7 +382,7 @@ CSL_CAPH_SWITCH_CHNL_e csl_caph_switch_obtain_channel(void)
 	chal_chnl = chal_caph_switch_alloc_channel(handle);
 	chnl = csl_caph_switch_get_cslchnl(chal_chnl);
 
-	aTrace(LOG_AUDIO_CNTLR,
+	aTrace(LOG_AUDIO_CSL,
 			      "csl_caph_switch_obtain_channel:: chnl = 0x%x\n",
 			      chnl);
 
@@ -401,7 +400,7 @@ CSL_CAPH_SWITCH_CHNL_e csl_caph_switch_obtain_channel(void)
 void csl_caph_switch_release_channel(CSL_CAPH_SWITCH_CHNL_e chnl)
 {
 	CAPH_SWITCH_CHNL_e chal_chnl = CAPH_SWITCH_CH_VOID;
-	aTrace(LOG_AUDIO_CNTLR,
+	aTrace(LOG_AUDIO_CSL,
 		"csl_caph_switch_release_channel:: chnl = 0x%x\n",
 		chnl);
 
@@ -427,7 +426,7 @@ CSL_CAPH_SWITCH_STATUS_e csl_caph_switch_config_channel(CSL_CAPH_SWITCH_CONFIG_t
 	CAPH_DST_STATUS_e dstStatus = CAPH_DST_OK;
 	CSL_CAPH_SWITCH_STATUS_e status = CSL_CAPH_SWITCH_OWNER;
 
-	aTrace(LOG_AUDIO_CNTLR,
+	aTrace(LOG_AUDIO_CSL,
 		"csl_caph_switch_config_channel:: chnl = 0x%x, srcAddr = "
 		"0x%lx, dstcAddr = 0x%lx, dataFmt = 0x%x, trigger = 0x%x\n",
 			      chnl_config.chnl,
@@ -451,9 +450,9 @@ CSL_CAPH_SWITCH_STATUS_e csl_caph_switch_config_channel(CSL_CAPH_SWITCH_CONFIG_t
 	 */
 	if (dstStatus != CAPH_DST_OK) {
 		audio_xassert(0, dstStatus);
-		aError("%s::sw %d chal_chnl %d dst 0x%lx used by other sw, dstStatus=%d\n",
-			__func__, chnl_config.chnl, chal_chnl, chnl_config.FIFO_dstAddr, dstStatus);
-		csl_caph_hwctrldump();
+		aWarn("%s::sw %d dst 0x%lx used by other sw\n",
+				__func__, chnl_config.chnl,
+				chnl_config.FIFO_dstAddr);
 		chal_caph_switch_free_channel(handle, chal_chnl);
 		status = CSL_CAPH_SWITCH_BORROWER;
 		return status;
@@ -496,7 +495,7 @@ void csl_caph_switch_add_dst(CSL_CAPH_SWITCH_CHNL_e chnl, UInt32 FIFO_dstAddr)
 	CAPH_SWITCH_CHNL_e chal_chnl = CAPH_SWITCH_CH_VOID;
 
 	aTrace(LOG_AUDIO_CSL, "csl_caph_switch_add_dst:: ");
-	aTrace(LOG_AUDIO_CNTLR,
+	aTrace(LOG_AUDIO_CSL,
 		"csl_caph_switch_add_dst:: chnl = 0x%x, dstcAddr = 0x%lx\n",
 		chnl, FIFO_dstAddr);
 	/* Get cHAL Channel */
@@ -504,9 +503,8 @@ void csl_caph_switch_add_dst(CSL_CAPH_SWITCH_CHNL_e chnl, UInt32 FIFO_dstAddr)
 	/* Add one more destination for this channel */
 	if (CAPH_DST_OK !=
 			chal_caph_switch_add_dst(handle, chal_chnl,
-				     (UInt16) FIFO_dstAddr)) {
+				(UInt16) FIFO_dstAddr))
 		aError("csl_caph_switch_add_dst:: FAIL\n");
-	}
 
 }
 
@@ -525,7 +523,7 @@ void csl_caph_switch_remove_dst(CSL_CAPH_SWITCH_CHNL_e chnl,
 
 	if (FIFO_dstAddr == 0)
 		return;
-	aTrace(LOG_AUDIO_CNTLR,
+	aTrace(LOG_AUDIO_CSL,
 		"csl_caph_switch_remove_dst:: chnl = 0x%x, dstcAddr = 0x%lx\n",
 		chnl, FIFO_dstAddr);
 	/* Get cHAL Channel */

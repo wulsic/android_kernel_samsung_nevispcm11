@@ -44,7 +44,7 @@ static DEFINE_SPINLOCK(list_lock);
 static LIST_HEAD(inactive_locks);
 static struct list_head active_wake_locks[WAKE_LOCK_TYPE_COUNT];
 static int current_event_num;
-//struct workqueue_struct *suspend_work_queue;
+struct workqueue_struct *suspend_work_queue;
 struct wake_lock main_wake_lock;
 suspend_state_t requested_suspend_state = PM_SUSPEND_MEM;
 static struct wake_lock unknown_wakeup;
@@ -546,6 +546,7 @@ int wake_lock_active(struct wake_lock *lock)
 }
 EXPORT_SYMBOL(wake_lock_active);
 
+#ifdef CONFIG_WAKELOCK_STAT
 static int wakelock_stats_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, wakelock_stats_show, NULL);
@@ -558,6 +559,7 @@ static const struct file_operations wakelock_stats_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
+#endif
 
 static int __init wakelocks_init(void)
 {
@@ -629,55 +631,6 @@ static void  __exit wakelocks_exit(void)
 	wake_lock_destroy(&deleted_wake_locks);
 #endif
 }
-
-
-/*
-        Unlock all active wake lock.
-        According the list mechanism, scanning and removing the
-        wake lock at the same time is impossible.
-        Therefore I separate it to two steps
-*/
-#define MAX_LOCK_TO_UNLOCK 20
-void force_remove_active_locks(void)
-{
-        unsigned long irqflags;
-        struct wake_lock *lock;
-        struct wake_lock *lock_to_unlock[MAX_LOCK_TO_UNLOCK];
-        int type, i, lock_count = 0;
-
-        spin_lock_irqsave(&list_lock, irqflags);
-
-        /*Step one retrieve all active wake lock*/
-        for (type = 0; type < WAKE_LOCK_TYPE_COUNT; type++) {
-                list_for_each_entry(lock, &active_wake_locks[type], link) {
-                printk(KERN_WARNING "scanning lock name %s\n", lock->name);
-
-        /* Sanity check, since all wake lock at this list is active wake lock*/
-                if (wake_lock_active(lock)) {
-                        lock_to_unlock[lock_count] = lock;
-                        lock_count++;
-                        if (MAX_LOCK_TO_UNLOCK == lock_count) {
-                                printk(KERN_ERR
-                                "ERROR !! to many active lock %s (%d)\n",
-                                __FILE__, __LINE__);
-                                return;
-                        }
-                        printk(KERN_WARNING "WARN!! need unlock %s\n",
-                        lock->name);
-                }
-        }
-        }
-        /*release  the spinlock sinc wake_unlock use it */
-        spin_unlock_irqrestore(&list_lock, irqflags);
-
-        /* Step two unlock active wake lock*/
-        for (i = 0; i < lock_count; i++) {
-                wake_unlock(lock_to_unlock[i]);
-                printk(KERN_WARNING "WARN!! unlock %s\n",
-                                lock_to_unlock[i]->name);
-        }
-}
-
 
 core_initcall(wakelocks_init);
 module_exit(wakelocks_exit);

@@ -111,11 +111,6 @@ static int param_get_dev_path(void)
 
 static int param_device_open(void)
 {
-	struct file*		p_file;
-	mm_segment_t	s_oldfs;
-	int				v_ret;
-
-
 	if( sa_Param_dev_path[0] == 0x0 )
 	{
 		if( !param_get_dev_path() )
@@ -180,7 +175,14 @@ static int param_device_read(off_t v_offset, unsigned char* p_buffer, int v_size
 	else
 	{
 		v_ret	= sp_Param_device->f_op->llseek( sp_Param_device, PARAM_OFFSET + v_offset, SEEK_SET );
-		v_ret	= sp_Param_device->f_op->read( sp_Param_device, p_buffer, v_size, &sp_Param_device->f_pos );
+		if( v_ret < 0 )
+		{
+			v_ret	= -EPERM;
+		}
+		else
+		{
+			v_ret	= sp_Param_device->f_op->read( sp_Param_device, p_buffer, v_size, &sp_Param_device->f_pos );
+		}
 
 
 		return	v_ret;
@@ -207,7 +209,14 @@ static int param_device_write(off_t v_offset, unsigned char* p_data, int v_size)
 	else
 	{
 		v_ret	= sp_Param_device->f_op->llseek( sp_Param_device, PARAM_OFFSET + v_offset, SEEK_SET );
-		v_ret	= sp_Param_device->f_op->write( sp_Param_device, p_data, v_size, &sp_Param_device->f_pos );
+		if( v_ret < 0 )
+		{
+			v_ret	= -EPERM;
+		}
+		else
+		{
+			v_ret	= sp_Param_device->f_op->write( sp_Param_device, p_data, v_size, &sp_Param_device->f_pos );
+		}
 
 
 		return	v_ret;

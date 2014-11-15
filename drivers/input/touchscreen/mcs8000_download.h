@@ -1,16 +1,13 @@
 //--------------------------------------------------------
 //
 //
-//	Melfas MCS8000 Series Download base v1.0 2010.04.05
+//      Melfas MCS8000 Series Download base v1.0 2010.04.05
 //
 //
 //--------------------------------------------------------
 
-
 #ifndef __MELFAS_FIRMWARE_DOWNLOAD_H__
 #define __MELFAS_FIRMWARE_DOWNLOAD_H__
-
-
 
 //=====================================================================
 //
@@ -18,32 +15,15 @@
 //
 //=====================================================================
 
-#define MELFAS_TRANSFER_LENGTH					(32/8)		// Fixed value
+#define MELFAS_TRANSFER_LENGTH					(32/8)	// Fixed value
 #define MELFAS_FIRMWARE_MAX_SIZE				(32*1024)
-#define MELFAS_2CHIP_DOWNLOAD_ENABLE            0       // 0 : 1Chip Download, 1: 2Chip Download
+#define MELFAS_2CHIP_DOWNLOAD_ENABLE            0	// 0 : 1Chip Download, 1: 2Chip Download
 // For delay function test. ( Disable after Porting is finished )
 #define MELFAS_ENABLE_DELAY_TEST										0
 // ISC download mode
 #define MELFAS_CORE_FIRWMARE_UPDATE_ENABLE			1	// 0 : disable, 1: enable
 #define MELFAS_PRIVATE_CONFIGURATION_UPDATE_ENABLE	1	// 0 : disable, 1: enable
 #define MELFAS_PUBLIC_CONFIGURATION_UPDATE_ENABLE	1	// 0 : disable, 1: enable
-
-#define __MMS128S_TEST__
-
-#ifdef __MMS128S_TEST__
-// added feature for mms128
-//----------------------------------------------------
-// ISC download pharameters
-//----------------------------------------------------
-//#define MELFAS_ISC_DATA_SIZE                     20480 //____HERE!_____  // max 20480,  multiple of four
-#define MELFAS_ISC_DATA_SIZE                     64 //____HERE!_____  // max 20480,  multiple of four
-
-#define MELFAS_ISC_CMD_HEADER_SIZE                5 // fixed
-#define MELFAS_BUFFER_SIZE                      (MELFAS_ISC_DATA_SIZE + MELFAS_ISC_CMD_HEADER_SIZE)
-#define MELFAS_MMS100S_FIRMWARE_MAX_SIZE				(20*1024)   // Fixed value
-#endif
-
-
 
 //----------------------------------------------------
 //   ISC Mode
@@ -52,7 +32,7 @@
 
 #define ISC_MODE_SLAVE_ADDRESS					0x48
 
-#define ISC_READ_DOWNLOAD_POSITION			0			//0 : USE ISC_PRIVATE_CONFIG_FLASH_START 1: READ FROM RMI MAP(0x61,0x62)
+#define ISC_READ_DOWNLOAD_POSITION			0	//0 : USE ISC_PRIVATE_CONFIG_FLASH_START 1: READ FROM RMI MAP(0x61,0x62)
 #define ISC_PRIVATE_CONFIG_FLASH_START			25
 #define ISC_PUBLIC_CONFIG_FLASH_START			28
 
@@ -62,7 +42,7 @@
 #define ISC_PRIVATE_CONFIGURATION_START_ADDR	0x61
 #define ISC_PUBLIC_CONFIGURATION_START_ADDR	0x62
 
-#define ISC_READ_SLAVE_CRC_OK					0x63		// return value from slave
+#define ISC_READ_SLAVE_CRC_OK					0x63	// return value from slave
 #define ISC_CORE_FIRMWARE_VERSION_ADDR		0x64
 
 //mode
@@ -70,18 +50,6 @@
 #define ISC_PRIVATE_CONFIGURATION_DL_MODE		0x02
 #define ISC_PUBLIC_CONFIGURATION_DL_MODE		0x03
 #define ISC_SLAVE_DOWNLOAD_START				0x04
-
-
-#ifdef __MMS128S_TEST__
-// added feature for mms128
-//----------------------------------------------------
-//   ISC Mode
-//----------------------------------------------------
-#define ISC_DEFAULT_SLAVE_ADDR                  0x44    //fixed
-#define MCSDL_ISC_DEFAULT_ISC_ADDR              0xFD
-#define MCSDL_ISC_DEFAULT_ISC_STATUS_ADDR       0xFE
-#endif
-
 //----------------------------------------------------
 //   ISP Mode
 //----------------------------------------------------
@@ -89,7 +57,6 @@
 #define ISP_MODE_SERIAL_WRITE					0x02
 #define ISP_MODE_SERIAL_READ					0x03
 #define ISP_MODE_NEXT_CHIP_BYPASS				0x04
-
 
 //----------------------------------------------------
 //   Return values of download function
@@ -113,60 +80,21 @@
 
 #define MCSDL_RET_WRONG_MODULE_REVISION			0x30
 
-#ifdef __MMS128S_TEST__
 //----------------------------------------------------
-//   Return values of download function
+//      When you can't control VDD nor CE.
+//      Set this value 1
+//      Then Melfas Chip can prepare chip reset.
 //----------------------------------------------------
-#define T_MCSDL_RET_SUCCESS						0x00
-#define T_MCSDL_FIRMWARE_UPDATE_MODE_ENTER_FAILED	0x01
-#define T_MCSDL_FIRMWARE_MASS_ERASE_FAILED        0x02
-#define T_MCSDL_FIRMWARE_UPDATE_FAILED            0x03
-#define T_MCSDL_LEAVE_FIRMWARE_UPDATE_MODE_FAILED 0x04
-
-#define T_MCSDL_RET_PROGRAM_SIZE_IS_WRONG			0x10
-#define T_MCSDL_RET_VERIFY_SIZE_IS_WRONG			0x11
-#define T_MCSDL_RET_WRONG_BINARY					0x12
-#define T_MCSDL_FIRMWARE_VERSION_INFO_IS_WRONG    0x13
-
-#define T_MCSDL_RET_READING_HEXFILE_FAILED		0x21
-#define T_MCSDL_RET_FILE_ACCESS_FAILED			0x22
-#define T_MCSDL_RET_MELLOC_FAILED					0x23
-
-#define T_MCSDL_RET_WRONG_MODULE_REVISION			0x40
-#endif
-
-//----------------------------------------------------
-//	When you can't control VDD nor CE.
-//	Set this value 1
-//	Then Melfas Chip can prepare chip reset.
-//----------------------------------------------------
-#define MELFAS_USE_PROTOCOL_COMMAND_FOR_DOWNLOAD 	0		// If 'enable download command' is needed ( Pinmap dependent option ).
-
-
-#ifdef __MMS128S_TEST__
-//============================================================
-//
-//	Port setting. ( Melfas preset this value. )
-//
-//============================================================
-
-// If want to set Enable : Set to 1
-
-#define MCSDL_USE_CE_CONTROL						0
-#define MCSDL_USE_VDD_CONTROL						1
-#define MCSDL_USE_RESETB_CONTROL                    1
-#endif
-
-
+#define MELFAS_USE_PROTOCOL_COMMAND_FOR_DOWNLOAD 	0	// If 'enable download command' is needed ( Pinmap dependent option ).
 
 //============================================================
 //
-//	Delay parameter setting
+//      Delay parameter setting
 //
-//	These are used on 'mcsdl_delay()'
+//      These are used on 'mcsdl_delay()'
 //
 //============================================================
-#if 1 //0905 SEC
+#if 1				//0905 SEC
 void mcsdl_vdd_on(void);
 void mcsdl_vdd_off(void);
 #endif
@@ -187,7 +115,6 @@ void mcsdl_vdd_off(void);
 #define MCSDL_DELAY_500US             				  500
 #define MCSDL_DELAY_800US							  800
 
-
 #define MCSDL_DELAY_1MS								 1000
 #define MCSDL_DELAY_5MS								 5000
 #define MCSDL_DELAY_10MS							10000
@@ -197,40 +124,26 @@ void mcsdl_vdd_off(void);
 #define MCSDL_DELAY_45MS							45000
 #define MCSDL_DELAY_60MS                            60000
 
-
-//#define TSP_SDCARD_UPDATE
-
 //============================================================
 //
-//	Porting factors for Baseband
+//      Porting factors for Baseband
 //
 //============================================================
 #include "mcs8000_download_porting.h"
 
-
 //----------------------------------------------------
-//	Functions
+//      Functions
 //----------------------------------------------------
-int mcsdl_download_binary_data(INT32 hw_ver); // with binary type .c   file.
-int mcsdl_download_binary_file(void); // with binary type .bin file.
+int mcsdl_download_binary_data(INT32 hw_ver);	// with binary type .c   file.
+int mcsdl_download_binary_file(void);	// with binary type .bin file.
 #if MELFAS_ENABLE_DELAY_TEST
 void mcsdl_delay_test(INT32 nCount);
 #endif
 int mms100_ISC_download_binary_data(int hw_ver);
-#ifdef TSP_SDCARD_UPDATE
-int mms100_ISC_download_binary_file(int hw_ver);
-#endif
-
-
-#ifdef __MMS128S_TEST__
-int mms100S_download(void);
-#endif
 
 //---------------------------------
-//	Delay functions
+//      Delay functions
 //---------------------------------
 void mcsdl_delay(UINT32 nCount);
 
-
-#endif		//#ifndef __MELFAS_FIRMWARE_DOWNLOAD_H__
-
+#endif //#ifndef __MELFAS_FIRMWARE_DOWNLOAD_H__

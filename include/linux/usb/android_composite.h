@@ -83,6 +83,7 @@ struct usb_ether_platform_data {
 	const char *vendorDescr;
 };
 
-extern void android_register_function(struct android_usb_function *f);
+//remove_warning
+//extern void android_register_function(struct android_usb_function *f);
 
 #endif	/* __LINUX_USB_ANDROID_H */

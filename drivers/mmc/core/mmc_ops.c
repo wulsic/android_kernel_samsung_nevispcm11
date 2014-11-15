@@ -10,6 +10,7 @@
  */
 
 #include <linux/slab.h>
+#include <linux/export.h>
 #include <linux/types.h>
 #include <linux/scatterlist.h>
 
@@ -19,6 +20,8 @@
 
 #include "core.h"
 #include "mmc_ops.h"
+
+#define MMC_OPS_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
 
 static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 {
@@ -233,7 +236,7 @@ static int
 mmc_send_cxd_data(struct mmc_card *card, struct mmc_host *host,
 		u32 opcode, void *buf, unsigned len)
 {
-	struct mmc_request mrq = {0};
+	struct mmc_request mrq = {NULL};
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
 	struct scatterlist sg;
@@ -381,6 +384,7 @@ int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value,
 {
 	int err;
 	struct mmc_command cmd = {0};
+	unsigned long timeout;
 	u32 status;
 
 	BUG_ON(!card);
@@ -401,6 +405,7 @@ int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value,
 	mdelay( 1 );
 
 	/* Must check status to be sure of no errors */
+	timeout = jiffies + msecs_to_jiffies(MMC_OPS_TIMEOUT_MS);
 	do {
 		err = mmc_send_status(card, &status);
 		if (err)
@@ -409,14 +414,21 @@ int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value,
 			break;
 		if (mmc_host_is_spi(card->host))
 			break;
-	} while (R1_CURRENT_STATE(status) == 7);
+
+		/* Timeout if the device never leaves the program state. */
+		if (time_after(jiffies, timeout)) {
+			pr_err("%s: Card stuck in programming state! %s\n",
+				mmc_hostname(card->host), __func__);
+			return -ETIMEDOUT;
+		}
+	} while (R1_CURRENT_STATE(status) == R1_STATE_PRG);
 
 	if (mmc_host_is_spi(card->host)) {
 		if (status & R1_SPI_ILLEGAL_COMMAND)
 			return -EBADMSG;
 	} else {
 		if (status & 0xFDFFA000)
-			printk(KERN_WARNING "%s: unexpected status %#x after "
+			pr_warning("%s: unexpected status %#x after "
 			       "switch", mmc_hostname(card->host), status);
 		if (status & R1_SWITCH_ERROR)
 			return -EBADMSG;
@@ -456,7 +468,7 @@ static int
 mmc_send_bus_test(struct mmc_card *card, struct mmc_host *host, u8 opcode,
 		  u8 len)
 {
-	struct mmc_request mrq = {0};
+	struct mmc_request mrq = {NULL};
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
 	struct scatterlist sg;
@@ -478,7 +490,7 @@ mmc_send_bus_test(struct mmc_card *card, struct mmc_host *host, u8 opcode,
 	else if (len == 4)
 		test_buf = testdata_4bit;
 	else {
-		printk(KERN_ERR "%s: Invalid bus_width %d\n",
+		pr_err("%s: Invalid bus_width %d\n",
 		       mmc_hostname(host), len);
 		kfree(data_buf);
 		return -EINVAL;
@@ -548,4 +560,39 @@ int mmc_bus_test(struct mmc_card *card, u8 bus_width)
 	mmc_send_bus_test(card, card->host, MMC_BUS_TEST_W, width);
 	err = mmc_send_bus_test(card, card->host, MMC_BUS_TEST_R, width);
 	return err;
+}
+
+int mmc_send_hpi_cmd(struct mmc_card *card, u32 *status)
+{
+	struct mmc_command cmd = {0};
+	unsigned int opcode;
+	int err;
+
+	if (!card->ext_csd.hpi) {
+		pr_warning("%s: Card didn't support HPI command\n",
+			   mmc_hostname(card->host));
+		return -EINVAL;
+	}
+
+	opcode = card->ext_csd.hpi_cmd;
+	if (opcode == MMC_STOP_TRANSMISSION)
+		cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
+	else if (opcode == MMC_SEND_STATUS)
+		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+
+	cmd.opcode = opcode;
+	cmd.arg = card->rca << 16 | 1;
+	cmd.cmd_timeout_ms = card->ext_csd.out_of_int_time;
+
+	err = mmc_wait_for_cmd(card->host, &cmd, 0);
+	if (err) {
+		pr_warn("%s: error %d interrupting operation. "
+			"HPI command response %#x\n", mmc_hostname(card->host),
+			err, cmd.resp[0]);
+		return err;
+	}
+	if (status)
+		*status = cmd.resp[0];
+
+	return 0;
 }

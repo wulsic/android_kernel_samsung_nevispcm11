@@ -73,8 +73,6 @@ int wake_lock_active(struct wake_lock *lock);
  */
 long has_wake_lock(int type);
 
-void force_remove_active_locks(void);
-
 #else
 
 static inline void wake_lock_init(struct wake_lock *lock, int type,
@@ -87,7 +85,6 @@ static inline void wake_unlock(struct wake_lock *lock) {}
 static inline int wake_lock_active(struct wake_lock *lock) { return 0; }
 static inline long has_wake_lock(int type) { return 0; }
 
-void force_remove_active_locks(void) {}
 #endif
 
 #endif

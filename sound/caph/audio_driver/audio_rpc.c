@@ -40,6 +40,9 @@ Copyright 2009 - 2011  Broadcom Corporation
 
 #include "csl_apcmd.h"
 #include "audio_trace.h"
+#if defined(ENABLE_DMA_VOICE)
+#include "csl_dsp_caph_control_api.h"
+#endif
 
 #include "ipcinterface.h"
 
@@ -302,6 +305,39 @@ void HandleAudioEventReqCb(RPC_Msg_t *pMsg,
 #endif
 }
 
+static void HandleAudioRpcNotification(
+	struct RpcNotificationEvent_t event, UInt8 clientID)
+{
+	pr_info("HandleAudioRpcNotification: event %d param %d client ID %d\n",
+		(int) event.event, (int) event.param,
+		clientID);
+
+	if (audioClientId != clientID)
+		pr_err(
+		"HandleAudioRpcNotification wrong cid expected %d got %d\n",
+			audioClientId, clientID);
+
+	switch (event.event) {
+	case RPC_CPRESET_EVT:
+		/* for now, just ack that we're ready for reset */
+		if (RPC_CPRESET_START == event.param) {
+			inCpReset = TRUE;
+			AUDDRV_HandleCPReset(TRUE);
+			RPC_AckCPReset(audioClientId);
+		} else if (RPC_CPRESET_COMPLETE == event.param) {
+			AUDDRV_HandleCPReset(FALSE);
+			inCpReset = FALSE;
+			RPC_AckCPReset(audioClientId);
+		}
+		break;
+	default:
+		pr_info(
+		"HandleAudioRpcNotification: Unsupported event %d\n",
+		(int) event.event);
+		break;
+	}
+}
+
 /*  AUDIO API CODE */
 #if defined(CONFIG_BCM_MODEM)
 void Audio_InitRpc(void)
@@ -317,6 +353,7 @@ void Audio_InitRpc(void)
 		params.xdrtbl = AUDIO_Prim_dscrm;
 		params.respCb = HandleAudioEventrespCb;
 		params.reqCb = HandleAudioEventReqCb;
+		params.rpcNtfFn = HandleAudioRpcNotification;
 		syncParams.copyCb = AudioCopyPayload;
 
 		handle = RPC_SyncRegisterClient(&params, &syncParams);
@@ -561,10 +598,6 @@ UInt32 audio_control_dsp(UInt32 param1, UInt32 param2, UInt32 param3,
 
 	switch (param1) {
 
-	case AUDDRV_DSPCMD_COMMAND_DIGITAL_SOUND:
-		VPRIPCMDQ_DigitalSound((UInt16) param2);
-		break;
-
 	case AUDDRV_DSPCMD_COMMAND_SET_BT_NB:
 		VPRIPCMDQ_SetBTNarrowBand((UInt16) param2);
 
@@ -582,12 +615,6 @@ UInt32 audio_control_dsp(UInt32 param1, UInt32 param2, UInt32 param3,
 
 	case AUDDRV_DSPCMD_MM_VPU_DISABLE:
 		VPRIPCMDQ_MMVPUDisable();
-
-		break;
-
-		/* AMCR PCM enable bit is controlled by ARM audio */
-	case AUDDRV_DSPCMD_AUDIO_SET_PCM:
-		VPRIPCMDQ_DigitalSound((UInt16) param2);
 
 		break;
 
@@ -642,6 +669,14 @@ UInt32 audio_control_dsp(UInt32 param1, UInt32 param2, UInt32 param3,
 				panic("COMMAND_AUDIO_ENABLE timeout");
 				*/
 			}
+#if defined(ENABLE_DMA_VOICE)
+			{
+				UInt16 dsp_path;
+				dsp_path =
+				csl_dsp_caph_control_aadmac_get_enable_path();
+				csl_caph_enable_adcpath_by_dsp(dsp_path);
+			}
+#endif
 		}
 
 		break;

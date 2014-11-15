@@ -50,6 +50,7 @@ struct kona_pwmc {
 	struct pwm_device_ops ops;
 	void __iomem *iobase;
 	struct clk *clk;
+	int	pwm_started;
 };
 
 struct pwm_control {
@@ -332,9 +333,11 @@ static int kona_pwmc_config(struct pwm_device *p, struct pwm_config *c)
 	int chan = kona_get_chan(ap, p);
 	int ret = 0;
 
-	clk_enable(ap->clk);
 	if (test_bit(PWM_CONFIG_POLARITY, &c->config_mask))
 		kona_pwmc_config_polarity(ap, chan, c);
+
+	if (test_bit(PWM_CONFIG_DUTY_TICKS, &c->config_mask))
+		kona_pwmc_config_duty_ticks(ap, chan, c);
 
 	if (test_bit(PWM_CONFIG_PERIOD_TICKS, &c->config_mask)) {
 		ret = kona_pwmc_config_period_ticks(ap, chan, c);
@@ -350,39 +353,40 @@ static int kona_pwmc_config(struct pwm_device *p, struct pwm_config *c)
 		}
 	}
 
-	if (test_bit(PWM_CONFIG_DUTY_TICKS, &c->config_mask))
-		kona_pwmc_config_duty_ticks(ap, chan, c);
-
-	if (test_bit(PWM_CONFIG_START, &c->config_mask)) {
+	if (!ap->pwm_started && test_bit(PWM_CONFIG_START, &c->config_mask)) {
 		/* Restore duty ticks cater for STOP case. */
 		struct pwm_config d = {
 			.config_mask = PWM_CONFIG_DUTY_TICKS,
 			.duty_ticks = p->duty_ticks,
 		};
+
+		ap->pwm_started = 1;
+		usleep_range(3000, 7000);
+		clk_enable(ap->clk);
 		kona_pwmc_clear_set_bit(ap, pwm_chan_ctrl_info[chan].offset,
 					pwm_chan_ctrl_info[chan].
 					smooth_type_shift, 1);
 		kona_pwmc_config_duty_ticks(ap, chan, &d);
-		clk_enable(ap->clk);
 		kona_pwmc_start(ap, chan);
 	}
 
-	if (test_bit(PWM_CONFIG_STOP, &c->config_mask)) {
+	if (ap->pwm_started && test_bit(PWM_CONFIG_STOP, &c->config_mask)) {
 		struct pwm_config d = {
 			.config_mask = PWM_CONFIG_DUTY_TICKS,
 			.duty_ticks = 0,
 		};
+
+		ap->pwm_started = 0;
+		kona_pwmc_config_duty_ticks(ap, chan, &d);
 		kona_pwmc_clear_set_bit(ap, pwm_chan_ctrl_info[chan].offset,
 					pwm_chan_ctrl_info[chan].
 					smooth_type_shift, 0);
-		kona_pwmc_config_duty_ticks(ap, chan, &d);
 		/* turn-off the PWM clock i.e. enabled during pwm_start */
 		ndelay(410);
 		clk_disable(ap->clk);
 	}
 
 out:
-	clk_disable(ap->clk);
 	return ret;
 }
 
@@ -401,6 +405,7 @@ static void kona_pwmc_release(struct pwm_device *p)
 {
 
 }
+
 
 static const struct pwm_device_ops kona_pwm_ops = {
 	.request = kona_pwmc_request,
@@ -437,7 +442,7 @@ static int __devinit kona_pwmc_probe(struct platform_device *pdev)
 
 	for (chan = 0; chan < KONA_PWM_CHANNEL_CNT; chan++) {
 		ap->p[chan] = pwm_register(&kona_pwm_ops, &pdev->dev, "%s:%d",
-					   dev_name(&pdev->dev), chan);
+					   "kona_pwmc", chan);
 		if (IS_ERR_OR_NULL(ap->p[chan]))
 			goto err_pwm_register;
 		pwm_set_drvdata(ap->p[chan], ap);
@@ -498,11 +503,18 @@ static int kona_pwmc_resume(struct platform_device *pdev)
 #define kona_pwmc_resume     NULL
 #endif
 
+static const struct of_device_id kona_pwmc_dt_ids[] = {
+	{ .compatible = "bcm,pwmc", },
+	{}
+};
+
 static struct platform_driver kona_pwmc_driver = {
 	.driver = {
-		   .name = "kona_pwmc",
-		   .owner = THIS_MODULE,
-		   },
+		.name = "kona_pwmc",
+		.owner = THIS_MODULE,
+		.of_match_table = kona_pwmc_dt_ids,
+	},
+	.probe = kona_pwmc_probe,
 	.remove = __devexit_p(kona_pwmc_remove),
 	.suspend = kona_pwmc_suspend,
 	.resume = kona_pwmc_resume,
@@ -513,7 +525,7 @@ static const __devinitconst char gBanner[] =
 static int __init kona_pwmc_init(void)
 {
 	printk(gBanner);
-	return platform_driver_probe(&kona_pwmc_driver, kona_pwmc_probe);
+	return platform_driver_register(&kona_pwmc_driver);
 }
 
 static void __exit kona_pwmc_exit(void)

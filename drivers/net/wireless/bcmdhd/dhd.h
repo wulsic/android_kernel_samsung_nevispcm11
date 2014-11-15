@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd.h 383286 2013-02-06 06:41:25Z $
+ * $Id: dhd.h 408730 2013-06-20 08:54:49Z $
  */
 
 /****************
@@ -92,10 +92,13 @@ enum dhd_op_flags {
 
 #define MANUFACTRING_FW 	"WLTEST"
 
-/* max sequential rxcntl timeouts to set HANG event */
-#ifndef MAX_CNTL_TIMEOUT
-#define MAX_CNTL_TIMEOUT  2
-#endif
+/* max sequential TX/RX control timeouts to set HANG event */
+#ifndef MAX_CNTL_TX_TIMEOUT
+#define MAX_CNTL_TX_TIMEOUT  2
+#endif /* MAX_CNTL_TX_TIMEOUT */
+#ifndef MAX_CNTL_RX_TIMEOUT
+#define MAX_CNTL_RX_TIMEOUT  1
+#endif /* MAX_CNTL_RX_TIMEOUT */
 
 #define DHD_SCAN_ASSOC_ACTIVE_TIME	40 /* ms: Embedded default Active setting from DHD */
 #define DHD_SCAN_UNASSOC_ACTIVE_TIME 80 /* ms: Embedded def. Unassoc Active setting from DHD */

@@ -20,7 +20,6 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/kernel_stat.h>
 #include <asm/mach/arch.h>
 #include <linux/io.h>
@@ -28,16 +27,13 @@
 #include<mach/pi_mgr.h>
 #include<mach/pwr_mgr.h>
 #include<plat/pwr_mgr.h>
-#include <plat/cpu.h>
+#include <mach/cpu.h>
 #include <mach/clock.h>
 #include <linux/clk.h>
 #include <linux/err.h>
+#include <linux/module.h>
 #include "pm_params.h"
-#include <plat/kona_avs.h>
-#ifdef CONFIG_MFD_D2083
-#undef CONFIG_KONA_PMU_BSC_CLKPAD_CTRL
-#define CONFIG_KONA_PMU_BSC_CLKPAD_CTRL
-#endif
+#include <mach/rhea_avs.h>
 
 /*sysfs interface to read PMU vlt table*/
 static u32 csr_vlt_table[SR_VLT_LUT_SIZE];
@@ -173,22 +169,17 @@ extern int __jira_wa_enabled(u32 jira)
 #define START_CMD			0xb
 #define START_DELAY			6
 #define WRITE_DELAY			9
-#define VLT_CHANGE_DELAY		0x80    // from 0x25 for Dialog PMU
+#define VLT_CHANGE_DELAY		0x25
 #else /* FS mode */
 #define START_CMD			0x3
 #define START_DELAY			0x10
 #define WRITE_DELAY			0x80
 #define VLT_CHANGE_DELAY		0x80
-#endif /*CONFIG_KONA_PMU_BSC_HS_MODE */
-#if defined(CONFIG_MFD_D2083)
-#define PMU_SLAVE_ID				0x49
-#define PMU_CSR_REG_ADDR			0x62	// VBUCK1_MCTL_TUR
-#define READ_DELAY				0x80
-#else
+#endif
+
 #define PMU_SLAVE_ID				0x8
 #define PMU_CSR_REG_ADDR			0xC0
 #define READ_DELAY				0x20
-#endif
 
 /**
  * PMU BSC Registers and masks used
@@ -201,7 +192,7 @@ extern int __jira_wa_enabled(u32 jira)
 #define BSC_PAD_OUT_EN				(0x0)
 #define BSC_PAD_OUT_DIS				(0x1<<2)
 
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 #define SET_PC_PIN_CMD(pc_pin)			\
 	(SET_PC_PIN_CMD_##pc_pin##_PIN_VALUE_MASK|\
 	 SET_PC_PIN_CMD_##pc_pin##_PIN_OVERRIDE_MASK)
@@ -262,13 +253,9 @@ static struct i2c_cmd i2c_cmd[] = {
 	{REG_DATA, 0xF},	/* 34: Read Cmd */
 	{WAIT_TIMER, READ_DELAY},	/* 35 : Wait ... */
 	{REG_DATA, 1},		/* 36: Clear Start condition */
-	{REG_ADDR, 0x0},	/* 37: i2c_rd_nack_off */
-	{JUMP, 0x0},		/* 38: jump to i2c_rd_nack_jump_off offset */
-#if defined(CONFIG_KONA_PWRMGR_REV2)
+	{REG_ADDR, 53},	/* 37: i2c_rd_nack_off */
+	{JUMP, 53},		/* 38: jump to i2c_rd_nack_jump_off offset */
 	{READ_FIFO, 0},		/* 39: i2c_rd_fifo_off */
-#else
-	{REG_ADDR, 0},		/* 39 : NOP */
-#endif
 	{END, 0},		/* 40 : End sequence */
 #ifdef CONFIG_KONA_PMU_BSC_CLKPAD_CTRL
 	{REG_ADDR, PMU_BSC_PADCTL_REG},	/* 41: Write start: i2c_wr_off */
@@ -287,11 +274,7 @@ static struct i2c_cmd i2c_cmd[] = {
 	{WAIT_TIMER, WRITE_DELAY},	/* 50: Wait ... */
 	{I2C_DATA, 0xC0},	/* 51: i2c_wr_val_addr_off */
 	{WAIT_TIMER, WRITE_DELAY},	/* 52: fall through */
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	{SET_READ_DATA, 0x48},	/* 53: i2c_rd_nack_jump_off */
-#else
-	{REG_ADDR, 0},		/* 53 : NOP */
-#endif
 	{REG_ADDR, PMU_BSC_INT_STATUS_REG},	/* 54: Set BSC INT Reg */
 	{REG_DATA, PMU_BSC_INT_STATUS_MASK},	/* 55: Clear INT Status */
 #ifdef CONFIG_KONA_PMU_BSC_CLKPAD_CTRL
@@ -301,7 +284,7 @@ static struct i2c_cmd i2c_cmd[] = {
 	{REG_ADDR, 0},		/* 56: NOP */
 	{REG_ADDR, 0},		/* 57: NOP */
 #endif
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 	{SET_PC_PINS, PC_PIN_DEFAULT_STATE},	/* 58: set PC3 high */
 #else
 	{REG_ADDR, 0},		/* 58: nop */
@@ -330,21 +313,17 @@ struct pwrmgr_init_param pwrmgr_init_param = {
 	.cmd_buf = i2c_cmd,
 	.cmb_buf_size = ARRAY_SIZE(i2c_cmd),
 	.v0ptr = &v0_ptr,
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	.i2c_rd_off = 17,
 	.i2c_rd_slv_id_off1 = 23,
 	.i2c_rd_reg_addr_off = 25,
 	.i2c_rd_slv_id_off2 = 31,
-	.i2c_rd_nack_off = 37,
 	.i2c_rd_fifo_off = 39,
-	.i2c_rd_nack_jump_off = 53,
 	.i2c_wr_off = 41,
 	.i2c_wr_slv_id_off = 47,
 	.i2c_wr_reg_addr_off = 49,
 	.i2c_wr_val_addr_off = 51,
 	.i2c_seq_timeout = 100,
-#endif
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 	.pc_toggle_off = 58,
 #endif
 };
@@ -353,50 +332,50 @@ struct pwrmgr_init_param pwrmgr_init_param = {
 
 static void rhea_pm_init_wa_flgs(void)
 {
-	int chip_rev = get_chip_rev_id();
+	int chip_id = get_chip_id();
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2531
-	JIRA_WA_FLG_NAME(2531) = chip_rev <= RHEA_CHIP_REV_B2;
+	JIRA_WA_FLG_NAME(2531) = chip_id <= RHEA_CHIP_ID(RHEA_CHIP_REV_B2);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2221
-	JIRA_WA_FLG_NAME(2221) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2221) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2301
-	JIRA_WA_FLG_NAME(2301) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2301) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2877
-	JIRA_WA_FLG_NAME(2877) = chip_rev >= RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2877) = chip_id >= RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2489
-	JIRA_WA_FLG_NAME(2489) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2489) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2348
-	JIRA_WA_FLG_NAME(2348) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2348) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2272
-	JIRA_WA_FLG_NAME(2272) = chip_rev <= RHEA_CHIP_REV_B2;
+	JIRA_WA_FLG_NAME(2272) = chip_id <= RHEA_CHIP_ID(RHEA_CHIP_REV_B2);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2045
 	/*      Workaround is disabled for B1.
 	   New register bits added in B1 to resolve this issue.
 	 */
-	JIRA_WA_FLG_NAME(2045) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2045) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2276
-	JIRA_WA_FLG_NAME(2276) = chip_rev < RHEA_CHIP_REV_B1;
+	JIRA_WA_FLG_NAME(2276) = chip_id < RHEA_CHIP_ID(RHEA_CHIP_REV_B1);
 #endif
 
 #ifdef CONFIG_RHEA_WA_HWJIRA_2490
 	/* Workaround is enabled */
-	JIRA_WA_FLG_NAME(2490) = chip_rev <= RHEA_CHIP_REV_B2;
+	JIRA_WA_FLG_NAME(2490) = chip_id <= RHEA_CHIP_ID(RHEA_CHIP_REV_B2);
 #endif
 
 }
@@ -413,7 +392,7 @@ static const u32 a9_freq_list[A9_FREQ_MAX] = {
 };
 
 
-int pm_init_pmu_sr_vlt_map_table(u32 *silicon_type, int *freq_id)
+int pm_init_pmu_sr_vlt_map_table(int silicon_type, int freq_id)
 {
 #define RATE_ADJ 10
 	struct clk *a9_pll_chnl1;
@@ -426,6 +405,8 @@ int pm_init_pmu_sr_vlt_map_table(u32 *silicon_type, int *freq_id)
 	BUG_ON(IS_ERR_OR_NULL(a9_pll_chnl1));
 
 	rate = clk_get_rate(a9_pll_chnl1);
+	pr_info("%s : rate = %lu, silicon_type = %d\n",
+		__func__, rate, silicon_type);
 	rate += RATE_ADJ;
 
 	for (inx = A9_FREQ_MAX - 1; inx >= 0; inx--) {
@@ -450,18 +431,12 @@ int pm_init_pmu_sr_vlt_map_table(u32 *silicon_type, int *freq_id)
 	 * otherwise assume slow silicon
 	 */
 
-	if (((*freq_id) < 0) && (inx == A9_FREQ_1_GHZ)) {
-		pr_info("FREQ: 1GHz, upgrading silicon type to TYPICAL");
-		*silicon_type = SILICON_TYPE_TYPICAL;
-		*freq_id = inx;
-	} else if (((*freq_id) >= 0) && ((*freq_id) < inx))
+	if ((freq_id < 0) && (inx == A9_FREQ_1_GHZ))
+		silicon_type = SILICON_TYPE_TYPICAL;
+	else if ((freq_id >= 0) && (freq_id < inx))
 		pr_info("%s: Wrong A9 PLL configuration!!\n", __func__);
 
-	pr_info("%s : rate = %lu, silicon_type = %d\n",
-			__func__, rate, *silicon_type);
-
-	vlt_table = (u8 *) bcmpmu_get_sr_vlt_table(0, (u32) inx,
-			*silicon_type);
+	vlt_table = (u8 *) bcmpmu_get_sr_vlt_table(0, (u32) inx, silicon_type);
 	for (inx = 0; inx < SR_VLT_LUT_SIZE; inx++)
 		csr_vlt_table[inx] = vlt_table[inx];
 	return pwr_mgr_pm_i2c_var_data_write(vlt_table, SR_VLT_LUT_SIZE);

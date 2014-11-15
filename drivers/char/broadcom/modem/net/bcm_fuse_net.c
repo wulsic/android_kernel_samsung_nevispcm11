@@ -319,21 +319,24 @@ static RPC_Result_t bcm_fuse_net_bd_cb(PACKET_InterfaceType_t interfaceType,
 }
 
 /* callback for CP silent reset events */
-void bcm_fuse_net_cp_reset_cb(RPC_CPResetEvent_t event,
-			PACKET_InterfaceType_t interface)
+void bcm_fuse_net_cp_reset_cb(
+	struct RpcNotificationEvent_t event)
 {
 	int i;
 	struct net_device *dev_ptr = NULL;
+	PACKET_InterfaceType_t interface = event.ifType;
 
-	BNET_DEBUG(DBG_INFO, "event %s interface %d\n",
-		RPC_CPRESET_START == event ?
+	switch (event.event) {
+	case RPC_CPRESET_EVT:
+		BNET_DEBUG(DBG_INFO, "event %s interface %d\n",
+		RPC_CPRESET_START == event.param ?
 		"RPC_CPRESET_START" : "RPC_CPRESET_COMPLETE",
 		interface);
 
 	/* should just need to stop outgoing packet flow here
 	   until we get RPC_CPRESET_COMPLETE
 	*/
-	if (event == RPC_CPRESET_START) {
+	if (event.param == RPC_CPRESET_START) {
 		for (i = 0; i < BCM_NET_MAX_PDP_CNTXS; i++)
 			if (g_net_dev_tbl[i].entry_stat == EInUse) {
 				dev_ptr = g_net_dev_tbl[i].dev_ptr;
@@ -344,7 +347,7 @@ void bcm_fuse_net_cp_reset_cb(RPC_CPResetEvent_t event,
 
 		/* for now, just ack... */
 		RPC_PACKET_AckReadyForCPReset(0, INTERFACE_PACKET);
-	} else if (event == RPC_CPRESET_COMPLETE) {
+	} else if (event.param == RPC_CPRESET_COMPLETE) {
 		for (i = 0; i < BCM_NET_MAX_PDP_CNTXS; i++)
 			if (g_net_dev_tbl[i].entry_stat == EInUse) {
 				dev_ptr = g_net_dev_tbl[i].dev_ptr;
@@ -355,13 +358,22 @@ void bcm_fuse_net_cp_reset_cb(RPC_CPResetEvent_t event,
 				}
 			}
 	} else
-		BNET_DEBUG(DBG_INFO, "unexpected event %d\n", (int)event);
+		BNET_DEBUG(DBG_INFO,
+			"unexpected event param %d\n", (int)event.param);
 
 	/* **FIXME** MAG - net interfaces should be brought down as
 	   part of CP reset (for Android, RIL or DUN will do this). Are
 	   there other situations where somebody else will need to bring
 	   down the interface?
 	*/
+
+		break;
+	default:
+		BNET_DEBUG(DBG_INFO,
+			"unexpected event %d\n", (int)event.event);
+		break;
+	}
+
 	return;
 }
 
@@ -678,6 +690,14 @@ static int bcm_fuse_net_attach(unsigned int dev_index)
 		BNET_DEBUG(DBG_ERROR,
 			   "%s: Error [%d] registering device \"%s\"\n",
 			   __FUNCTION__, ret, BCM_NET_DEV_STR);
+
+		/*error recovery, do clean up*/
+		spin_lock_irqsave(&g_dev_lock, flags);
+#ifdef FUSE_NET_NAPI
+		netif_napi_del(&(g_net_dev_tbl[dev_index].rx_napi.napiInfo));
+#endif
+		memset(&g_net_dev_tbl[dev_index], 0, sizeof(net_drvr_info_t));
+		spin_unlock_irqrestore(&g_dev_lock, flags);
 		return -1;
 	}
 
@@ -884,8 +904,14 @@ static int __init bcm_fuse_net_init_module(void)
 	for (i = 0; i < BCM_NET_MAX_PDP_CNTXS; i++)
 		memset(&g_net_dev_tbl[i], 0, sizeof(net_drvr_info_t));
 
-	for (i = 0; i < BCM_NET_MAX_PDP_CNTXS; i++)
-		bcm_fuse_net_attach(i);
+	for (i = 0; i < BCM_NET_MAX_PDP_CNTXS; i++) {
+		if (bcm_fuse_net_attach(i) == -1) {
+			/* no need to carry on, something is wrong already,
+			 * hopefully the already attached drivers can be enough
+			 * to use */
+			break;
+		}
+	}
 
 	/* proc entry for net config settings */
 	bcm_fuse_net_config_proc_entry =

@@ -1,61 +1,75 @@
-config FB_BRCM_RHEA
-	tristate "Broadcom Rhea Platform Framebuffer support"
-	depends on FB && ARM && ARCH_RHEA
+config FB_BRCM_KONA
+	tristate "Broadcom KONA Platform Framebuffer support"
+	depends on FB && ARM && ARCH_KONA
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
+	select KONA_DSI
+	select KONA_VC4LITE
+	select KONA_SMI
 	help
-	  This framebuffer device driver is for the Broadcom Rhea platform.
+	  This framebuffer device driver is for the Broadcom KONA platform.
 
 config CPU_AT_TURBO_WHILE_LCD_ON
 	bool "keep CPU at TURBO when LCD is ON"
-	depends on ARCH_RHEA && KONA_CPU_FREQ_DRV
+	depends on ARCH_HAWAII && KONA_CPU_FREQ_DRV
 	default Y
 	help
-	  This config is used to put the CPU at TURBO(max) frequency when LCD
+	  This _config_ is used to put the CPU at TURBO(max) frequency when LCD
 	  is ON.
-
-config FB_BRCM_ILI9486
-	tristate "LCD Panel ILI9486 Controller"
-	default N
-	help 
-		HVGA LCD panel (ILI9486 controller)
-		
 	  
-config LCD_ILI9486_SUPPORT
-        tristate "LCD Panel- ILI9486 controller"
-        default N
-        help
-	  HVGA LCD panel (ILI9486 controller)
+config FB_BRCM_CP_CRASH_DUMP_IMAGE_SUPPORT
+	bool "CP Crash Dump Image Support"
+	depends on FB_BRCM_KONA
+	default N
+	help
+	  This is used for LCD to show that cp goes into crahs dump state.
+	  If you do not know about this config, please just say 'N' here.
 
-config LCD_R61531_SUPPORT
-        tristate "LCD Panel- R61531 controller"
+config LCD_CLASS_DEVICE
         default N
         help
-	  HVGA LCD panel (R61531 controller)
+	  LCD class registration
 
-config LCD_ILI9341_SUPPORT
-        tristate "LCD Panel- ILI9341 controller"
+config LCD_HX8369_SUPPORT
+        tristate "LCD Panel- HX8369 controller"
         default N
         help
-	  QVGA LCD panel (ILI9341 controller)
-config LCD_ILI9341_I_SUPPORT
-        tristate "LCD Panel- ILI9341 Parralel controller"
+	  WVGA LCD panel (HX8369 controller)
+
+config LCD_HX8369_CS02_SUPPORT
+        tristate "LCD Panel- HX8369 controller"
         default N
         help
-	  QVGA LCD panel (ILI9341 controller)		  
-config LCD_ILI9341_C_SUPPORT
-        tristate "LCD Panel- ILI9341 Parralel controller"
+	  WVGA LCD panel (HX8369 controller)
+	  
+config LCD_S6E63M0X_SUPPORT
+        tristate "LCD Panel- S6E63M0X controller"
         default N
         help
-	  QVGA LCD panel (ILI9341 controller)
-config LCD_ILI9341_CRSC_SUPPORT
-        tristate "LCD Panel- ILI9341 Parralel controller"
-        default N
-        help
-	  QVGA LCD panel (ILI9341 controller)
-config LCD_ILI9486_SMI_SUPPORT
-        tristate "LCD Panel- ILI9486 Parralel controller"
-        default N
-        help
-	  HVGA LCD panel (ILI9486 controller)
+	  WVGA LCD panel (S6E63M0X controller)
+	  
+config LCD_NT35510_SUPPORT
+	tristate "LCD Panel- NT35510 controller"
+	default N
+	help
+	  WVGA LCD panel (NT35510 controller)	  
+
+config PRERESERVE_BOOTLOADER_FB
+	bool "Preserve framebuffer area of Bootloader during init time"
+	default n
+	help
+		Say Y here to preserve frambuffer which is passed from bootloader. 
+		It enables to preserve framebuffer area of Bootloader until kernel frambuffer initialization is finished.
+		For this, bootloader should pass " bootloaderfb=[start address],[size]" to kernel on commandline.
+
+config FB_BRCM_LCD_EXIST_CHECK
+	bool "Enable LCD exist check code"
+	default n
+	help
+	  Say Y here to enable LCD exist check codeconfig LDI_MDNIE_SUPPORT
+	tristate "LDI mDNIe Driver"
+	depends on y
+	default n
+	help
+		LDI mDNIe Driver

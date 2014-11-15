@@ -329,7 +329,8 @@ cVoid chal_caph_srcmixer_disable_chnl(CHAL_HANDLE handle, cUInt16 chnl)
 	if (CAPH_SRCM_CH5 & chnl) {
 		reg_val = BRCM_READ_REG(base, SRCMIXER_SRC_CHANNEL5_CTRL1);
 		reg_val &= ~SRCMIXER_SRC_CHANNEL5_CTRL1_SRC_CHANNEL5_MODE_MASK;
-		//BRCM_WRITE_REG(base, SRCMIXER_SRC_CHANNEL5_CTRL1, reg_val);
+		/*do not stop src5 to avoid the rare distortion at 26m*/
+		/*BRCM_WRITE_REG(base, SRCMIXER_SRC_CHANNEL5_CTRL1, reg_val);*/
 	}
 
 	/* Find the 1st stereo passthrough CHNLs we are looking for */
@@ -1244,6 +1245,41 @@ cVoid chal_caph_srcmixer_set_spkrgain(CHAL_HANDLE handle,
 
 	return;
 }
+
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+/****************************************************************************
+*
+*  Function Name: cVoid chal_caph_srcmixer_get_spkrgain(CHAL_HANDLE handle,
+*			CAPH_SRCMixer_OUTPUT_e mixerOutput,
+*			cUInt16 *gain)
+*
+*  Description: get caph srcmixer speaker gain
+*
+****************************************************************************/
+cVoid chal_caph_srcmixer_get_spkrgain(CHAL_HANDLE handle,
+				      CAPH_SRCMixer_OUTPUT_e mixerOutput,
+				      cUInt16 *gain)
+{
+	chal_caph_srcm_cb_t *srcm_cb = (chal_caph_srcm_cb_t *) handle;
+	cUInt32 reg_val;
+	cUInt8 index;
+
+	for (index = 0; index < 4; index++) {
+		if ((1UL << index) == mixerOutput) {
+			reg_val =
+			    BRCM_READ_REG_IDX(srcm_cb->base,
+					      SRCMIXER_SRC_SPK0_LT_GAIN_CTRL2,
+					      (index *
+					       SRCMIXER_SPK_GAIN_CTRL_OFFSET));
+			*gain = reg_val &
+		SRCMIXER_SRC_SPK0_LT_GAIN_CTRL2_SPK0_LT_FIXED_GAIN_MASK;
+			break;
+		}
+	}
+
+	return;
+}
+#endif
 
 /****************************************************************************
 *

@@ -70,7 +70,7 @@
 extern "C" {
 #endif
 
-//#define __RHEA_LCD_DBG__ 
+/* #define __RHEA_LCD_DBG__ */
 
 #ifdef __RHEA_LCD_DBG__
 #define LCD_DBG(id, fmt, args...)         printk(KERN_ERR fmt, ##args)
@@ -81,7 +81,8 @@ extern "C" {
 		LCD_DBG_INIT_ID = 2,
 	} LCD_DBG_ID_TYPE;
 
-#define LCD_DBG(id, fmt, args...)	do { if (id == LCD_DBG_ERR_ID) printk(KERN_ERR fmt, ##args); } while (0)
+#define LCD_DBG(id, fmt, args...)	do { if (id == LCD_DBG_ERR_ID) \
+				printk(KERN_ERR fmt, ##args); } while (0)
 #endif
 
 /**
@@ -186,7 +187,8 @@ extern "C" {
 		LCD_IF_CM_O_RGB565,      	///< RGB565    
 		LCD_IF_CM_O_RGB565_DSI_VM,  	///< RGB565
 		LCD_IF_CM_O_RGB666,      	///< RGB666    
-		LCD_IF_CM_O_RGB888,      	///< RGB888    
+		LCD_IF_CM_O_xRGB8888,		/* xRGB8888 */
+		LCD_IF_CM_O_xBGR8888,		/* xRGB8888 */
 		LCD_IF_CM_O_INV,
 	} CSL_LCD_CM_OUT;
 
@@ -197,7 +199,8 @@ extern "C" {
 *****************************************************************************/
 	typedef enum {
 		LCD_IF_CM_I_RGB565P,	///< 2 565 pixels per 32-bit word
-		LCD_IF_CM_I_RGB888U,	///< 1 888 pixels per 32-bit word (MSB DC/A)
+		LCD_IF_CM_I_xRGB8888,
+		LCD_IF_CM_I_xBGR8888,
 		LCD_IF_CM_I_INV,
 	} CSL_LCD_CM_IN;
 

@@ -30,15 +30,8 @@
 
 #include "tma140_download_lucas.h"
 
-/*#include "./TMA140_FW/TMA140_H01S02.h"*/
-/*#include "./TMA140_FW/TMA140_H03S02.h"*/
-//#include "./TMA140_FW/TMA140_H03S03.h"
-//#include "./TMA140_FW/TMA140_H03S05.h"
-#include "./TMA140_FW/TMA140_H03S07.h"
-//#include "./TMA140_FW/TMA140_H04S01.h"
-//#include "./TMA140_FW/TMA140_H04S02.h"
-//#include "./TMA140_FW/TMA140_H04S03.h"
-#include "./TMA140_FW/TMA140_H04S04.h"
+#include "./TMA140_FW/TMA140_H01S02.h"
+
 
 #define TSP_SDA 85
 #define TSP_SCL 87
@@ -87,51 +80,6 @@ static void delay_us(unsigned int us)
 }
 /*-- DELAY TEST --*/
 
-
-
-
-//-----------------------------------------
-//
-//   Converting  ASCII and VALUE
-//
-//-----------------------------------------
-
-static unsigned char mcsdl_hex_htoi( unsigned char *pAscii )
-{
-
-   unsigned char    ucTemp = 0;
-
-   switch (*pAscii) {
-
-      case '0' : ucTemp = 0x00;   break;
-      case '1' : ucTemp = 0x01;   break;
-      case '2' : ucTemp = 0x02;   break;
-      case '3' : ucTemp = 0x03;   break;
-      case '4' : ucTemp = 0x04;   break;
-      case '5' : ucTemp = 0x05;   break;
-      case '6' : ucTemp = 0x06;   break;
-      case '7' : ucTemp = 0x07;   break;
-      case '8' : ucTemp = 0x08;   break;
-      case '9' : ucTemp = 0x09;   break;
-
-      case 'a' :
-      case 'A' : ucTemp = 0x0A;   break;
-      case 'b' :
-      case 'B' : ucTemp = 0x0B;   break;
-      case 'c' :
-      case 'C' : ucTemp = 0x0C;   break;
-      case 'd' :
-      case 'D' : ucTemp = 0x0D;   break;
-      case 'e' :
-      case 'E' : ucTemp = 0x0E;   break;
-      case 'f' :
-      case 'F' : ucTemp = 0x0F;   break;
-
-      default  :                break;
-   }
-
-   return ucTemp;
-}
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -876,7 +824,6 @@ signed char fXRESInitializeTargetForISSP(void)
 // ============================================================================
 signed char fPowerCycleInitializeTargetForISSP(void)
 {
-    unsigned char n;
 
 	/// printk("[TSP] %s, %d\n", __func__, __LINE__);
 
@@ -913,7 +860,7 @@ signed char fPowerCycleInitializeTargetForISSP(void)
 	delay_us(100);
 	if(fSDATACheck())
 	{
-		if (fIsError = fDetectHiLoTransition()) {
+	  if ((fIsError = fDetectHiLoTransition())) {
 						return(INIT_ERROR);
 		}
 	}
@@ -937,7 +884,7 @@ signed char fPowerCycleInitializeTargetForISSP(void)
     //  and cause the target device to exit ISSP Mode.
 
     SendVector(id_setup_1, num_bits_id_setup_1);
-    if (fIsError = fDetectHiLoTransition()) {
+    if ((fIsError = fDetectHiLoTransition())) {
 		printk( "[TSP] %s, %d : Error\n", __func__, __LINE__);		
         return(INIT_ERROR);
     }
@@ -961,7 +908,7 @@ signed char fVerifySiliconID(void)
 	/// printk( "[TSP] %s, %d\n", __func__, __LINE__);
 
     SendVector(id_setup_2, num_bits_id_setup_2);
-    if (fIsError = fDetectHiLoTransition())
+    if ((fIsError = fDetectHiLoTransition()))
     {
         #ifdef TX_ON
             UART_PutCRLF(0);
@@ -1095,7 +1042,7 @@ signed char fEraseTarget(void)
 	/// printk( "[TSP] %s, %d\n", __func__, __LINE__);
 
     SendVector(erase, num_bits_erase);
-    if (fIsError = fDetectHiLoTransition()) {
+    if ((fIsError = fDetectHiLoTransition())) {
 		printk( "[TSP] %s, %d : Error\n", __func__, __LINE__);
         return(ERASE_ERROR);
     }
@@ -1180,7 +1127,7 @@ signed char fProgramTargetBlock(unsigned char bBankNumber, unsigned char bBlockN
     // Send the program-block vector.
     SendVector(program_and_verify, num_bits_program_and_verify);		//PTJ: PROGRAM-AND-VERIFY
     // wait for acknowledge from target.
-    if (fIsError = fDetectHiLoTransition())
+    if ((fIsError = fDetectHiLoTransition()))
     {
     	printk( "[TSP] %s, %d : Error\n", __func__, __LINE__);
         return(BLOCK_ERROR);
@@ -1209,7 +1156,7 @@ signed char fAccTargetBankChecksum(unsigned int* pAcc)
 
     SendVector(checksum_v, num_bits_checksum);
 
-    if (fIsError = fDetectHiLoTransition())
+    if ((fIsError = fDetectHiLoTransition()))
     {
         return(CHECKSUM_ERROR);
     }
@@ -1290,7 +1237,7 @@ signed char fVerifySetup(unsigned char bBankNumber, unsigned char bBlockNumber)
     SendVector(tsync_disable, num_bits_tsync_disable);
 
     SendVector(verify_setup, num_bits_my_verify_setup);
-    if (fIsError = fDetectHiLoTransition())
+    if ((fIsError = fDetectHiLoTransition()))
     {
     	printk( "[TSP] %s, %d : Error\n", __func__, __LINE__);
         return(VERIFY_ERROR);
@@ -1396,7 +1343,7 @@ signed char fSecureTargetFlash(void)
     }
 
     SendVector(secure, num_bits_secure);	//PTJ:
-    if (fIsError = fDetectHiLoTransition())
+    if ((fIsError = fDetectHiLoTransition()))
     {
     	printk( "[TSP] %s, %d : Error\n", __func__, __LINE__);
         return(SECURITY_ERROR);
@@ -1535,33 +1482,22 @@ unsigned int load_tma140_frimware_data(int HW_ver)
 	uint8_t* buffer;
 	int result = -1;
 
-	unsigned int nBinary_length = 0;
 	unsigned int firmwareline, onelinelength;
 	unsigned char temp_onelinedata[128];
 	extern unsigned char tsp_special_update;
 	
 	if(tsp_special_update == 0)//normal firmware update from phone-binary
 	{
-		if(HW_ver == 0x04)
+		if(HW_ver == 1)
 		{
+
 			printk("[TSP] firmware_down_in_bin\n");
 		
 			for(i=0; i<512; i++)
 				for(j=0; j<64; j++)
-					firmData[i][j] = H04S04BinaryData[i*64 + j];
+					firmData[i][j] = BinaryData_HW01SW02[i*64 + j];
 
 			return PASS;
-		}
-		else if(HW_ver == 0x03)
-		{
-			printk("[TSP] firmware_down_in_bin\n");
-		
-			for(i=0; i<512; i++)
-				for(j=0; j<64; j++)
-					firmData[i][j] = H03S07BinaryData[i*64 + j];
-
-			return PASS;
-		
 		}
 		else
 		{
@@ -1654,7 +1590,7 @@ int cypress_update(int HW_ver)
 	unsigned int i;
 	unsigned int aIndex;
 
-	if (fIsError = load_tma140_frimware_data(HW_ver))
+	if ((fIsError = load_tma140_frimware_data(HW_ver)))
     {
         ErrorTrap(fIsError);
 		return fIsError;
@@ -1673,7 +1609,7 @@ int cypress_update(int HW_ver)
         }
     #else
         // Initialize the Host & Target for ISSP operations
-        if (fIsError = fPowerCycleInitializeTargetForISSP())
+        if ((fIsError = fPowerCycleInitializeTargetForISSP()))
         {
             ErrorTrap(fIsError);
 			return fIsError;
@@ -1682,7 +1618,7 @@ int cypress_update(int HW_ver)
 
 
     // Run the SiliconID Verification, and proceed according to result.
-    if (fIsError = fVerifySiliconID())
+	if ((fIsError = fVerifySiliconID()))
     {
         ErrorTrap(fIsError);
 		return fIsError;
@@ -1697,7 +1633,7 @@ int cypress_update(int HW_ver)
 	//TchDrv_DownloadDisableWD();		// Disable Baseband watchdog timer
 
         // Bulk-Erase the Device.
-        if (fIsError = fEraseTarget())
+        if ((fIsError = fEraseTarget()))
         {
             ErrorTrap(fIsError);
 			//return fIsError;
@@ -1724,7 +1660,7 @@ int cypress_update(int HW_ver)
         iChecksumData = 0;     // Calculte the device checksum as you go
         for (iBlockCounter=0; iBlockCounter<BLOCKS_PER_BANK; iBlockCounter++)
         {
-            if (fIsError = fReadWriteSetup())
+	  if ((fIsError = fReadWriteSetup()))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
@@ -1748,14 +1684,14 @@ int cypress_update(int HW_ver)
             //LoadProgramData(bBankCounter, (unsigned char)iBlockCounter);
             iChecksumData += iLoadTarget();
 
-            if (fIsError = fProgramTargetBlock(bBankCounter,(unsigned char)iBlockCounter))
+            if ((fIsError = fProgramTargetBlock(bBankCounter,(unsigned char)iBlockCounter)))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
 				goto MCSDL_DOWNLOAD_FINISH;
             }
 
-            if (fIsError = fReadStatus())
+            if ((fIsError = fReadStatus()))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
@@ -1806,14 +1742,14 @@ int cypress_update(int HW_ver)
 				}
 			}
 
-            if (fIsError = fReadWriteSetup())
+			if ((fIsError = fReadWriteSetup()))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
 				goto MCSDL_DOWNLOAD_FINISH;
             }
 
-            if (fIsError = fVerifySetup(bBankCounter,(unsigned char)iBlockCounter))
+			if ((fIsError = fVerifySetup(bBankCounter,(unsigned char)iBlockCounter)))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
@@ -1821,21 +1757,21 @@ int cypress_update(int HW_ver)
             }
 
 
-            if (fIsError = fReadStatus()) {
+			if ((fIsError = fReadStatus())) {
                 ErrorTrap(fIsError);
 				//return fIsError;
 				goto MCSDL_DOWNLOAD_FINISH;
             }
 
 
-            if (fIsError = fReadWriteSetup()) {
+			if ((fIsError = fReadWriteSetup())) {
                 ErrorTrap(fIsError);
 				//return fIsError;
 				goto MCSDL_DOWNLOAD_FINISH;
             }
 
 
-            if (fIsError = fReadByteLoop()) {
+			if ((fIsError = fReadByteLoop())) {
                 ErrorTrap(fIsError);
 				//return fIsError;
 				goto MCSDL_DOWNLOAD_FINISH;
@@ -1870,7 +1806,7 @@ int cypress_update(int HW_ver)
         {
             //PTJ: READ-WRITE-SETUP used here to select SRAM Bank 1
 
-            if (fIsError = fReadWriteSetup())
+	  if ((fIsError = fReadWriteSetup()))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
@@ -1886,7 +1822,7 @@ int cypress_update(int HW_ver)
             }
 			#endif
             // Secure one bank of the target flash
-            if (fIsError = fSecureTargetFlash())
+            if ((fIsError = fSecureTargetFlash()))
             {
                 ErrorTrap(fIsError);
 				//return fIsError;
@@ -1965,10 +1901,5 @@ MCSDL_DOWNLOAD_FINISH :
 
 }
 // end of main()
-
-
-MODULE_AUTHOR("Cypress");
-MODULE_DESCRIPTION("TMA140 TSP F/W Download Driver");
-MODULE_LICENSE("GPL");
 
 

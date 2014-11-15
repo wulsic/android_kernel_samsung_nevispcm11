@@ -43,33 +43,15 @@ Copyright 2009 - 2011  Broadcom Corporation
 * @{
 */
 
-enum _VoIF_CallType_t {
-	VOIF_NO_CALL = 0x00,
-	VOIF_VOICE_CALL_NB = 0x10,
-	VOIF_VOICE_CALL_WB = 0x20,
-	VOIF_VT_CALL_NB = 0x30,
-	VOIF_VT_CALL_WB = 0x40
-};
-
-#define VoIF_CallType_t enum _VoIF_CallType_t
-
-enum _VoIF_HeadsetType_t {
-	VOIF_OTHER_TYPE,
-	VOIF_HEADPHONE_TYPE, // 3-pole
-	VOIF_HEADSET_TYPE, // 4-pole
-	VOIF_TOTAL_TYPE
-};
-#define VoIF_HeadsetType_t enum _VoIF_HeadsetType_t
-
 /**
 * Start the VOIF processing.
 *
-*	@param	mode: audio mode (equivalently to channel)
-*	@param	hstype: headset type (headset type only)
+*	@param	channel: speaker type
 *	@return	void
 *	@note
 **************************************************************************/
-	void VoIF_init(AudioMode_t mode, VoIF_HeadsetType_t hstype);
+
+	void VoIF_init(AudioMode_t mode);
 
 /**
 * Stop the VOIF processing.
@@ -80,57 +62,7 @@ enum _VoIF_HeadsetType_t {
 **************************************************************************/
 	void VoIF_Deinit(void);
 
-
-#ifdef CONFIG_ENABLE_VOIF
-/**
-* Update audio mode to VOIF handler.
-*
-*	@param	mode: audio mode (equivalently to channel)
-*	@param	hstype: headset type (headset type only)
-*	@return	void
-*	@note
-**************************************************************************/
-	void VoIF_modeChange(AudioMode_t mode, VoIF_HeadsetType_t hstype);
-
-/**
-* Update voice volume index to VOIF handler.
-*
-*	@param	vol_index: volume index
-*	@return	void
-*	@note
-**************************************************************************/
-	void VoIF_volumeSetting(int vol_index);
-
-/**
-* Update call type to VOIF handler.
-*
-*	@param	callType: call type (VT / Voice)
-*	@return	void
-*	@note
-**************************************************************************/
-	void VoIF_setCallType(VoIF_CallType_t callType);
-
-/**
-* Return call type to VOIF handler.
-*
-*	@param	void
-*	@return	call type (VT / Voice)
-*	@note
-**************************************************************************/
-	VoIF_CallType_t VoIF_getCallType(void);
-
-/**
-* Update loopback mode to VOIF handler.
-*
-*	@param	whether loopback mode or not (0 / 1)
-*	@return	void
-*	@note
-**************************************************************************/
-	void VoIF_setLoopbackMode(short isLoopback);
-
-#endif /* CONFIG_ENABLE_VOIF */
-
-#ifndef CONFIG_ENABLE_VOIF
+#ifndef ENABLE_VOIF
 	void VoIF_SetDelay(int delay);	/* For test purpose only */
 	void VoIF_SetGain(int gain);	/* For test purpose only */
 #endif

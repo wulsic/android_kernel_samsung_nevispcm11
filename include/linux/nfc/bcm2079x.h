@@ -19,6 +19,9 @@
 #ifndef _BCM2079X_H
 #define _BCM2079X_H
 
+#include "linux/i2c-kona.h"
+
+
 #define BCMNFC_MAGIC	0xFA
 
 /*
@@ -36,6 +39,7 @@
 #define BCMNFC_READ_MULTI_PACKETS	_IO(BCMNFC_MAGIC, 0x06)
 
 struct bcm2079x_platform_data {
+	struct i2c_slave_platform_data i2c_pdata;
 	unsigned int irq_gpio;
 	unsigned int en_gpio;
 	int wake_gpio;

@@ -23,7 +23,12 @@
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
+#include <linux/slab.h>
 #include "linux/bmp18x.h"
+
+#include <linux/of.h>
+#include <linux/of_fdt.h>
+#include <linux/of_platform.h>
 
 #ifdef CONFIG_ARCH_KONA
 #include <linux/regulator/consumer.h>
@@ -67,39 +72,65 @@ static int __devinit bmp18x_i2c_probe(struct i2c_client *client,
 				      const struct i2c_device_id *id)
 {
 	int err = 0;
+	struct bmp18x_platform_data *pdata = NULL;
 	struct bmp18x_data_bus data_bus =
 	{
 		.bops = &bmp18x_i2c_bus_ops,
 		.client = client
 	};
 
-	BMP_INFO("%s:Enter\n",__func__);
+
+        printk(KERN_ALERT "****************** calling bmp probe*************************"); 
 	err = bmp18x_probe(&client->dev, &data_bus);
 	if (err) {
 		BMP_ERROR("bmp18x_probe failed with status: %d\n", err);
 		return err;
 	}
+	if (client->dev.platform_data)
+		pdata = client->dev.platform_data;
 
+	else if (client->dev.of_node) {
+		const char *regulator_name;
+
+		pdata = kzalloc(sizeof(struct bmp18x_platform_data),
+			GFP_KERNEL);
+		if (!pdata)
+			return -ENOMEM;
+
+		if (of_property_read_string(client->dev.of_node,
+			"regulator-name", &regulator_name)) {
+			BMP_ERROR("%s: can't get regulator name from DT!\n",
+				BMP18X_NAME);
+			goto err_read;
+		}
+
+		pdata->supply_name = (char *) regulator_name;
+	}
 #ifdef CONFIG_ARCH_KONA
-	regulator = regulator_get(&client->dev, "hv8");
+	regulator = regulator_get(&client->dev, pdata->supply_name);
+
 	err = IS_ERR_OR_NULL(regulator);
 	if (err) {
 		regulator = NULL;
-		BMP_ERROR("%s: can't get hv8 regulator!\n", BMP18X_NAME);
+		BMP_ERROR("%s: can't get vdd regulator!\n", BMP18X_NAME);
 		return -EIO;
 	}
 
 	/* make sure that regulator is enabled if device is successfully
 	   bound */
 	err = regulator_enable(regulator);
-	BMP_INFO("called regulator_enable for hv8 regulator. "
+	BMP_INFO("called regulator_enable for vdd regulator. "
 		"Status: %d\n", err);
 	if (err) {
-		BMP_ERROR("regulator_enable for hv8 regulator "
+		BMP_ERROR("regulator_enable for vdd regulator "
 			 "failed with status: %d\n", err);
 		regulator_put(regulator);
 	}
 	return err;
+err_read:
+	if (client->dev.of_node)
+		kfree(pdata);
+	return -EIO;
 #endif
 }
 
@@ -214,6 +245,12 @@ static const struct i2c_device_id bmp18x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, bmp18x_id);
 
+static const struct of_device_id bmp18x_of_match[] = {
+	{ .compatible = "bcm,bmp18x", },
+	{},
+}
+MODULE_DEVICE_TABLE(of, bmp18x_of_match);
+
 static struct i2c_driver bmp18x_i2c_driver =
 {
 	.driver =
@@ -222,6 +259,7 @@ static struct i2c_driver bmp18x_i2c_driver =
 		.name	= BMP18X_NAME,
 #ifdef CONFIG_PM
 		.pm	= &bmp18x_i2c_pm_ops,
+		.of_match_table = bmp18x_of_match,
 #endif
 	},
 	.id_table	= bmp18x_id,
@@ -232,7 +270,7 @@ static struct i2c_driver bmp18x_i2c_driver =
 
 static int __init bmp18x_i2c_init(void)
 {
-	BMP_INFO("Enter\n");
+        printk(KERN_ALERT "inside bmp18x_i2c_init\n");
 	return i2c_add_driver(&bmp18x_i2c_driver);
 }
 

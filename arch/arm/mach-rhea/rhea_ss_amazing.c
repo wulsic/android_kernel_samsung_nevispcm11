@@ -2012,12 +2012,12 @@ static struct platform_device rhea_camera_sub = {
 #include <linux/broadcom/wd-tapper.h>
 
 static struct wd_tapper_platform_data wd_tapper_data = {
-  /* Set the count to the time equivalent to the time-out in seconds
+  /* Set the count to the time equivalent to the time-out in milliseconds
    * required to pet the PMU watchdog to overcome the problem of reset in
    * suspend*/
-	.count = 120,
-	.ch_num = 1,
-	.name = "aon-timer",
+  .count = 120000,
+  .ch_num = 1,
+  .name = "aon-timer",
 };
 
 static struct platform_device wd_tapper = {

@@ -38,8 +38,9 @@
 #endif
 
 /** for Cooper VE *****************************************/
+#ifdef CONFIG_TOUCHSCREEN_MMS128_COOPERVE
 
-#define __TOUCH_DEBUG__  //TODO : 서버에 올리는 경우에는 막고 올리기.
+//#define __TOUCH_DEBUG__  //TODO : 서버에 올리는 경우에는 막고 올리기.
 #define USE_THREADED_IRQ 1 //TODO : QUEUE 방식이 아닌 THREAD 방식으로 변경. 이렇게 하니, IRQ 가 정상적으로 잘됨.
 #define DELAY_BEFORE_VDD
 
@@ -56,13 +57,29 @@
 #define __TOUCH_TA_CHECK__		// for AT&T Charger
 #endif
 
-
+#endif	// CONFIG_TOUCHSCREEN_MMS128_COOPERVE
 /***********************************************************/
+
+/** for Tass VE *****************************************/
+#ifdef CONFIG_TOUCHSCREEN_MMS128_TASSVE
+
+#define __TOUCH_DEBUG__  //TODO : 서버에 올리는 경우에는 막고 올리기.
+#define USE_THREADED_IRQ 1 //TODO : QUEUE 방식이 아닌 THREAD 방식으로 변경. 이렇게 하니, IRQ 가 정상적으로 잘됨.
+#define DELAY_BEFORE_VDD
+
+#define SET_DOWNLOAD_BY_GPIO 0 //TODO : TSP 초기화 루틴에서 강제로 최신 FW 로 업데이트 하는 루틴으로 사용하면 안됨.
+#define LATEST_FW_VER   0x03 //TODO : 이부분을 0x0 으로 하면, SET_DOWNLOAD_BY_GPIO 1 이어도 동작하지 안함.
+//#define FORCED_DOWNLOAD_OF_BLANKMEMORY	// TSP blank memory( No firmware ) 상태시 자동 펌웨어 다운로드
+//#define ALWAYS_DOWNLOAD
+
+//#define __TOUCH_KEY__
+//#define __TOUCH_KEYLED__
 
 #if defined(CONFIG_MAX8986_MUIC)
 #define __TOUCH_TA_CHECK__		// for AT&T Charger
 #endif
 
+#endif	// CONFIG_TOUCHSCREEN_MMS128_TASSVE
 /***********************************************************/
 
 #define TOUCH_ON  1
@@ -107,10 +124,10 @@ struct melfas_ts_data
 /** variables **/
 static struct muti_touch_info g_Mtouch_info[TS_MAX_TOUCH];
 static struct melfas_ts_data *ts;
-
-
+//struct melfas_ts_data *ts_global_melfas;
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
 static int8_t MMS128_Connected = 0;
-
+#endif
 static struct regulator *touch_regulator = NULL;
 static int firmware_ret_val = -1;
 static DEFINE_SPINLOCK(melfas_spin_lock);
@@ -137,6 +154,104 @@ static struct workqueue_struct *check_ic_wq;
 /** functions **/
 
 // temporary function
+
+int bcm_gpio_pull_up(unsigned int gpio, bool up)
+{
+#if 0
+	u32 reg_addr;
+	u32 reg_value;
+	if(gpio == GPIO_TOUCH_INT)
+	{
+		reg_addr = 0x350048D0;
+	}
+	else if(gpio == GPIO_TSP_SCL)
+	{
+		reg_addr = 0x350049E0;
+	}
+	else if(gpio == GPIO_TSP_SDA)
+	{
+		reg_addr = 0x350049E8;
+	}
+	else
+	{
+		printk("Wrong GPIO, does not support yet\n");
+		return -1;
+	}
+	reg_value=readl((volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	/*
+	if(up==true)
+		reg_value = (reg_value&~0x60)|0x20;
+	else
+	*/
+		reg_value = (reg_value&~0x60)|0x40;
+	writel(reg_value,(volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	return 0;
+#endif
+}
+
+int bcm_gpio_pull_down(unsigned int gpio, bool up)
+{
+	#if 0
+	u32 reg_addr;
+	u32 reg_value;
+	if(gpio == GPIO_TOUCH_INT)
+	{
+		reg_addr = 0x350048D0;
+	}
+	else if(gpio == GPIO_TSP_SCL)
+	{
+		reg_addr = 0x350049E0;
+	}
+	else if(gpio == GPIO_TSP_SDA)
+	{
+		reg_addr = 0x350049E8;
+	}
+	else
+	{
+		printk("Wrong GPIO, does not support yet\n");
+		return -1;
+	}
+	reg_value=readl((volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	if(up==true)
+		reg_value = (reg_value&~0x60)|0x40;
+	else
+		reg_value = (reg_value&~0x60);
+	writel(reg_value,(volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	#endif
+	return 0;
+}
+
+
+int bcm_gpio_pull_up_down_enable(unsigned int gpio, bool enable)
+{
+	#if 0
+	u32 reg_addr;
+	u32 reg_value;
+	if(enable==true)
+		return;
+	if(gpio == GPIO_TOUCH_INT)
+	{
+		reg_addr = 0x350048D0;
+	}
+	else if(gpio == GPIO_TSP_SCL)
+	{
+		reg_addr = 0x350049E0;
+	}
+	else if(gpio == GPIO_TSP_SDA)
+	{
+		reg_addr = 0x350049E8;
+	}
+	else
+	{
+		printk("Wrong GPIO, does not support yet\n");
+		return -1;
+	}
+	reg_value=readl((volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	reg_value = (reg_value&~0x60);
+	writel(reg_value,(volatile u32 *)HW_IO_PHYS_TO_VIRT(reg_addr));
+	#endif
+	return 0;
+}
 
 
 
@@ -173,7 +288,14 @@ static void melfas_ts_early_suspend(struct early_suspend *h);
 static void melfas_ts_late_resume(struct early_suspend *h);
 #endif
 
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
+extern int Is_Synaptics_Connected(void);
 
+int Is_MMS128_Connected(void)
+{
+    return (int) MMS128_Connected;
+}
+#endif
 
 static int tsp_reset(void);
 
@@ -199,8 +321,22 @@ void touch_keyled_ctrl_regulator_mms128(int on_off)
 EXPORT_SYMBOL(touch_keyled_ctrl_regulator_mms128);
 #endif
 
+//TODO : touch_ctrl_regulator() 함수는 다른 파일에서 선언된뒤, export 되어 잇음. //synaptics_i2c_rmi_tma340_cooperve.c synaptics_i2c_rmi_tma340_tassveve.c
 void touch_ctrl_regulator_mms128(int on_off)
 {
+	#if 0
+	if (on_off == TOUCH_ON)
+	{
+		regulator_set_voltage(touch_regulator, 2900000, 2900000);
+		regulator_enable(touch_regulator);
+	}
+	else
+	{
+		regulator_disable(touch_regulator);
+	}
+	#else
+
+//	writel(0x5, (volatile u32 *)HW_IO_PHYS_TO_VIRT(0x35004894));
 	if (on_off == TOUCH_ON)
 	{
 		
@@ -211,14 +347,14 @@ void touch_ctrl_regulator_mms128(int on_off)
 	}
 	else
 	{
-
+		#if 1
 		gpio_request(TOUCH_EN,"Touch_en");
 		gpio_direction_output(TOUCH_EN,0);
 		gpio_set_value(TOUCH_EN,0);
 		gpio_free(TOUCH_EN);
-
+		#endif
 	}
-
+	#endif
 
 
 #if defined (__TOUCH_KEYLED__) 	
@@ -327,7 +463,7 @@ static int melfas_init_panel(struct melfas_ts_data *ts)
 
 	if (ret < 0)
 	{
-		printk("[TSP][MMS128][%s] melfas_i2c_write() failed\n [%d]", __func__, ret);
+		printk(KERN_DEBUG "[TSP][MMS128][%s] melfas_i2c_write() failed\n [%d]", __func__, ret);
 		return 0;
 	}
 
@@ -432,7 +568,7 @@ static void check_ic_work_func(struct work_struct *work)
 		else if(  g_keyled_cnt == 25 )
 		{
 			touch_keyled_ctrl_regulator_mms128(TOUCH_OFF);
-			printk("[TSP] led off\n",__func__);			
+			printk(KERN_DEBUG "[TSP] led off\n",__func__);			
 		}
 		else
 			g_keyled_cnt++;
@@ -465,11 +601,7 @@ static void melfas_ts_work_func(struct work_struct *work)
 	struct melfas_ts_data *ts = container_of(work, struct melfas_ts_data, work);
 #endif
 	int ret = 0, i, j;
-
-//	uint8_t buf[66];
-    uint8_t buf[30];
-
-
+	uint8_t buf[66];
 	int read_num = 0, touchType = 0, touchState = 0, fingerID = 0, keyID = 0;
 	unsigned long flags;
 
@@ -478,7 +610,7 @@ static void melfas_ts_work_func(struct work_struct *work)
 #endif
 
 #ifdef __TOUCH_DEBUG__
-	printk("[TSP][MMS128][%s] \n",__func__);
+	printk(KERN_DEBUG "[TSP][MMS128][%s] \n",__func__);
 #endif
 	if (ts == NULL)
 		printk("[TSP][MMS128][%s] : TS NULL\n",__func__);
@@ -593,7 +725,7 @@ static void melfas_ts_work_func(struct work_struct *work)
 #endif
 
 #ifdef __TOUCH_DEBUG__
-					printk("[TSP][MMS128][%s] keyID: %d, State: %d\n", __func__, keyID, touchState);
+					printk(KERN_DEBUG "[TSP][MMS128][%s] keyID: %d, State: %d\n", __func__, keyID, touchState);
 #endif
 				}
  #endif	//  __TOUCH_KEY__
@@ -611,9 +743,8 @@ static void melfas_ts_work_func(struct work_struct *work)
 					input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, g_Mtouch_info[j].strength);
 					input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, g_Mtouch_info[j].width);
 					input_mt_sync(ts->input_dev);
-		            input_report_key(ts->input_dev, BTN_TOUCH, g_Mtouch_info[j].strength);
 #ifdef __TOUCH_DEBUG__
-					printk("[TSP][MMS128][%s] fingerID: %d, State: %d, x: %d, y: %d, z: %d, w: %d\n",
+					printk(KERN_DEBUG "[TSP][MMS128][%s] fingerID: %d, State: %d, x: %d, y: %d, z: %d, w: %d\n",
 						__func__, j, (g_Mtouch_info[j].strength > 0), g_Mtouch_info[j].posX, g_Mtouch_info[j].posY, g_Mtouch_info[j].strength, g_Mtouch_info[j].width);
 #endif
 					if (g_Mtouch_info[j].strength == 0)
@@ -641,7 +772,7 @@ static void melfas_ts_work_func(struct work_struct *work)
 	{
 		touch_keyled_ctrl_regulator_mms128(TOUCH_ON);
 		msleep(70);
-		printk("[TSP] led on\n",__func__);			
+		printk(KERN_DEBUG "[TSP] led on\n",__func__);			
 	} 
 #endif
 
@@ -698,7 +829,7 @@ bool melfas_ts_upgrade_check(void)
 	}
 	else
 	{
-		printk("[TSP][%s] wrong hw_ver\n", __func__);
+		printk(KERN_DEBUG "[TSP][%s] wrong hw_ver\n", __func__);
 	}
 #elif defined(CONFIG_TOUCHSCREEN_MMS128_TASSVE)
 	if( ts->fw_ver < LATEST_FW_VER)
@@ -724,7 +855,7 @@ void melfas_upgrade(INT32 hw_ver)
 	disable_irq(ts->client->irq);
 	local_irq_disable();
 
-//	ret = mcsdl_download_binary_data(ts->hw_rev);
+	ret = mcsdl_download_binary_data(ts->hw_rev);
 
 	local_irq_enable();
 	enable_irq(ts->client->irq);
@@ -747,7 +878,7 @@ void melfas_upgrade(INT32 hw_ver)
 	if (ret > 0)
 	{
 		if ((ts->hw_rev < 0) || (ts->fw_ver < 0))
-			printk("[TSP][MMS128][%s] i2c_transfer failed\n",__func__);
+			printk(KERN_DEBUG "[TSP][MMS128][%s] i2c_transfer failed\n",__func__);
 		else
 			printk("[TSP][MMS128][%s] Firmware update success! [Melfas H/W version: 0x%02x., Current F/W version: 0x%02x.]\n", __func__, ts->hw_rev, ts->fw_ver);
 	}
@@ -791,12 +922,16 @@ int melfas_ts_check(struct melfas_ts_data *ts)
 	if (ret <= 0) 
 	{
 		printk("[TSP][MMS128][%s] %s\n", __func__,"Failed melfas i2c");
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
 		MMS128_Connected = 0;
+#endif
 	}
 	else 
 	{
 		printk("[TSP][MMS128][%s] %s\n", __func__,"Passed melfas i2c");
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
 		MMS128_Connected = 1;
+#endif
 	}
 
 	ts->VenderID = buf_tmp[0];
@@ -835,7 +970,19 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	int ret = 0, i;
 	uint8_t buf[2];
 
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
 	printk("[TSP][MMS128][%s] %s\n", __func__, "Called");
+	if (Is_Synaptics_Connected() == 1)
+	{
+		printk("[TSP][MMS128][%s] %s\n", __func__, "Synaptics already detected !!");
+		return -ENXIO;
+	}
+#endif
+
+	printk(KERN_DEBUG"+-----------------------------------------+\n");
+	printk(KERN_DEBUG "|  Melfas Touch Driver Probe!            |\n");
+	printk(KERN_DEBUG"+-----------------------------------------+\n");
+
 
 	/* Pin Initialize ****************************************************/
 	//disable BB internal pulls for touch int, scl, sda pin
@@ -860,6 +1007,8 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	//gpio_direction_output( TSP_INT , 1 ); 
 
 	gpio_direction_input(GPIO_TOUCH_INT);
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, true);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
 
 #ifdef DELAY_BEFORE_VDD
 	msleep(10);
@@ -870,7 +1019,7 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ts = kzalloc(sizeof(struct melfas_ts_data), GFP_KERNEL);
 	if (ts == NULL)
 	{
-		printk("[TSP][MMS128][%s] failed to create a state of melfas-ts\n",__func__);
+		printk(KERN_DEBUG "[TSP][MMS128][%s] failed to create a state of melfas-ts\n",__func__);
 		ret = -ENOMEM;
 		goto err_alloc_data_failed;
 	}
@@ -897,6 +1046,8 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		gpio_direction_output( GPIO_TSP_SCL , 0 ); 
 		gpio_direction_output( GPIO_TSP_SDA , 0 ); 
 
+		bcm_gpio_pull_up(GPIO_TOUCH_INT, false);
+		bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
 		
 		touch_ctrl_regulator_mms128(TOUCH_OFF); //Melfas 에서 TOUCH_OFF 하면, Cypress 로 OFF 된다.
 		kfree(ts);
@@ -953,7 +1104,7 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		ret = -ENOMEM;
 		goto err_input_dev_alloc_failed;
 	}
-	ts->input_dev->name = "melfas-mms128" ;
+	ts->input_dev->name = "sec_touchscreen" ;
 
 	/** Event handler 관련 ************************************************/
 #if defined(CONFIG_TOUCHSCREEN_MMS128_COOPERVE) //CooperVE
@@ -961,7 +1112,6 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	set_bit(EV_KEY, ts->input_dev->evbit);
 	set_bit(BTN_TOUCH, ts->input_dev->keybit);
 	set_bit(EV_ABS, ts->input_dev->evbit);
-	set_bit(INPUT_PROP_DIRECT, ts->input_dev->propbit);
 
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, TS_MAX_X_COORD, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, 0, TS_MAX_Y_COORD, 0, 0);
@@ -971,7 +1121,6 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	ts->input_dev->keybit[BIT_WORD(KEY_MENU)] |= BIT_MASK(KEY_MENU);
 	ts->input_dev->keybit[BIT_WORD(KEY_BACK)] |= BIT_MASK(KEY_BACK);	
-	
 #elif defined(CONFIG_TOUCHSCREEN_MMS128_TASSVE) //TassVE
     ts->input_dev->evbit[0] = BIT_MASK(EV_ABS) | BIT_MASK(EV_KEY);
     ts->input_dev->keybit[BIT_WORD(KEY_POWER)] |= BIT_MASK(KEY_POWER);
@@ -988,8 +1137,6 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
     set_bit(EV_SYN, ts->input_dev->evbit);
     set_bit(EV_KEY, ts->input_dev->evbit);
-	set_bit(INPUT_PROP_DIRECT, ts->input_dev->propbit);
-    
 #else
 #error "[TSP][Error] Melfas_ts_mms128_tasscooper.c : Feature missing!!"
 #endif
@@ -998,16 +1145,23 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ret = input_register_device(ts->input_dev);
 	if (ret)
 	{
-		printk("[TSP][MMS128][%s] Unable to register %s input device\n", __func__, ts->input_dev->name);
+		printk(KERN_DEBUG "[TSP][MMS128][%s] Unable to register %s input device\n", __func__, ts->input_dev->name);
 		goto err_input_register_device_failed;
 	}
 
 	printk("[TSP][MMS128][%s] irq=%d\n", __func__, client->irq);
 
+#if 0
+	gpio_request(GPIO_TOUCH_INT, "ts_irq");
+	gpio_direction_input(GPIO_TOUCH_INT);
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, true);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
+	irq_set_irq_type(gpio_to_irq(GPIO_TOUCH_INT), IRQ_TYPE_EDGE_FALLING);
+#endif
 
 	if (ts->client->irq)
 	{
-		printk("[TSP][MMS128][%s] trying to request irq: %s-%d\n", __func__, ts->client->name, ts->client->irq);
+		printk(KERN_DEBUG "[TSP][MMS128][%s] trying to request irq: %s-%d\n", __func__, ts->client->name, ts->client->irq);
 #if USE_THREADED_IRQ
 		ret = request_threaded_irq(ts->client->irq, melfas_ts_irq_handler, melfas_ts_work_func, IRQF_TRIGGER_FALLING | IRQF_ONESHOT, ts->client->name, ts);
 #else
@@ -1015,7 +1169,7 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 #endif
 		if (ret > 0)
 		{
-			printk("[TSP][MMS128][%s] Can't allocate irq %d, ret %d\n", __func__, ts->client->irq, ret);
+			printk(KERN_DEBUG "[TSP][MMS128][%s] Can't allocate irq %d, ret %d\n", __func__, ts->client->irq, ret);
 			ret = -EBUSY;
 			goto err_request_irq;
 		}
@@ -1042,18 +1196,25 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	return 0;
 
-
+#if 1
 err_request_irq:
-	printk("[TSP][MMS128][%s] err_request_irq failed\n",__func__);
+	printk(KERN_DEBUG "[TSP][MMS128][%s] err_request_irq failed\n",__func__);
 	free_irq(client->irq, ts);
-
+#endif
 err_input_register_device_failed:
-	printk("[TSP][MMS128][%s] err_input_register_device failed\n",__func__);
+	printk(KERN_DEBUG "[TSP][MMS128][%s] err_input_register_device failed\n",__func__);
 	input_free_device(ts->input_dev);
 err_input_dev_alloc_failed:
-	printk("[TSP][MMS128][%s] err_input_dev_alloc failed\n",__func__);
+	printk(KERN_DEBUG "[TSP][MMS128][%s] err_input_dev_alloc failed\n",__func__);
 err_alloc_data_failed:
-	printk("[TSP][MMS128][%s] err_alloc_data failed_\n",__func__);
+	printk(KERN_DEBUG "[TSP][MMS128][%s] err_alloc_data failed_\n",__func__);
+#if 0
+err_detect_failed:
+	printk(KERN_DEBUG "melfas-ts: err_detect failed\n");
+	kfree(ts);
+err_check_functionality_failed:
+	printk(KERN_DEBUG "melfas-ts: err_check_functionality failed_\n");
+#endif
 	return ret;
 }
 
@@ -1092,7 +1253,6 @@ static void release_all_fingers(struct melfas_ts_data *ts)
 		if (g_Mtouch_info[i].strength == 0)
 			g_Mtouch_info[i].strength = -1;
 	}
-    input_report_key(ts->input_dev, BTN_TOUCH, 0);
 	input_sync(ts->input_dev);
 }
 
@@ -1137,6 +1297,9 @@ static void melfas_ts_early_suspend(struct early_suspend *h)
 	gpio_direction_output( GPIO_TSP_SCL , 0 ); 
 	gpio_direction_output( GPIO_TSP_SDA , 0 ); 
 
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, false);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
+
 	touch_ctrl_regulator_mms128(TOUCH_OFF);
 	//ts = container_of(h, struct melfas_ts_data, early_suspend);
 	//melfas_ts_suspend(ts->client, PMSG_SUSPEND);
@@ -1151,6 +1314,8 @@ static void melfas_ts_late_resume(struct early_suspend *h)
 	//gpio_direction_output( TSP_INT , 1 ); 
 
 	gpio_direction_input(GPIO_TOUCH_INT);
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, true);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
 
 #ifdef DELAY_BEFORE_VDD
 	msleep(10);
@@ -1191,6 +1356,15 @@ static struct i2c_driver melfas_ts_driver =
 static int __devinit melfas_ts_init(void)
 {
 	printk("[TSP] %s\n", __func__ );
+#if defined (CONFIG_TOUCHSCREEN_TMA340) || defined (CONFIG_TOUCHSCREEN_TMA340_COOPERVE) || defined (CONFIG_TOUCHSCREEN_F760)
+
+	if (Is_Synaptics_Connected() == 1)
+	{
+		printk("[TSP][MMS128][%s] %s\n", __func__, "Synaptics already detected !!");
+		return -ENXIO;
+	}
+#endif
+
 
 #if USE_THREADED_IRQ
 
@@ -1203,6 +1377,13 @@ static int __devinit melfas_ts_init(void)
 	check_ic_wq = create_workqueue("check_ic_wq");
 	if(!check_ic_wq)
 		return -ENOMEM;
+#if 0
+	touch_regulator = regulator_get(NULL, "touch_vcc");
+
+#if defined (__TOUCH_KEYLED__)
+	touchkeyled_regulator = regulator_get(NULL,"touch_keyled");
+#endif
+#endif
 
 	return i2c_add_driver(&melfas_ts_driver);
 }
@@ -1305,7 +1486,7 @@ static ssize_t firmware_store(
 		disable_irq(ts->client->irq);
 		local_irq_disable();
 
-//		ret = mms100_ISC_download_binary_data(ts->hw_rev);
+		ret = mms100_ISC_download_binary_data(ts->hw_rev);
 
 		local_irq_enable();
 		enable_irq(ts->client->irq);
@@ -1409,7 +1590,42 @@ static ssize_t rawdata_pass_fail_tst200(struct device *dev, struct device_attrib
 
 	uint16_t RAWDATA_MAX[16] = {16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383,16383};
 	uint16_t RAWDATA_MIN[16] = {0,};
+#if 0
+	tsp_testmode = 1;
 
+	/////* Raw Value */////
+	for (i = 0; i < I2C_RETRY_CNT; i++)
+	{
+		buf1[0] = 0x0C; //address
+
+		ret = i2c_master_send(ts_global->client, buf1, 1);
+
+		if (ret >= 0)
+		{
+			ret = i2c_master_recv(ts_global->client, buf2, (tst200_col_num + tst200_row_num)*2);
+
+			if (ret >= 0)
+				break; // i2c success
+		}
+	}
+
+	for(i = 0 ; i < (tst200_col_num + tst200_row_num); i++)
+	{
+		ref1[i] = (buf2[i*2] <<8) + buf2[i*2+1];
+		printk(" %d", ref1[i]);
+	}
+	printk("\n");
+
+
+	/////* Check MAX/MIN Raw Value */////
+	for (i = 0; i < (tst200_col_num + tst200_row_num); i++)
+    {
+		if( RAWDATA_MAX[i] < ref1[i]) return sprintf(buf, "0"); // fail
+		if( RAWDATA_MIN[i] > ref1[i]) return sprintf(buf, "0"); // fail
+    }
+
+	tsp_testmode = 0;
+#endif
     return sprintf(buf, "1"); // success
  }
 
@@ -1547,6 +1763,8 @@ static int tsp_reset(void)
 	gpio_direction_output( GPIO_TSP_SCL , 0 ); 
 	gpio_direction_output( GPIO_TSP_SDA , 0 ); 
 
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, false);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
 	touch_ctrl_regulator_mms128(TOUCH_OFF);
 
 	msleep(200);
@@ -1556,6 +1774,8 @@ static int tsp_reset(void)
 	//gpio_direction_output( TSP_INT , 1 ); 
 
 	gpio_direction_input(GPIO_TOUCH_INT);
+	bcm_gpio_pull_up(GPIO_TOUCH_INT, true);
+	bcm_gpio_pull_up_down_enable(GPIO_TOUCH_INT, true);
 
 #ifdef DELAY_BEFORE_VDD
     msleep(10);
@@ -1570,6 +1790,102 @@ static int tsp_reset(void)
 	return 1;
 }
 
+
+
+
+
+#if 0 //TSP_TEST_MODE
+static ssize_t tsp_test_inspection_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    printk(KERN_DEBUG "Reference START %s\n", __func__) ;
+
+    return sprintf(buf, "%5d, %5d, %5d, %5d, %5d, %5d, %5d, %5d, %5d, %5d \n",
+                   tsp_test_inspection[inspec_y_channel_num][0], tsp_test_inspection[inspec_y_channel_num][1], tsp_test_inspection[inspec_y_channel_num][2], tsp_test_inspection[inspec_y_channel_num][3],
+                   tsp_test_inspection[inspec_y_channel_num][4], tsp_test_inspection[inspec_y_channel_num][5], tsp_test_inspection[inspec_y_channel_num][6], tsp_test_inspection[inspec_y_channel_num][7],
+                   tsp_test_inspection[inspec_y_channel_num][8], tsp_test_inspection[inspec_y_channel_num][9]);
+}
+
+static ssize_t tsp_test_inspection_store(struct device *dev, struct device_attribute *attr, char *buf, size_t size)
+{
+    unsigned int position;
+    int j, i, ret;
+    uint16_t ref_value;
+    uint8_t buf1[2], buff[20];
+
+    sscanf(buf, "%d\n", &position);
+
+    if (position == 100)
+    {
+        inspec_test_cnt = 0;
+        printk("reset_reference_value\n");
+    }
+
+    if (!inspec_test_cnt)
+    {
+
+        /* disable TSP_IRQ */
+        disable_irq(ts->client->irq);
+        for (i = 0;i < 14;i++)
+        {
+            for (j = 0;j < 10;j++)
+            {
+                buf1[0] = 0xA0 ;		/* register address */
+                buf1[1] = 0x42 ;
+                buf1[2] = i;
+                buf1[3] = j;
+
+                if (melfas_i2c_write(ts->client, buf1, 4) != 0)
+                {
+                    printk(KERN_DEBUG "Failed to enter testmode\n") ;
+                }
+
+                while (1)
+                {
+                    if (MCSDL_GPIO_RESETB_IS_HIGH() == 0) //TSP INT Low
+                        break;
+                }
+
+                if (melfas_i2c_read(ts->client, 0xAE, buff, 1) != 0)
+                {
+                    printk(KERN_DEBUG "Failed to read(referece data)\n") ;
+                }
+
+                if (melfas_i2c_read(ts->client, 0xAF, buff, 2) != 0)
+                {
+                    printk(KERN_DEBUG "Failed to read(referece data)\n") ;
+                }
+
+                printk("ref value0=%x\n", buff[0]);
+                printk("ref value1=%x\n", buff[1]);
+
+                ref_value = (uint16_t)(buff[1] << 8) | buff[0] ;
+                tsp_test_inspection[i][j] = ref_value;
+                printk("ins value[%d]=%d\n", i, ref_value);
+                inspec_test_cnt = 1;
+            }
+        }
+        mcsdl_vdd_off();
+        mdelay(50);
+        mcsdl_vdd_on();
+        mdelay(250);
+        printk("[TOUCH] reset.\n");
+        /* enable TSP_IRQ */
+        enable_irq(ts->client->irq);
+    }
+
+    if (position < 0 || position > 14)
+    {
+        printk(KERN_DEBUG "Invalid values\n");
+        return -EINVAL;
+    }
+
+    inspec_y_channel_num = (uint8_t)position;
+
+    return size;
+}
+
+static DEVICE_ATTR(tsp_inspection, 0664, tsp_test_inspection_show, tsp_test_inspection_store);
+#endif
 
 MODULE_DESCRIPTION("Driver for Melfas MTSI Touchscreen Controller");
 MODULE_AUTHOR("MinSang, Kim <kimms@melfas.com>");

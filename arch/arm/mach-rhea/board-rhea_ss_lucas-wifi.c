@@ -98,9 +98,9 @@ static void *rhea_wifi_mem_prealloc(int section, unsigned long size)
 	if (section == PREALLOC_WLAN_SEC_NUM)
 		return wlan_static_skb;
 	if (section == WLAN_STATIC_SCAN_BUF0)
-		return wlan_static_scan_buf0;	
+		return wlan_static_scan_buf0;
 	if (section == WLAN_STATIC_SCAN_BUF1)
-		return wlan_static_scan_buf1;	
+		return wlan_static_scan_buf1;
 	if ((section < 0) || (section > PREALLOC_WLAN_SEC_NUM))
 		return NULL;
 
@@ -138,14 +138,14 @@ int __init rhea_init_wifi_mem(void)
 		if (!wlan_mem_array[i].mem_ptr)
 			goto err_mem_alloc;
 	}
-	wlan_static_scan_buf0 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf0)		
+	wlan_static_scan_buf0 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf0)
 		goto err_mem_alloc;
-	wlan_static_scan_buf1 = kmalloc (65536, GFP_KERNEL);
-	if(!wlan_static_scan_buf1)		
+	wlan_static_scan_buf1 = kmalloc(65536, GFP_KERNEL);
+	if (!wlan_static_scan_buf1)
 		goto err_mem_alloc;
 
-	printk("%s: WIFI MEM Allocated\n", __FUNCTION__);
+	printk(KERN_INFO " %s: WIFI MEM Allocated\n", __FUNCTION__);
 	return 0;
 
  err_mem_alloc:
@@ -165,7 +165,7 @@ int __init rhea_init_wifi_mem(void)
 #endif /* CONFIG_BROADCOM_WIFI_RESERVED_MEM */
 
 
-extern int bcm_sdiowl_init(int onoff);
+extern int bcm_sdiowl_init(void);
 extern int bcm_sdiowl_term(void);
 
 
@@ -211,7 +211,7 @@ int rhea_wifi_status_register(
 		void (*callback)(int card_present, void *dev_id),
 		void *dev_id)
 {
-	printk(KERN_ERR " %s ENTRY\n",__FUNCTION__);
+	printk(KERN_INFO " %s ENTRY\n", __FUNCTION__);
 
 	if (wifi_status_cb)
 		return -EAGAIN;
@@ -236,22 +236,21 @@ struct mmc_platform_data rhea_wifi_data = {
 static int rhea_wifi_set_carddetect(int val)
 {
 	pr_debug("%s: %d\n", __func__, val);
-	printk(KERN_ERR " %s INSIDE rhea_wifi_set_carddetect\n",__FUNCTION__);	
+	printk(KERN_INFO " %s INSIDE rhea_wifi_set_carddetect\n", __FUNCTION__);
 	rhea_wifi_cd = val;
 	if (wifi_status_cb) {
-		printk(KERN_ERR " %s CALLBACK NOT NULL\n",__FUNCTION__);	
+		printk(KERN_INFO " %s CALLBACK NOT NULL\n", __FUNCTION__);
 		wifi_status_cb(val, wifi_status_cb_devid);
-		printk(KERN_ERR " %s CALLBACK COMPLETE\n",__FUNCTION__);	
+		printk(KERN_INFO " %s CALLBACK COMPLETE\n", __FUNCTION__);
 	} else
 		pr_warning("%s: Nobody to notify\n", __func__);
-
-//	if (val == 0)
-//		bcm_sdiowl_term();
+	
+	if(val==0)
+		bcm_sdiowl_term();
 	return 0;
 }
 
 static int rhea_wifi_power_state;
-#if 0
 
 struct fixed_voltage_data {
 	struct regulator_desc desc;
@@ -263,6 +262,7 @@ struct fixed_voltage_data {
 	bool is_enabled;
 };
 
+#if 0
 static struct regulator_consumer_supply rhea_vmmc5_supply = {
 	.supply = "vmmc",
 	.dev_name = "omap_hsmmc.4",
@@ -299,7 +299,7 @@ static struct platform_device omap_vwlan_device = {
 
 static int rhea_wifi_power(int on)
 {
-	printk(KERN_ERR " %s INSIDE rhea_wifi_power\n",__FUNCTION__);
+	printk(KERN_INFO " %s INSIDE rhea_wifi_power\n", __FUNCTION__);
 #if 0
 	if (!clk32kaudio_reg) {
 		clk32kaudio_reg = regulator_get(0, "clk32kaudio");
@@ -320,10 +320,11 @@ static int rhea_wifi_power(int on)
 	if (clk32kaudio_reg && !on && rhea_wifi_power_state)
 		regulator_disable(clk32kaudio_reg);
 #endif
-	bcm_sdiowl_init(on);
-
+	if(on)
+		bcm_sdiowl_init();
+		
 	rhea_wifi_power_state = on;
-
+	
 	return 0;
 }
 
@@ -332,7 +333,7 @@ static int rhea_wifi_reset_state;
 static int rhea_wifi_reset(int on)
 {
 	pr_debug("%s: do nothing\n", __func__);
-		printk(KERN_ERR " %s INSIDE rhea_wifi_reset\n",__FUNCTION__);
+		printk(KERN_INFO " %s INSIDE rhea_wifi_reset\n", __FUNCTION__);
 	rhea_wifi_reset_state = on;
 	return 0;
 }
@@ -465,8 +466,8 @@ static void *rhea_wifi_get_country_code(char *ccode)
 static struct resource rhea_wifi_resources[] = {
 	[0] = {
 		.name		= "bcmdhd_wlan_irq",
-		.start		= gpio_to_irq(48),	//GPIO48
-		.end		= gpio_to_irq(48),	//GPIO48
+		.start		= gpio_to_irq(48),
+		.end		= gpio_to_irq(48),
 		.flags          = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWEDGE/* IORESOURCE_IRQ_HIGHLEVEL */| IORESOURCE_IRQ_SHAREABLE,
 	},
 };
@@ -507,22 +508,21 @@ static struct platform_device rhea_wifi_device = {
 static void __init rhea_wlan_gpio(void)
 {
 	pr_debug("%s: start\n", __func__);
-	//sangbo.sim : For IORA issue
-	rhea_wifi_power(0);
 }
 
 int __init rhea_wlan_init(void)
 {
 	pr_debug("%s: start\n", __func__);
-	printk(KERN_ERR " %s Calling GPIO INIT!\n",__FUNCTION__);
+	printk(KERN_INFO " %s Calling GPIO INIT!\n", __FUNCTION__);
 
 	rhea_wlan_gpio();
-	printk(KERN_ERR " %s Calling GPIO INIT DONE !\n",__FUNCTION__);
+	printk(KERN_INFO " %s Calling GPIO INIT DONE !\n", __FUNCTION__);
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
 	rhea_init_wifi_mem();
 #endif
-	printk(KERN_ERR " %s Calling MEM INIT DONE !\n",__FUNCTION__);	
+	printk(KERN_INFO " %s Calling MEM INIT DONE !\n", __FUNCTION__);
 	
+
 	return platform_device_register(&rhea_wifi_device);
 
 

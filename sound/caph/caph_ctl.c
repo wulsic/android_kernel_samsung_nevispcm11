@@ -201,8 +201,18 @@ static int VolumeCtrlPut(struct snd_kcontrol *kcontrol,
 				pStream =
 				    (struct snd_pcm_substream *)pChip->
 				    streamCtl[stream - 1].pSubStream;
-			else
+			else {
+				/* playback not started, only update
+				user volume setting */
+				parm_vol.sink = pCurSel[0];
+				parm_vol.volume1 = pVolume[0];
+				parm_vol.volume2 = pVolume[1];
+				parm_vol.app = AUDIO_APP_MUSIC;
+				AUDIO_Ctrl_Trigger(
+					ACTION_AUD_UpdateUserVolSetting,
+						   &parm_vol, NULL, 0);
 				break;
+			}
 
 			aTrace(LOG_ALSA_INTERFACE,
 					"VolumeCtrlPut stream state = %d\n",
@@ -331,10 +341,8 @@ static int SelCtrlInfo(struct snd_kcontrol *kcontrol,
 	CAPH_ASSERT(stream >= CTL_STREAM_PANEL_FIRST
 		    && stream < CTL_STREAM_PANEL_LAST);
 	stream--;
-	/*
-	 * coverity[OVERRUN_STATIC] - false alarm. stream is getting
-	 * decremented by 1 and used
-	 */
+
+	/* coverity[overrun-local] */
 	if (pChip->streamCtl[stream].iFlags & MIXER_STREAM_FLAGS_CAPTURE) {
 		uinfo->value.integer.min = AUDIO_SOURCE_ANALOG_MAIN;
 		uinfo->value.integer.max = MIC_TOTAL_COUNT_FOR_USER;
@@ -410,10 +418,7 @@ static int SelCtrlPut(struct snd_kcontrol *kcontrol,
 	CAPH_ASSERT(stream >= CTL_STREAM_PANEL_FIRST
 		    && stream < CTL_STREAM_PANEL_LAST);
 
-	/*
-	 * coverity[OVERRUN_STATIC] - false alarm. stream is getting
-	 * decremented by 1 and used
-	 */
+	/* coverity[overrun-local] */
 	pSel = pChip->streamCtl[stream - 1].iLineSelect;
 
 	/*
@@ -438,8 +443,9 @@ static int SelCtrlPut(struct snd_kcontrol *kcontrol,
 			pSel[2] = AUDIO_SINK_HANDSET;
 	}
 
-	aTrace(LOG_ALSA_INTERFACE, "ALSA-CAPH %s (isSTIHF = %d) stream %d, pSel %d:%d:%d\n",
-		__func__, isSTIHF, stream, pSel[0], pSel[1], pSel[2]);
+	aTrace(LOG_ALSA_INTERFACE,
+		"ALSA-CAPH SelCtrlPut stream %d, pSel %d:%d:%d\n",
+		stream, pSel[0], pSel[1], pSel[2]);
 
 	switch (stream) {
 	case CTL_STREAM_PANEL_PCMOUT1:	/* pcmout 1 */
@@ -473,10 +479,9 @@ static int SelCtrlPut(struct snd_kcontrol *kcontrol,
 			 */
 			if (pCurSel[0] < AUDIO_SINK_VALID_TOTAL
 			    && pCurSel[1] < AUDIO_SINK_VALID_TOTAL
-				&& pSel[1] >= AUDIO_SINK_VALID_TOTAL
-				&& ((pCurSel[0] != AUDIO_SINK_LOUDSPK) || !isSTIHF)
-				) {
-			    
+			    && pSel[1] >= AUDIO_SINK_VALID_TOTAL
+			    && ((pCurSel[0] != AUDIO_SINK_LOUDSPK) || !isSTIHF)
+			    ) {
 				struct snd_kcontrol tmp_kcontrol;
 				struct snd_ctl_elem_value tmp_ucontrol;
 				s32 new_sel[MAX_PLAYBACK_DEV];
@@ -755,10 +760,8 @@ static int SwitchCtrlPut(struct snd_kcontrol *kcontrol,
 
 	CAPH_ASSERT(stream >= CTL_STREAM_PANEL_FIRST
 		    && stream < CTL_STREAM_PANEL_LAST);
-	/*
-	 * coverity[OVERRUN_STATIC] - false alarm. stream is getting
-	 * decremented by 1 and used
-	 */
+
+	/* coverity[overrun-local] */
 	pMute = pChip->streamCtl[stream - 1].ctlLine[dev].iMute;
 
 	pMute[0] = ucontrol->value.integer.value[0];
@@ -1075,10 +1078,13 @@ static int MiscCtrlGet(struct snd_kcontrol *kcontrol,
 		parm_atctl.isGet = 1;
 		memcpy(&parm_atctl.Params, ucontrol->value.integer.value,
 			sizeof(parm_atctl.Params));
-		AUDIO_Ctrl_Trigger(ACTION_AUD_AtCtl, &parm_atctl, NULL, 1);	
-		memcpy((void *)&(ucontrol->value.integer.value), (void *)&parm_atctl.Params,
-                                                sizeof(parm_atctl.Params));
-			
+		AUDIO_Ctrl_Trigger(ACTION_AUD_AtCtl, &parm_atctl, NULL, 1);
+
+		/*copy values back to ucontrol value[] */
+		memcpy((void *)&(ucontrol->value.integer.value),
+			(void *)&parm_atctl.Params,
+			sizeof(parm_atctl.Params));
+
 		break;
 	case CTL_FUNCTION_BYPASS_VIBRA:
 		ucontrol->value.integer.value[0] =
@@ -1166,8 +1172,8 @@ static int MiscCtrlPut(struct snd_kcontrol *kcontrol,
 	int *pSel, callMode;
 	int stream = STREAM_OF_CTL(priv);
 	BRCM_AUDIO_Control_Params_un_t ctl_parm;
-	int rtn = 0, cmd, i, indexVal = -1, cnt = 0;
 
+	int rtn = 0, cmd, i, indexVal = -1, cnt = 0;
 	struct snd_pcm_substream *pStream = NULL;
 	int sink = 0;
 	struct snd_ctl_elem_info info;
@@ -1316,7 +1322,6 @@ static int MiscCtrlPut(struct snd_kcontrol *kcontrol,
 				} else {
 					aError("No device selected "
 						"by the user ?\n");
-					pChip->iEnableFM = 0;
 					return -EINVAL;
 				}
 			}
@@ -1361,6 +1366,7 @@ static int MiscCtrlPut(struct snd_kcontrol *kcontrol,
 		break;
 	case CTL_FUNCTION_AT_AUDIO:
 		kcontrol->info(kcontrol, &info);
+
 		/*rtn =
 		    AtAudCtlHandler_put(kcontrol->id.index, pChip, info.count,
 					ucontrol->value.integer.value);*/
@@ -1504,9 +1510,8 @@ static int MiscCtrlPut(struct snd_kcontrol *kcontrol,
 			 "Change sink device stream=%d"
 			 "cmd=%ld sink=%ld to %d:%d:%d\n", stream,
 			 ucontrol->value.integer.value[0],
-		ucontrol->value.integer.value[1],
-		pSel[0], pSel[1], pSel[2]);
-
+			 ucontrol->value.integer.value[1],
+			 pSel[0], pSel[1], pSel[2]);
 		if (cmd == 0) {	/*add device */
 			for (i = 0; i < MAX_PLAYBACK_DEV; i++) {
 				if ((pSel[i] == AUDIO_SINK_UNDEFINED ||
@@ -1524,7 +1529,6 @@ static int MiscCtrlPut(struct snd_kcontrol *kcontrol,
 				} else if (++cnt == MAX_PLAYBACK_DEV) {
 					aError("Max devices count "
 					"reached. Cannot add more device\n");
-
 					return -1;
 				}
 			}
@@ -2035,8 +2039,6 @@ static struct snd_kcontrol_new sgSndCtrls[] __devinitdata = {
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
 	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_CFG_DSPMUTE,
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
-	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_CFG_EXTRA_VOLUME,
-		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
 	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_READ_GAIN,
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
 	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_WRITE_GAIN,
@@ -2047,8 +2049,10 @@ static struct snd_kcontrol_new sgSndCtrls[] __devinitdata = {
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
 	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_PRINT_PATH,
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
-	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_CFG_HSMULTICAST,
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+	BRCM_MIXER_CTRL_MISC(0, 0, "HW-CTL", AUDCTRL_HW_TEMPGAINCOMP,
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_HW_CTL)),
+#endif
 	BRCM_MIXER_CTRL_MISC(0, 0, "AMP-CTL", 0,
 		CAPH_CTL_PRIVATE(1, 1, CTL_FUNCTION_AMP_CTL)),
 };

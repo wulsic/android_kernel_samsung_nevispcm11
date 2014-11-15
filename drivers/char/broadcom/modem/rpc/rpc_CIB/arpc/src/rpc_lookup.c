@@ -66,9 +66,6 @@ bool_t rpc_build_lookup(const RPC_XdrInfo_t *tbl, UInt16 table_size,
 			UInt16 clientIndex)
 {
 	bool_t bRetVal = TRUE;
-
-	/* tableBase is a reference to a table of pointers */
-	/* coverity[suspicious_sizeof] */
 	if (tableBase == NULL) {
 		tableBase = (UInt32 **) capi2_malloc(256 * sizeof(UInt32));
 

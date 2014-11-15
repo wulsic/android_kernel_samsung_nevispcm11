@@ -8,6 +8,9 @@ menuconfig BRCM_CHAR_DRIVERS
 	help
 	  Broadcom's char drivers
 
+#
+# V3D driver for Rhea code-base
+#
 config V3D
 	tristate "V3D Driver"
 	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA)
@@ -15,7 +18,7 @@ config V3D
 
 config VCE
 	tristate "VCE Driver"
-	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA)
+	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA || ARCH_HAWAII)
 	default n
 
 config BCM_MMUTIL
@@ -35,14 +38,14 @@ config STM_DEFAULT
 	depends on BRCM_CHAR_DRIVERS
 	default n
 
-config BCM_CPDUMP_INIRQ
-	bool "cp crash dump in interrupt"
-	depends on BRCM_CHAR_DRIVERS
-	default n
-
 config ISP
 	tristate "ISP Driver"
-	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA)
+	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA || ARCH_HAWAII)
+	default n
+
+config H264
+	tristate "H264 Driver"
+	depends on BRCM_CHAR_DRIVERS && (ARCH_HAWAII)
 	default n
 
 config UNICAM
@@ -50,14 +53,21 @@ config UNICAM
 	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA)
 	default n
 
+config MMDMA
+	tristate "MMDMA Driver"
+	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA || ARCH_HAWAII)
+	select KONA_VC4LITE
+	default n
+
 config BCMPMU_RPC
-	bool "Support rpc with bcmpmu driver"
+	bool "Enable BCMPMU RPC driver"
 	depends on BRCM_CHAR_DRIVERS
-	depends on MFD_BCMPMU
+	depends on MFD_BCM_PMU59xxx
 	depends on SENSORS_BCMPMU
 	default n
 	---help---
-	Select to support PMU ADC info to Modem.
+	Select to enable PMU RPC driver to send ADC raw data
+	to Modem.
 
 config BCM_AP_PANIC_ON_CPCRASH
         bool "Support for crashing AP when CP crashes"
@@ -72,6 +82,16 @@ config BCM_MDMGPIO
     default n
     ---help---
     Select to build the mdmgpio driver.
+
+config HAWAII_MM
+	tristate "Hawaii MM Driver Framework"
+	depends on BRCM_CHAR_DRIVERS && (ARCH_RHEA || ARCH_HAWAII)
+	default n
+
+config HAWAII_MM_H264
+	tristate "Hawaii MM - H264 Driver"
+	depends on HAWAII_MM
+	default n
 
 config BCM_AAA
     tristate "Android Amxr Audio ('AAA grade-beef') driver"
@@ -101,10 +121,20 @@ config BCM_MODEM
 
 config BRCM_CP_CRASH_DUMP_EMMC
 	bool "cp crash dump to eMMC"
-	depends on APANIC_ON_MMC
+	depends on BCM_MODEM && APANIC_ON_MMC
         default y
         --help---
           Say Y to enable the cp crash dump to eMMC support.
+
+config CP_CRASH
+	bool "cp crash without dump"
+	depends on BCM_MODEM && MACH_HAWAII_SS_COMMON
+        default y
+        --help---
+          Say Y to enable cp crash from AP panic handler
+	  without enabling dump, as this option depends
+	  on BCM_MODEM and MACH_HAWAII_SS_COMMON, make sure
+	  to set them.
 
 config BCM_MODEM_DEFER_CP_START
         bool "Release CP from reset from main image (deferred)"
@@ -113,12 +143,6 @@ config BCM_MODEM_DEFER_CP_START
         help
           Causes the main image to release the CP from reset in the case
           where this is not done already from the loader.
-
-config BCM_MODEM_EARLY_START
-	bool "Broadcom Modem early start"
-	default n
-	help
-	  Say Y to enable modem early start
 
 config BRCM_FUSE_VSP
 	#tristate "Broadcom FUSE VSP drivers"
@@ -306,3 +330,22 @@ config NEW_GPSCHIP_I2C
 	default n
 	--help---
 		If GPS I2C using new comm protocol
+
+config BCM_GPS_CNTIN
+	boolean "Broadcom gps cntin driver"
+	default y
+	---help---
+	Say Y to enable the GPS CNTIN support.
+
+config BCM_GPS_REGUL_CTL
+	boolean "Broadcom gps regulrator control driver"
+	default n
+	---help---
+	Say Y to enable the GPS regulator control.
+	
+config BCM_SET_CP_LOCK_STATE_SUPPORT
+    boolean "Set CP lock state support"
+    depends on BRCM_CHAR_DRIVERS && BCM_MODEM && !BRCM_SIM_SECURE_ENABLE
+    default n
+    ---help---
+    Set CP lock status directly

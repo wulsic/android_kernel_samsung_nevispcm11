@@ -21,6 +21,7 @@
 *  @note
 ****************************************************************************/
 #define UNDER_LINUX
+#define pr_fmt(fmt) "dma vc4lite csl: " fmt
 
 #include "linux/broadcom/mobcom_types.h"
 #include "plat/chal/chal_types.h"
@@ -31,6 +32,20 @@
 #include "plat/chal/chal_dma_vc4lite.h"
 #include "plat/osdal_os.h"
 #include "linux/dma-mapping.h"
+#include <mach/memory.h>
+
+#if defined(CONFIG_HAVE_CLK) && !defined(CONFIG_MACH_HAWAII_FPGA) \
+	&& defined(UNDER_LINUX)
+#include <mach/clock.h>
+#include <linux/clk.h>
+#define MMDMA_HAS_CLK
+#endif
+
+#include <linux/time.h>
+
+#if defined(CONFIG_MACH_HAWAII_FPGA) || defined(CONFIG_MACH_HAWAII_FPGA_E)
+static struct timeval tv1, tv2;
+#endif
 
 /*
  * Local Definitions
@@ -73,8 +88,16 @@ struct CslDmaVc4lite {
 	CHAL_HANDLE handle;
 	Semaphore_t dmaSema;
 	struct CslDmaVc4liteChan chan[DMA_VC4LITE_TOTAL_CHANNELS];
+#ifdef MMDMA_HAS_CLK
+	struct clk *mm_dma_axi_clk;
+#endif
 };
+
 static struct CslDmaVc4lite dmac;
+
+#if defined(CONFIG_MACH_HAWAII_FPGA_E) || defined(CONFIG_MACH_HAWAII_FPGA)
+int gBurstEnable = 1;
+#endif
 
 /*
  * Local Function Definition
@@ -87,7 +110,26 @@ static irqreturn_t bcm_vc4l_dma_interrupt(int irq, void *dev_id);
 static void dma_vc4lite_hisr(void);
 static UInt8 dma_vc4lite_per_map(UInt8);
 
-#define printk(fmt, ...) do {} while (0)
+#ifdef MMDMA_HAS_CLK
+static inline void csl_dma_enable_axi_clk(struct CslDmaVc4lite *pdma)
+{
+	if(clk_enable(pdma->mm_dma_axi_clk))
+		pr_info("MMDMA: failed to enable clk\n");
+}
+
+static inline void csl_dma_disable_axi_clk(struct CslDmaVc4lite *pdma)
+{
+	clk_disable(pdma->mm_dma_axi_clk);
+}
+#else
+static inline void csl_dma_enable_axi_clk(struct CslDmaVc4lite *pdma)
+{
+}
+
+static inline void csl_dma_disable_axi_clk(struct CslDmaVc4lite *pdma)
+{
+}
+#endif
 
 /*
  * Function Definition
@@ -105,24 +147,26 @@ DMA_VC4LITE_STATUS_t csl_dma_vc4lite_init(void)
 	struct CslDmaVc4lite *pdma = (struct CslDmaVc4lite *)&dmac;
 	int i;
 	char name[16];
+	int size = DMA_VC4LITE_CHANNEL_CTRL_BLOCK_SIZE *
+		DMA_VC4LITE_TOTAL_CHANNELS;
 
 	if (!pdma->initialized) {
 #ifdef UNDER_LINUX
 		/* Allocate dma memory */
 
 		dmaCtrlBlkList =
-		    kmalloc(DMA_VC4LITE_CHANNEL_CTRL_BLOCK_SIZE *
-			    DMA_VC4LITE_TOTAL_CHANNELS, GFP_KERNEL);
+		    dma_alloc_coherent(NULL, size, (dma_addr_t*)&dmaCtrlBlkListPhys, GFP_KERNEL);
 		if ((void *)dmaCtrlBlkList == NULL) {
 			pr_info("DMA driver: failed to allocate DMA memory\n");
 			return -ENOMEM;
 		}
-		dmaCtrlBlkListPhys = (UInt32 *)virt_to_phys(dmaCtrlBlkList);
+		pr_info("Ctrl Blk va(%p) da(%p) size(0x%x) \n",
+				dmaCtrlBlkList, dmaCtrlBlkListPhys, size);
 
-		printk(KERN_ERR
-		       "the virt addr=0x%08x phy addr=0x%08x acp addr=%08x\n",
-		       dmaCtrlBlkList, virt_to_phys(dmaCtrlBlkList),
-		       dmaCtrlBlkListPhys);
+#ifdef MMDMA_HAS_CLK
+		pdma->mm_dma_axi_clk = clk_get(NULL, MM_DMA_AXI_BUS_CLK_NAME_STR);
+		BUG_ON(IS_ERR_OR_NULL(pdma->mm_dma_axi_clk));
+#endif /* MMDMA_HAS_CLK */
 #endif
 
 #ifdef UNDER_LINUX
@@ -407,13 +451,16 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_release_channel(DMA_VC4LITE_CHANNEL_t chanID)
 	if (!pdma->in_atomic)
 		OSSEMAPHORE_Obtain(pdma->dmaSema, TICKS_FOREVER);
 
+
 	if (pdma->chan[chanID].used) {
+		csl_dma_enable_axi_clk(pdma);
 		if (chal_dma_vc4lite_reset_channel(pdma->handle, chanID) !=
 		    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 			dprintf(1, "%s: shutdown DMA channel error\n",
 				__func__);
 			return DMA_VC4LITE_STATUS_FAILURE;
 		}
+		csl_dma_disable_axi_clk(pdma);
 
 		pdma->chan[chanID].used = FALSE;
 		pdma->chan[chanID].dmaChanCtrlBlkItemNum = 0;
@@ -434,28 +481,23 @@ void csl_dma_poll_int(int chanID)
 	int chanNum = chanID;
 	u32 counter = 0;
 
+	csl_dma_enable_axi_clk(pdma);
 	do {
 		if (counter > 100000000) {
 			WARN("%s: DMA gets stuck\n", __func__);
 			break;
 		}
 		counter++;
-		printk(KERN_ERR "chan %d CS reg is 0x%08x\n", chanNum,
-		       readl(HW_IO_PHYS_TO_VIRT(DMA_VC4LITE_BASE_ADDR) +
-			     chanNum * 0x100));
+		pr_debug("chan %d CS reg is 0x%08x\n", chanNum,
+		       readl(pdma->base+ chanNum * 0x100));
 		chal_dma_vc4lite_get_int_status(pdma->handle, chanNum,
 						&pdma->chan[chanNum].irqStatus);
 	} while (pdma->chan[chanNum].irqStatus == 0);
-	printk(KERN_ERR "chan %d CS reg is 0x%08x\n", chanNum,
-	       readl(HW_IO_PHYS_TO_VIRT(DMA_VC4LITE_BASE_ADDR) +
-		     chanNum * 0x100));
+	pr_debug("chan %d CS reg is 0x%08x\n", chanNum,
+	       readl(pdma->base + chanNum * 0x100));
 
 	chal_dma_vc4lite_clear_int_status(pdma->handle, chanNum);
 	pdma->chan[chanNum].dmaChanCtrlBlkItemNum = 0;
-	dma_unmap_single(NULL,
-			 (dma_addr_t)pdma->chan[chanNum].
-			 pDmaChanCtrlBlkListPHYS,
-			 DMA_VC4LITE_CHANNEL_CTRL_BLOCK_SIZE, DMA_TO_DEVICE);
 
 	if (pdma->chan[chanNum].chanInfo.autoFreeChan) {
 		if (chal_dma_vc4lite_reset_channel(pdma->handle, chanNum) !=
@@ -469,7 +511,7 @@ void csl_dma_poll_int(int chanID)
 		memset(&pdma->chan[chanNum].chanInfo, 0,
 		       sizeof(DMA_VC4LITE_CHANNEL_INFO_t));
 	}
-
+	csl_dma_disable_axi_clk(pdma);
 }
 
 /*
@@ -482,7 +524,6 @@ void csl_dma_poll_int(int chanID)
 DMA_VC4LITE_STATUS csl_dma_vc4lite_start_transfer(DMA_VC4LITE_CHANNEL_t chanID)
 {
 	struct CslDmaVc4lite *pdma = (struct CslDmaVc4lite *)&dmac;
-	dma_addr_t temp;
 
 	/* sanity check */
 	if (!pdma->initialized) {
@@ -497,10 +538,12 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_start_transfer(DMA_VC4LITE_CHANNEL_t chanID)
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
+	csl_dma_enable_axi_clk(pdma);
 	if (chal_dma_vc4lite_enable_int(pdma->handle, chanID) !=
 	    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 		dprintf(1, "%s: enable channel interrupt failure\n",
 			__func__);
+		csl_dma_disable_axi_clk(pdma);
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
@@ -516,19 +559,17 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_start_transfer(DMA_VC4LITE_CHANNEL_t chanID)
 #endif
 	    != CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 		dprintf(1, "%s: prepare data transfer failure\n", __func__);
+		csl_dma_disable_axi_clk(pdma);
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
-	temp = dma_map_single(NULL,
-			      pdma->chan[chanID].pDmaChanCtrlBlkList,
-			      DMA_VC4LITE_CHANNEL_CTRL_BLOCK_SIZE,
-			      DMA_TO_DEVICE);
-	printk(KERN_ERR "the temp dma addr=0x%08x and the phys addr=0x%08x\n",
-	       temp, pdma->chan[chanID].pDmaChanCtrlBlkListPHYS);
-
+#if defined(CONFIG_MACH_HAWAII_FPGA) || defined(CONFIG_MACH_HAWAII_FPGA_E)
+	do_gettimeofday(&tv1);
+#endif
 	if (chal_dma_vc4lite_enable_channel(pdma->handle, chanID) !=
 	    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 		dprintf(1, "%s: start channel failure\n", __func__);
+		csl_dma_disable_axi_clk(pdma);
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
@@ -553,18 +594,22 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_stop_transfer(DMA_VC4LITE_CHANNEL_t chanID)
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
+	csl_dma_enable_axi_clk(pdma);
 	if (chal_dma_vc4lite_abort_transfer(pdma->handle, chanID) !=
 	    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 		dprintf(1, "%s: abort the current transfer failure\n",
 			__func__);
+		csl_dma_disable_axi_clk(pdma);
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
 	if (chal_dma_vc4lite_reset_channel(pdma->handle, chanID) !=
 	    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 		dprintf(1, "%s: reset channel failure\n", __func__);
+		csl_dma_disable_axi_clk(pdma);
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
+	csl_dma_disable_axi_clk(pdma);
 
 	return DMA_VC4LITE_STATUS_SUCCESS;
 }
@@ -607,6 +652,13 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data(DMA_VC4LITE_CHANNEL_t chanID,
 	}
 #endif
 	/* set the ctrl block information */
+#ifdef CONFIG_ARCH_HAWAII
+#if defined(CONFIG_MACH_HAWAII_FPGA_E) || defined(CONFIG_MACH_HAWAII_FPGA)
+	dmaCtrlBlkInfo.burstWriteEnable32 = gBurstEnable;
+#else
+	dmaCtrlBlkInfo.burstWriteEnable32 = pData->burstWriteEnable32;
+#endif
+#endif
 	dmaCtrlBlkInfo.noWideBurst = 0;
 	dmaCtrlBlkInfo.waitCycles = 0;
 	dmaCtrlBlkInfo.srcIgnoreRead = 0;
@@ -664,6 +716,8 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data(DMA_VC4LITE_CHANNEL_t chanID,
 						pdma->chan[chanID].
 						pDmaChanCtrlBlkList,
 						pdma->chan[chanID].
+						pDmaChanCtrlBlkListPHYS,
+						pdma->chan[chanID].
 						dmaChanCtrlBlkItemNum,
 						pdma->chan[chanID].
 						dmaChanCtrlBlkMemSize,
@@ -674,7 +728,7 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data(DMA_VC4LITE_CHANNEL_t chanID,
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
-	printk(KERN_ERR "ctl blk item num = %d, ctl blk info"
+	pr_debug("ctl blk item num = %d, ctl blk info"
 	       "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 	       pdma->chan[chanID].dmaChanCtrlBlkItemNum,
 	       ((unsigned int *)pdma->chan[chanID].pDmaChanCtrlBlkList)[0],
@@ -731,6 +785,13 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data_ex(DMA_VC4LITE_CHANNEL_t chanID,
 	}
 #endif
 	/* set the ctrl block information */
+#ifdef CONFIG_ARCH_HAWAII
+#if defined(CONFIG_MACH_HAWAII_FPGA_E) || defined(CONFIG_MACH_HAWAII_FPGA)
+	dmaCtrlBlkInfo.burstWriteEnable32 = gBurstEnable;
+#else
+	dmaCtrlBlkInfo.burstWriteEnable32 = pData->burstWriteEnable32;
+#endif
+#endif
 	dmaCtrlBlkInfo.noWideBurst = 0;
 	dmaCtrlBlkInfo.waitCycles = 0;
 	dmaCtrlBlkInfo.srcIgnoreRead = 0;
@@ -772,6 +833,8 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data_ex(DMA_VC4LITE_CHANNEL_t chanID,
 						pdma->chan[chanID].
 						pDmaChanCtrlBlkList,
 						pdma->chan[chanID].
+						pDmaChanCtrlBlkListPHYS,
+						pdma->chan[chanID].
 						dmaChanCtrlBlkItemNum,
 						pdma->chan[chanID].
 						dmaChanCtrlBlkMemSize,
@@ -782,7 +845,7 @@ DMA_VC4LITE_STATUS csl_dma_vc4lite_add_data_ex(DMA_VC4LITE_CHANNEL_t chanID,
 		return DMA_VC4LITE_STATUS_FAILURE;
 	}
 
-	printk(KERN_ERR "DMA_Ex ctl blk item num = %d, ctl blk info"
+	pr_debug("DMA_Ex ctl blk item num = %d, ctl blk info"
 	       "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 	       pdma->chan[chanID].dmaChanCtrlBlkItemNum,
 	       ((unsigned int *)pdma->chan[chanID].pDmaChanCtrlBlkList)[0],
@@ -813,7 +876,7 @@ static irqreturn_t bcm_vc4l_dma_interrupt(int irq, void *dev_id)
 	struct CslDmaVc4lite *pdma = (struct CslDmaVc4lite *)&dmac;
 	UInt8 chanNum;
 
-	printk(KERN_ERR "DMA int hapened for irq =%d\n", irq);
+	pr_debug("DMA int happened for irq =%d\n", irq);
 #ifndef UNDER_LINUX
 	/* disable the dma channel 1 interrupt */
 	IRQ_Disable(MM_DMA_CHAN1_IRQ);
@@ -840,39 +903,36 @@ static irqreturn_t bcm_vc4l_dma_interrupt(int irq, void *dev_id)
 		return IRQ_HANDLED;
 #endif
 	}
+#if defined(CONFIG_MACH_HAWAII_FPGA) || defined(CONFIG_MACH_HAWAII_FPGA_E)
+	do_gettimeofday(&tv2);
+	printk("dma tx time(us)=%d\n", (tv2.tv_sec-tv1.tv_sec)*1000000 +
+	tv2.tv_usec - tv1.tv_usec);
+#endif
 	/* check the interrupt status */
 	for (chanNum = 0; chanNum < 1; chanNum++) {
 		pdma->chan[chanNum].chanState =
 		    chal_dma_vc4lite_get_channel_state(pdma->handle, chanNum);
-		printk(KERN_ERR "chan %d CS reg is 0x%08x\n", chanNum,
-		       readl(HW_IO_PHYS_TO_VIRT(DMA_VC4LITE_BASE_ADDR) +
-			     chanNum * 0x100));
+		pr_debug("chan %d CS reg is 0x%08x\n", chanNum,
+		       readl(pdma->base + chanNum * 0x100));
 		if (chal_dma_vc4lite_get_int_status
 		    (pdma->handle, chanNum,
 		     &pdma->chan[chanNum].irqStatus) ==
 		    CHAL_DMA_VC4LITE_STATUS_SUCCESS) {
 			if (pdma->chan[chanNum].irqStatus != 0) {
-				printk(KERN_ERR
+				pr_debug(
 				       "ISR is happening for channel = %d",
 				       chanNum);
 
 				chal_dma_vc4lite_clear_int_status(pdma->handle,
 								  chanNum);
 				pdma->chan[chanNum].dmaChanCtrlBlkItemNum = 0;
-				dma_unmap_single(NULL,
-					(dma_addr_t)pdma->
-					chan[chanNum].
-					pDmaChanCtrlBlkListPHYS,
-					DMA_VC4LITE_CHANNEL_CTRL_BLOCK_SIZE,
-					DMA_TO_DEVICE);
 			} else
-				printk(KERN_ERR
+				pr_debug(
 				       "channel = %d has no irq status",
 				       chanNum);
 
 		} else
-			printk(KERN_ERR
-			       "failed to read irq status for channel = %d",
+			pr_debug("failed to read irq status for channel = %d",
 			       chanNum);
 
 	}
@@ -899,12 +959,15 @@ static void dma_vc4lite_hisr(void)
 	/* process the callback function */
 	for (chanNum = 0; chanNum < 1; chanNum++) {
 		if (pdma->chan[chanNum].irqStatus != 0) {
-			printk(KERN_ERR "callback for channel = %d", chanNum);
+			pr_debug("callback for channel = %d", chanNum);
 			if (pdma->chan[chanNum].chanInfo.callback) {
 				if ((pdma->chan[chanNum].chanState !=
 				     CHAL_DMA_VC4LITE_STATE_INVALID)
-				    && (pdma->chan[chanNum].chanState & CHAL_DMA_VC4LITE_STATE_END))
-					pdma->chan[chanNum].chanInfo.callback(DMA_VC4LITE_CALLBACK_SUCCESS);
+				    && (pdma->chan[chanNum].
+					chanState | CHAL_DMA_VC4LITE_STATE_END))
+					pdma->chan[chanNum].chanInfo.
+					    callback
+					    (DMA_VC4LITE_CALLBACK_SUCCESS);
 				else
 					pdma->chan[chanNum].chanInfo.
 					    callback(DMA_VC4LITE_CALLBACK_FAIL);
@@ -929,6 +992,7 @@ static void dma_vc4lite_hisr(void)
 			pdma->chan[chanNum].irqStatus = 0;
 		}
 	}
+	csl_dma_disable_axi_clk(pdma);
 
 #ifndef UNDER_LINUX
 	IRQ_Enable(MM_DMA_CHAN1_IRQ);

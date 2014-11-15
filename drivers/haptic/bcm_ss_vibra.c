@@ -40,7 +40,6 @@ static int Is_vib_shortly;
 
 static void vibrator_ctrl_regulator(int on_off)
 {
-	int ret=0;
 	printk(KERN_NOTICE "Vibrator: %s\n",(on_off?"ON":"OFF"));
 	
 	if(on_off==VIB_ON)
@@ -56,11 +55,8 @@ static void vibrator_ctrl_regulator(int on_off)
 	{
 		if(regulator_is_enabled(vib_regulator))
 		{
-			ret = regulator_disable(vib_regulator);
-			if(!ret)
+			regulator_disable(vib_regulator);
 			printk(KERN_NOTICE "Vibrator: disable\n");
-			else
-				printk(KERN_ERR "Vibrator: disable failed. check why vib_regulator isn't disabled:ErrorCode:%d\n",ret);
 		}
 	}
 }
@@ -92,9 +88,6 @@ static void vibrator_enable_set_timeout(struct timed_output_dev *sdev,
       {
 			vibrator_ctrl_regulator(VIB_OFF);
 			del_timer(&vibrate_timer);
-			#if defined(CONFIG_HAS_WAKELOCK)
-			wake_unlock(&vib_wl);
-			#endif /*CONFIG_HAS_WAKELOCK*/
 		}
       
 		return;
@@ -124,9 +117,6 @@ static void vibrator_enable_set_timeout(struct timed_output_dev *sdev,
          {
 				printk(KERN_NOTICE "Vibrator: ret_mod_timer= %d\n", ret_mod_timer);
             vibrator_ctrl_regulator(VIB_OFF);
-				    #if defined(CONFIG_HAS_WAKELOCK)
-				    wake_unlock(&vib_wl);
-				    #endif /*CONFIG_HAS_WAKELOCK*/				
          }
       }
 		else
@@ -158,12 +148,7 @@ static int vibrator_probe(struct platform_device *pdev)
 	vibrator_timed_dev.name = "vibrator";
 	vibrator_timed_dev.enable = vibrator_enable_set_timeout;
 	vibrator_timed_dev.get_time = vibrator_get_remaining_time;
-	
-#if defined(CONFIG_MACH_RHEA_SS_IVORY) || defined(CONFIG_MACH_RHEA_SS_IVORYSS) || defined(CONFIG_MACH_RHEA_SS_CORSICA) || defined(CONFIG_MACH_RHEA_SS_CORSICASS) || defined(CONFIG_MACH_RHEA_SS_NEVIS) || defined(CONFIG_MACH_RHEA_SS_NEVISP) || defined(CONFIG_MACH_RHEA_SS_NEVISDS)
-	vib_voltage = 3000000;
-#else
 	vib_voltage = 3300000;
-#endif
    
 #if defined(CONFIG_HAS_WAKELOCK)
 	wake_lock_init(&vib_wl, WAKE_LOCK_SUSPEND, __stringify(vib_wl));
@@ -185,11 +170,7 @@ static int vibrator_probe(struct platform_device *pdev)
 	return 0;
    
 error:
-#if defined(CONFIG_HAS_WAKELOCK)
    wake_lock_destroy(&vib_wl);
-#endif
-  regulator_put(vib_regulator); 
-  vib_regulator=NULL;
    return ret;
 }
 

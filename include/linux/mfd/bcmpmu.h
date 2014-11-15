@@ -33,6 +33,8 @@ struct regulator_init_data;
 /* LDO or Switcher def */
 #define BCMPMU_LDO    0x10
 #define BCMPMU_SR     0x11
+/* HOSTCTRL1 def*/
+#define BCMPMU_SW_SHDWN 0x04
 
 /* WRPREN def */
 #define BCMPMU_DIS_WR_PRO       (1<<0)
@@ -336,7 +338,6 @@ enum bcmpmu_reg {
 	PMU_REG_FG_DELTA,
 	PMU_REG_FG_CAP,
 	PMU_REG_FG_CIC,
-	PMU_REG_FG_ST,
 	/* usb control */
 	PMU_REG_OTG_VBUS_PULSE,
 	PMU_REG_OTG_VBUS_BOOST,
@@ -791,18 +792,6 @@ struct bcmpmu_voltcap_map {
 	int cap;
 };
 
-struct bcmpmu_cutoff_map {
-	int volt;
-	int cap;
-	int state;
-};
-
-struct bcmpmu_currcap_map {
-	int curr;
-	int cap;
-	int state;
-};
-
 struct bcmpmu_charge_zone {
 	int tl;    /* low boundary of this temperature range */
 	int th;    /* High boundary of this temperature range */
@@ -1090,11 +1079,11 @@ struct event_notifier {
 
 /* referencing ACCY */
 enum {
-	SS_ACCY_GET_BC_STATUS=1,
+	SS_ACCY_GET_BC_STATUS = 1,
 };
 
 #ifdef CONFIG_CHARGER_BCMPMU_SPA
-#define BCMPMU_SPA_EVENT_FIFO_LENGTH	16 //need to set 2^n
+#define BCMPMU_SPA_EVENT_FIFO_LENGTH	16
 #define SPA_FIFO_EMPTY(fifo)	((fifo.head == fifo.tail) && !fifo.fifo_full)
 #define SPA_FIFO_HEAD(fifo)	(fifo.head = ((fifo.head+1) & (fifo.length-1)))
 #define SPA_FIFO_TAIL(fifo)	(fifo.tail = ((fifo.tail+1) & (fifo.length-1)))
@@ -1103,8 +1092,8 @@ struct bcmpmu_spa_event_fifo {
 	unsigned char		tail;
 	unsigned char		length;
 	bool			fifo_full;
-	enum bcmpmu_event_t 	event[BCMPMU_SPA_EVENT_FIFO_LENGTH];
-	int 			data[BCMPMU_SPA_EVENT_FIFO_LENGTH];
+	enum bcmpmu_event_t	event[BCMPMU_SPA_EVENT_FIFO_LENGTH];
+	int			data[BCMPMU_SPA_EVENT_FIFO_LENGTH];
 };
 #endif
 
@@ -1255,10 +1244,6 @@ struct bcmpmu_platform_data {
 
 	struct bcmpmu_voltcap_map *batt_voltcap_map;
 	int batt_voltcap_map_len;
-	struct bcmpmu_cutoff_map *cutoff_cal_map;
-	int cutoff_cal_map_len;
-	struct bcmpmu_currcap_map *eoc_cal_map;
-	int eoc_cal_map_len;
 	struct bcmpmu_adc_setting *adc_setting;
 	int fg_smpl_rate;
 	int fg_slp_rate;

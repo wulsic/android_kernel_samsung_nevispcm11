@@ -141,9 +141,11 @@ enum CSL_CAPH_MIXER_e {
 	CSL_CAPH_SRCM_STEREO_CH1_L = 0x01,
 	CSL_CAPH_SRCM_STEREO_CH1_R = 0x02,
 	CSL_CAPH_SRCM_STEREO_CH1 =
-	    (CSL_CAPH_SRCM_STEREO_CH1_L | CSL_CAPH_SRCM_STEREO_CH1_R),
+		(CSL_CAPH_SRCM_STEREO_CH1_L | CSL_CAPH_SRCM_STEREO_CH1_R),
 	CSL_CAPH_SRCM_STEREO_CH2_L = 0x04,
 	CSL_CAPH_SRCM_STEREO_CH2_R = 0x08,
+	CSL_CAPH_SRCM_STEREO_CH2 =
+		(CSL_CAPH_SRCM_STEREO_CH2_L | CSL_CAPH_SRCM_STEREO_CH2_R),
 };
 
 #define CSL_CAPH_MIXER_e enum CSL_CAPH_MIXER_e
@@ -367,7 +369,19 @@ void csl_srcmixer_setMixAllInGain(CSL_CAPH_MIXER_e outChnl,
 void csl_srcmixer_setMixOutGain(CSL_CAPH_MIXER_e outChnl,
 		int gainL_mB, int gainR_mB);
 
-
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+/**
+*
+*  @brief  get the mixer output gain
+*
+*  @param   outChnl  (in) caph srcmixer mixer output channel
+*  @param   gain  (out) caph srcmixer mixer output Left/Right channel gain
+*
+*  @return void
+*****************************************************************************/
+void csl_srcmixer_getMixOutGain(CSL_CAPH_MIXER_e outChnl,
+		int *gainL_mB, int *gainR_mB);
+#endif
 /**
 *
 *  @brief  set the mixer output coarse gain
@@ -597,5 +611,5 @@ void csl_caph_srcmixer_set_linear_filter(CSL_CAPH_SRCM_INCHNL_e inChnl);
 *  @return void
 ****************************************************************************/
 void csl_caph_srcmixer_set_minimum_filter(CSL_CAPH_SRCM_INCHNL_e inChnl);
-void csl_caph_srcmixer_enable_input(CSL_CAPH_SRCM_INCHNL_e in, int enable);
+
 #endif /* _CSL_CAPH_SRCMIXER_ */

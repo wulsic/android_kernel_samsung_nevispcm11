@@ -44,23 +44,23 @@ extern "C" {
 #define EXT_ROM_SIZE                                           0x08000000
 #endif
 
-#define ABI_ROM_ADDR           EXT_ROM_BASE_ADDR	/* v1.1 0x00020000 */
+#define ABI_ROM_ADDR           0x00020000
 #define ABI_SIZE                                               0x00008000
 
-#define ABIEXT_ROM_ADDR        0x00008000		/* v1.1 0x00028000 */
+#define ABIEXT_ROM_ADDR        0x00028000
 #define ABIEXT_SIZE                                            0x00008000
 
-#define HWCONF_ROM_ADDR        0x00010000		/* v1.1 0x00030000 */
+#define HWCONF_ROM_ADDR        0x00030000
 #define HWCONF_SIZE                                            0x00008000
 
-#define BOOTPARM_ROM_ADDR      0x00018000
-#define BOOTPARM_SIZE                                          0x00008000
+#define BOOTPARM_ROM_ADDR      0x00050000
+#define BOOTPARM_SIZE                                          0x00001000
 
-#define LOADER_ROM_ADDR        0x00020000		/* v1.1 0x00060000 */
+#define LOADER_ROM_ADDR        0x00060000
 #define LOADER_RAM_ADDR                        EXT_RAM_BASE_ADDR
 #define LOADER_SIZE                                            0x00020000
 
-#define CP_BOOT_ROM_ADDR       0x02700000
+#define CP_BOOT_ROM_ADDR       0x001F0000
 #define CP_BOOT_SIZE                                           0x00008000
 
 /* reserved for customer certificates */
@@ -68,7 +68,7 @@ extern "C" {
 #define CUSTOM_CERT_SIZE                                       0x00010000
 
 #ifndef ISLANDRAY
-#define PARM_IND_ROM_ADDR      0x03440000
+#define PARM_IND_ROM_ADDR      0x00080000
 #else
 #define PARM_IND_ROM_ADDR      0x00300000
 #endif
@@ -79,25 +79,25 @@ extern "C" {
 #define PARM_IND_RAM_ADDR                      (EXT_RAM_BASE_ADDR + PARM_IND_RAM_OFFSET)
 
 #ifndef ISLANDRAY
-#define PARM_DEP_ROM_ADDR      0xE8E3BE00
+#define PARM_DEP_ROM_ADDR      0x00120000
 #else
 #define PARM_DEP_ROM_ADDR      0x00380000
 #endif
 
 #ifdef ISLANDRAY   /* No SPML for Rhea */
-#define PARM_SPML_IND_ROM_ADDR 0x02F00000
+#define PARM_SPML_IND_ROM_ADDR 0x00110000
 #define PARM_SPML_IND_RAM_OFFSET               0x1B0000
 #define PARM_SPML_IND_RAM_ADDR                 (EXT_RAM_BASE_ADDR + PARM_SPML_IND_RAM_OFFSET)
 #define PARM_SPML_IND_SIZE                                     0x00040000
 
-#define PARM_SPML_DEP_ROM_ADDR 0xE8E7BE00
+#define PARM_SPML_DEP_ROM_ADDR 0x00150000
 #define PARM_SPML_DEP_RAM_OFFSET               0x1F0000
 #define PARM_SPML_DEP_RAM_ADDR                 (EXT_RAM_BASE_ADDR + PARM_SPML_DEP_RAM_OFFSET)
 #define PARM_SPML_DEP_SIZE                                     0x00010000
 #endif
 
 #ifndef ISLANDRAY
-#define DSP_PRAM_ROM_ADDR      0x03540000
+#define DSP_PRAM_ROM_ADDR      0x01F20000
 #else
 #define DSP_PRAM_ROM_ADDR      0x00400000
 #endif
@@ -111,7 +111,7 @@ extern "C" {
 /* #endif */
 
 #ifndef ISLANDRAY
-#define UMTS_CAL_ROM_ADDR      0xE8EBBE00
+#define UMTS_CAL_ROM_ADDR      0x001D0000
 #else
 #define UMTS_CAL_ROM_ADDR      0x00280000
 #endif
@@ -121,11 +121,11 @@ extern "C" {
 #define UMTS_CAL_RAM_ADDR                      (EXT_RAM_BASE_ADDR + UMTS_CAL_RAM_OFFSET)
 #define UMTS_CAL_SIZE                                          0x00020000
 
-#define DT_BLOB_ROM_ADDR          0xE8DFBE00
+#define DT_BLOB_ROM_ADDR          0x2300000
 #define DT_BLOB_SIZE              0x2000
 
 #ifndef ISLANDRAY
-#define DSP_DRAM_ROM_ADDR      0x03580000
+#define DSP_DRAM_ROM_ADDR      0x02000000
 #else
 #define DSP_DRAM_ROM_ADDR      0x00800000
 #endif
@@ -142,14 +142,11 @@ extern "C" {
 #define TL3_DSP_EXT_BASE                       DSP_DRAM_RAM_ADDR
 #define TL3_DSP_EXT_SIZE                                       DSP_DRAM_SIZE
 
-#define AP_RO_ROM_ADDR         0x00600000
+#define AP_RO_ROM_ADDR         0x02200000
 #define AP_RO_RAM_OFFSET                       0x2300000
 #define AP_RO_RAM_ADDR                         (EXT_RAM_BASE_ADDR + AP_RO_RAM_OFFSET)
-#define AP_LOKE_RO_RAM_ADDR                    0x9F200000
 
-#define AP_LOKE_RO_ROM_ADDR         0x00400000
-
-#define CP_RO_ROM_ADDR         0x02740000
+#define CP_RO_ROM_ADDR         0x00200000
 #define CP_RO_RAM_OFFSET                       0x200000
 #define CP_RO_RAM_ADDR                         (EXT_RAM_BASE_ADDR + CP_RO_RAM_OFFSET)
 

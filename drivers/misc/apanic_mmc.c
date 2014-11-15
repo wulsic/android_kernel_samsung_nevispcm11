@@ -320,6 +320,7 @@ static int apanic_write_console_mmc(unsigned long off)
 	unsigned int last_chunk = 0;
 	unsigned long num = 0;
 	unsigned long start;
+	unsigned long partition_end = get_apanic_end_address();
 
 	start = off;
 	while (!last_chunk) {
@@ -344,6 +345,13 @@ static int apanic_write_console_mmc(unsigned long off)
 		if (rc != ctx->mmc->write_bl_len)
 			memset(ctx->bounce + rc, 0,
 			       ctx->mmc->write_bl_len - rc);
+
+		if (off >= partition_end) {
+			pr_err("ERROR %s: Write across the partition boundary\n"
+				, __func__);
+			pr_err("off = %lu end = %lu\n", off, partition_end);
+			return -ENOSPC;
+		}
 
 		/* Write the bounce buffer to eMMC */
 		rc2 = ctx->mmc->block_dev.block_write(ctx->mmc_poll_dev_num,
@@ -390,6 +398,7 @@ static int apanic(struct notifier_block *this, unsigned long event,
 #endif
 	int rc;
 	unsigned long blk;
+	unsigned long partition_end = get_apanic_end_address();
 
 	ap_triggered = 1;
 
@@ -481,6 +490,12 @@ static int apanic(struct notifier_block *this, unsigned long event,
 #endif
 	pr_debug("apanic: writing the header at block %ld\n", blk);
 
+	if (blk >= partition_end) {
+		pr_err("ERROR %s: Write across the partition boundary\n",
+			__func__);
+		return -ENOSPC;
+	}
+
 	rc = ctx->mmc->block_dev.block_write(ctx->mmc_poll_dev_num,
 					     blk, 1, ctx->bounce);
 	if (rc == 0) {
@@ -491,9 +506,6 @@ static int apanic(struct notifier_block *this, unsigned long event,
 	pr_debug("kona_mmc_poll_write: bock_read returned %d \r\n", rc);
 
 	pr_info("apanic: Panic dump successfully written to flash \r\n");
-#ifdef CONFIG_FB_BRCM_CP_CRASH_DUMP_IMAGE_SUPPORT
-	rhea_display_crash_image(CP_CRASH_DUMP_END);
-#endif
 
  out:
 #ifdef CONFIG_PREEMPT
@@ -577,7 +589,7 @@ static int apanic_trigger_check(struct file *file, const char __user *devpath,
 		copy_devpath = ctx->dev_path;
 	else {
 		copy_devpath = (char *)user_dev_path;
-		strncpy(ctx->dev_path, copy_devpath, sizeof(ctx->dev_path)-1);
+		strncpy(ctx->dev_path, copy_devpath, sizeof(ctx->dev_path) - 1);
 	}
 
 	bdev = blkdev_get_by_path(copy_devpath,

@@ -56,8 +56,7 @@ static ssize_t ecryptfs_read_update_atime(struct kiocb *iocb,
 				unsigned long nr_segs, loff_t pos)
 {
 	ssize_t rc;
-	struct dentry *lower_dentry;
-	struct vfsmount *lower_vfsmount;
+	struct path lower;
 	struct file *file = iocb->ki_filp;
 
 	rc = generic_file_aio_read(iocb, iov, nr_segs, pos);
@@ -68,9 +67,9 @@ static ssize_t ecryptfs_read_update_atime(struct kiocb *iocb,
 	if (-EIOCBQUEUED == rc)
 		rc = wait_on_sync_kiocb(iocb);
 	if (rc >= 0) {
-		lower_dentry = ecryptfs_dentry_to_lower(file->f_path.dentry);
-		lower_vfsmount = ecryptfs_dentry_to_lower_mnt(file->f_path.dentry);
-		touch_atime(lower_vfsmount, lower_dentry);
+		lower.dentry = ecryptfs_dentry_to_lower(file->f_path.dentry);
+		lower.mnt = ecryptfs_dentry_to_lower_mnt(file->f_path.dentry);
+		touch_atime(&lower);
 	}
 	return rc;
 }
@@ -144,6 +143,27 @@ static int ecryptfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 		fsstack_copy_attr_atime(inode,
 					lower_file->f_path.dentry->d_inode);
 out:
+	return rc;
+}
+
+static void ecryptfs_vma_close(struct vm_area_struct *vma)
+{
+	filemap_write_and_wait(vma->vm_file->f_mapping);
+}
+
+static const struct vm_operations_struct ecryptfs_file_vm_ops = {
+	.close		= ecryptfs_vma_close,
+	.fault		= filemap_fault,
+};
+
+static int ecryptfs_file_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	int rc;
+
+	rc = generic_file_mmap(file, vma);
+	if (!rc)
+		vma->vm_ops = &ecryptfs_file_vm_ops;
+
 	return rc;
 }
 
@@ -224,6 +244,7 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 		rc = 0;
 		goto out;
 	}
+
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	if (crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED
 		&& crypt_stat->flags & ECRYPTFS_POLICY_APPLIED
@@ -240,6 +261,7 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 			crypt_stat->flags &= ~(ECRYPTFS_I_SIZE_INITIALIZED
 					| ECRYPTFS_ENCRYPTED);
 			mutex_unlock(&crypt_stat->cs_mutex);
+			rc = 0;
 			goto out;
 		}
 	} else if ((mount_crypt_stat->flags & ECRYPTFS_ENABLE_FILTERING)
@@ -258,11 +280,13 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 				~(ECRYPTFS_I_SIZE_INITIALIZED
 				| ECRYPTFS_ENCRYPTED);
 			mutex_unlock(&crypt_stat->cs_mutex);
+			rc = 0;
 			goto out;
 		}
 	}
 	mutex_unlock(&crypt_stat->cs_mutex);
 #endif
+
 	mutex_lock(&crypt_stat->cs_mutex);
 	if (!(crypt_stat->flags & ECRYPTFS_POLICY_APPLIED)
 	    || !(crypt_stat->flags & ECRYPTFS_KEY_VALID)) {
@@ -317,14 +341,15 @@ static int ecryptfs_release(struct inode *inode, struct file *file)
 }
 
 static int
-ecryptfs_fsync(struct file *file, int datasync)
+ecryptfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	int rc = 0;
 
-	rc = generic_file_fsync(file, datasync);
+	rc = generic_file_fsync(file, start, end, datasync);
 	if (rc)
 		goto out;
-	rc = vfs_fsync(ecryptfs_file_to_lower(file), datasync);
+	rc = vfs_fsync_range(ecryptfs_file_to_lower(file), start, end,
+			     datasync);
 out:
 	return rc;
 }
@@ -514,7 +539,7 @@ const struct file_operations ecryptfs_main_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ecryptfs_compat_ioctl,
 #endif
-	.mmap = generic_file_mmap,
+	.mmap = ecryptfs_file_mmap,
 	.open = ecryptfs_open,
 	.flush = ecryptfs_flush,
 	.release = ecryptfs_release,

@@ -13,3 +13,10 @@ config SENSORS_BMM050
 	default n
 	help
 	 BMM050 Magnetic Sensor Driver implemented by Bosch-Sensortec.
+
+config SENSORS_BMC150 
+	tristate "BMC150 6-axis Accelerometer and Magnetic Sensor Driver" 
+         depends on I2C
+	default n
+	help
+	 BMM050 Magnetic Sensor Driver implemented by Bosch-Sensortec.

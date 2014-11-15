@@ -20,22 +20,17 @@
 //! \note  
 //!
 //============================================================================
-    #include <plat/chal/chal_types.h>
-    #include <plat/chal/chal_common.h>
-    #include <plat/chal/chal_cam.h>
-    #include <mach/memory.h>
-    #include <mach/rdb/brcm_rdb_cam.h>
-    #include <mach/rdb/brcm_rdb_mm_cfg.h>
-    #include <mach/rdb/brcm_rdb_mm_clk_mgr_reg.h>
-    #include <mach/rdb/brcm_rdb_root_clk_mgr_reg.h>
-    #include <mach/rdb/brcm_rdb_padctrlreg.h>
-    #include <mach/rdb/brcm_rdb_sysmap.h>
-    #include <mach/rdb/brcm_rdb_util.h>
+#include <plat/chal/chal_types.h>
+#include <plat/chal/chal_common.h>
+#include <plat/chal/chal_cam.h>
+#include <mach/memory.h>
+#include <mach/rdb/brcm_rdb_cam.h>
+#include <mach/rdb/brcm_rdb_mm_cfg.h>
+#include <mach/rdb/brcm_rdb_padctrlreg.h>
+#include <mach/rdb/brcm_rdb_sysmap.h>
+#include <mach/rdb/brcm_rdb_util.h>
 
 #include <linux/err.h>
-#include <linux/clk.h>
-#include <plat/clock.h>
-    
 
 //===========================================================================
 // local macro declarations
@@ -91,8 +86,6 @@ static void chalCamCopy( cUInt8 *wr_addr, cUInt8 *rd_addr, cUInt32 size );
 
 // ---- Functions -----------------------------------------------------------
 
-/* mm ccu clock to check if mm domain is active */
-static struct clk *mm_ccu;
 
 CHAL_CAM_STATUS_CODES chal_cam_register_display(CHAL_HANDLE handle, CHAL_CAM_PARAM_st_t* param)
 {
@@ -112,6 +105,18 @@ CHAL_CAM_STATUS_CODES chal_cam_register_display(CHAL_HANDLE handle, CHAL_CAM_PAR
     cUInt32 icc, ics, idc, idpo, idca, idcd, ids;
     cUInt32 dbctl, dbsa1, dbea1;
     cUInt32 misc;
+
+	if (pCamDevice == NULL) {
+		printk(KERN_ERR "%s: pCamDevice = NULL. Serious error.\n",
+						__func__);
+		return CHAL_OP_FAILED;
+	}
+
+	if (pCamDevice->baseAddr == NULL) {
+		printk(KERN_ERR "%s: pCamDevice->baseAddr = NULL. Serious error.\n",
+						__func__);
+		return CHAL_OP_FAILED;
+	}
 
 // Register Output
     // control
@@ -173,28 +178,22 @@ CHAL_CAM_STATUS_CODES chal_cam_register_display(CHAL_HANDLE handle, CHAL_CAM_PAR
         dbctl = BRCM_READ_REG ( pCamDevice->baseAddr, CAM_DBCTL );
         misc = BRCM_READ_REG ( pCamDevice->baseAddr, CAM_MISC );
 
-	chal_dprintf(CDBG_INFO2,
-		"CTL=0x%x STA=0x%x ANA=0x%x PRI=0x%x "
+	printk(KERN_INFO "CTL=0x%x STA=0x%x ANA=0x%x PRI=0x%x "
 		"CLK=0x%x CLT=0x%x DAT0=0x%x DAT1=0x%x DLT=0x%x\r\n",
 		ctl, sta, ana, pri, clk, clt, dat0, dat1, dlt);
-	chal_dprintf(CDBG_INFO2,
-		"CMP0=0x%x CMP1=0x%x CAP0=0x%x CAP1=0x%x "
+	printk(KERN_INFO "CMP0=0x%x CMP1=0x%x CAP0=0x%x CAP1=0x%x "
 		"DBG0=0x%x DBG1=0x%x DBG2=0x%x DBG3=0x%x\r\n",
 		cmp0, cmp1, cap0, cap1, dbg0, dbg1, dbg2, dbg3);
-	chal_dprintf(CDBG_INFO2,
-		"ICTL=0x%x ISTA=0x%x IDI=0x%x IPIPE=0x%x "
+	printk(KERN_INFO "ICTL=0x%x ISTA=0x%x IDI=0x%x IPIPE=0x%x "
 		"IBSA=0x%x IBEA=0x%x IBLS=0x%x\r\n",
 		ictl, ista, idi, ipipe, ibsa, ibea, ibls);
-	chal_dprintf(CDBG_INFO2,
-		"IBSA1=0x%x IBEA1=0x%x IDI1=0x%x "
+	printk(KERN_INFO "IBSA1=0x%x IBEA1=0x%x IDI1=0x%x "
 		"IBWP=0x%x IHWIN=0x%x IHSTA=0x%x IVWIN=0x%x IVSTA=0x%x\r\n",
 		ibsa1, ibea1, idi1, ibwp, ihwin, ihsta, ivwin, ivsta);
-	chal_dprintf(CDBG_INFO2,
-		"DCS=0x%x DBSA=0x%x DBEA=0x%x DBWP=0x%x "
+	printk(KERN_INFO "DCS=0x%x DBSA=0x%x DBEA=0x%x DBWP=0x%x "
 		"DBSA1=0x%x DBEA1=0x%x DBCTL=0x%x\r\n",
 		dcs, dbsa, dbea, dbwp, dbsa1, dbea1, dbctl);
-	chal_dprintf(CDBG_INFO2,
-		"ICC=0x%x ICS=0x%x IDC=0x%x IDPO=0x%x IDCA=0x%x "
+	printk(KERN_INFO "ICC=0x%x ICS=0x%x IDC=0x%x IDPO=0x%x IDCA=0x%x "
 		"IDCD=0x%x IDS=0x%x MISC=0x%x\r\n\r\n",
 		icc, ics, idc, idpo, idca, idcd, ids, misc);
 
@@ -215,73 +214,6 @@ static void chalCamCopy( cUInt8 *wr_addr, cUInt8 *rd_addr, cUInt32 size )
     }
 } 
 
-#if 0
-static void chalCamReset(CHAL_HANDLE handle)
-{
-    chal_cam_t *pCamDevice = (chal_cam_t *)handle;
-    CHAL_CAM_PARAM_st_t chal_cam_param_st;
-
-// Reset Cam 
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CTL,( (1 << CAM_CTL_CPE_SHIFT) | (0 << CAM_CTL_MEN_SHIFT) | (1 << CAM_CTL_CPM_SHIFT) | (1 << CAM_CTL_DCM_SHIFT) | (5 << CAM_CTL_PFT_SHIFT) ));
-// Reset Camera Interface
-    chal_cam_param_st.param = CHAL_CAM_RESET_RX;
-    chal_cam_reset(handle, &chal_cam_param_st);
-
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_ANA,( (1<<CAM_ANA_APD_SHIFT) | (1<<CAM_ANA_BPD_SHIFT) | (1<<CAM_ANA_DDL_SHIFT) | (0x07<<CAM_ANA_CTATADJ_SHIFT) | (0x07<<CAM_ANA_PTATADJ_SHIFT) ));
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_PRI,( (0x01<<CAM_PRI_PE_SHIFT) | (0x02<<CAM_PRI_PT_SHIFT) | (0x07<<CAM_PRI_NP_SHIFT) | (0x0B<<CAM_PRI_PP_SHIFT) ));
-
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CLK,( (1<<CAM_CLK_CLPD_SHIFT) ));
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CLT,( (2<<CAM_CLT_CLT1_SHIFT)|(2<<CAM_CLT_CLT2_SHIFT) ));
-
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DAT0,( (1<<CAM_DAT0_DLPDN_SHIFT) ));
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DAT1,( (1<<CAM_DAT1_DLPDN_SHIFT) ));
-
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DLT,( (2<<CAM_DLT_DLT1_SHIFT)|(2<<CAM_DLT_DLT2_SHIFT)|(2<<CAM_DLT_DLT3_SHIFT) ));
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CMP0,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CMP1,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CAP0,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CAP1,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_ICTL,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_IDI,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_IPIPE,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_IHWIN,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_IVWIN,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DCS,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DBSA,0x00000000);
-    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DBEA,0x00000000);
-    CHAL_DELAY_MS(200);        
-
-    chal_dprintf(CDBG_INFO2, "chalCamReset() \r\n");
-    chal_cam_register_display(handle, &chal_cam_param_st);
-}
-#endif
-
-#if 0
-//***************************************************************************
-/**
-*       chal_cam_wait_value, wait for mode change
-*/
-static CHAL_CAM_STATUS_CODES chal_cam_wait_value(CHAL_HANDLE handle, CHAL_CAM_INTF_t intf, cUInt32 timeout, cUInt32 *reg_addr, cUInt32 reg_mask, cUInt32 value)
-{
-    cUInt32 register_value;
-    CHAL_CAM_STATUS_CODES chal_status = CHAL_OP_OK;
-
-    register_value = *reg_addr & reg_mask;
-    while ( (timeout != 0) && (register_value != value) )
-    {
-        CHAL_DELAY_MS(1);        
-        register_value = *reg_addr & reg_mask;
-        timeout--;
-    } 
-
-    if (timeout == 0)
-    {
-        chal_status = CHAL_OP_FAILED;
-        DBG_OUT( chal_dprintf(CDBG_INFO, "chal_cam_wait_value(): ERROR: addr = 0x%x value_read=0x%x value_set=0x%x \r\n", reg_addr,register_value,value) );
-    }
-    return chal_status;
-}
-#endif
 
 //==============================================================================
 //! \brief 
@@ -314,11 +246,6 @@ CHAL_HANDLE chal_cam_init(cUInt32 baseAddr)
     
 	DBG_OUT(chal_dprintf(CDBG_INFO, "chal_cam_init: Register base=0x%x\n",
 						pCamDevice->baseAddr));
-	if (mm_ccu == NULL) {
-		mm_ccu = clk_get(NULL, MM_CCU_CLK_NAME_STR);
-		if (IS_ERR_OR_NULL(mm_ccu))
-			BUG();
-	}
 
     return (CHAL_HANDLE)pCamDevice;
 }
@@ -337,8 +264,6 @@ CHAL_HANDLE chal_cam_init(cUInt32 baseAddr)
 cVoid chal_cam_deinit(CHAL_HANDLE handle)
 {
     chal_cam_t *pCamDevice = (chal_cam_t *)handle;
-    cUInt32 clk_base_addr;
-    clk_base_addr = HW_IO_PHYS_TO_VIRT(MM_CLK_BASE_ADDR);
 
     if (pCamDevice == NULL)
     {
@@ -346,18 +271,8 @@ cVoid chal_cam_deinit(CHAL_HANDLE handle)
     }
     else
     {
-	if (mm_ccu) {
-		if (mm_ccu->use_cnt <= 0)
-			BUG();
-	}
-
         pCamDevice->baseAddr = 0;
         pCamDevice->init = FALSE;
-		/* Disable clocks here */
-        BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_WR_ACCESS,0xA5A501); // enable access
-        BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_LP_CLKGATE, 0x00000302);  // default value
-        BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_AXI_CLKGATE, 0x0000302);  // ...
-
     }
 }
 
@@ -377,49 +292,30 @@ CHAL_CAM_STATUS_CODES chal_cam_cfg_intf(CHAL_HANDLE handle, CHAL_CAM_CFG_INTF_st
     CHAL_CAM_STATUS_CODES chal_status = CHAL_OP_OK;
     CHAL_CAM_PARAM_st_t chal_cam_param_st;
     cUInt32 cfg_base_addr;
-    cUInt32 clk_base_addr;
-
+    cUInt32 mm_switch_base;
+    u32 valsw;
     DBG_OUT( chal_dprintf( CDBG_INFO, "chal_cam_cfg_intf\n") ); 
 
-// Reset Cam 
-//    chalCamReset(handle);
 
-	if (mm_ccu) {
-		if (mm_ccu->use_cnt <= 0)
-			BUG();
-	}
-	printk(KERN_ERR "chal_cam_cfg_intf() base=0x%x\n",
-					pCamDevice->baseAddr);
     // Set Camera CSIx Phy & Clock Registers
         cfg_base_addr = HW_IO_PHYS_TO_VIRT(MM_CFG_BASE_ADDR);
-        clk_base_addr = HW_IO_PHYS_TO_VIRT(MM_CLK_BASE_ADDR);
 
-        BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_WR_ACCESS,0xA5A501); // enable access
         // CSI0 has PHY selection.
             if (cfg->afe_port == CHAL_CAM_PORT_AFE_1) 
-            {
                 BRCM_WRITE_REG(cfg_base_addr,MM_CFG_CSI1_LDO_CTL, 0x5A00000F);
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI1_PHY_DIV, 0x00000888); // csi1_rx0_bclkhs
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI1_DIV, 0x00000040);
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI1_LP_CLKGATE, 0x00000303);  // default value
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI1_AXI_CLKGATE, 0x00000303);  // ...
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_DIV_TRIG, (1 << MM_CLK_MGR_REG_DIV_TRIG_CSI1_LP_TRIGGER_SHIFT)); // CSI1 trigger change
-            // AFE 1 port actually uses AFE 0 clocks
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_DIV, 0x00000040);
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_LP_CLKGATE, 0x00000303);  // default value
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_AXI_CLKGATE, 0x00000303);  // ...
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_DIV_TRIG, (1 << MM_CLK_MGR_REG_DIV_TRIG_CSI0_LP_TRIGGER_SHIFT)); // CSI0 trigger change
-            } 
             else 
-            {
                 BRCM_WRITE_REG(cfg_base_addr,MM_CFG_CSI0_LDO_CTL, 0x5A00000F);
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_PHY_DIV, 0x00000888); // csi0_rx0_bclkhs
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_DIV, 0x00000040);
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_LP_CLKGATE, 0x00000303);  // default value
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_CSI0_AXI_CLKGATE, 0x00000303);  // ...
-                BRCM_WRITE_REG(clk_base_addr,MM_CLK_MGR_REG_DIV_TRIG, (1 << MM_CLK_MGR_REG_DIV_TRIG_CSI0_LP_TRIGGER_SHIFT)); // CSI0 trigger change
-            }
 
+/* MM_CFG changes here for QoS*/
+#ifndef __KERNEL__
+mm_switch_base = MM_CFG_BASE_ADDR;
+#else
+mm_switch_base = HW_IO_PHYS_TO_VIRT(MM_CFG_BASE_ADDR);
+valsw = readl((mm_switch_base + 0x444));
+valsw = valsw | 1;
+writel(valsw, (mm_switch_base + 0x444));
+#endif
+/* Enable CSI QOS in MM switch */
 
 // Memories Enabled
     BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_CTL,MEN,1);
@@ -533,7 +429,11 @@ CHAL_CAM_STATUS_CODES chal_cam_cfg_cntrl(CHAL_HANDLE handle, CHAL_CAM_CFG_CNTRL_
 // Normal Priority
     BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_PRI,NP,cfg->norm_pr);
 // Panic Threshold
-    BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_PRI,PT,cfg->panic_thr);
+    BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr, CAM_PRI, PT, cfg->panic_thr);
+    BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr, CAM_PRI, PE, cfg->panic_enable);
+#if 0
+    printk("Camera: Urgent request enable set to %d\n", cfg->panic_enable);
+#endif
     return chal_status;
 }    
 
@@ -1196,7 +1096,7 @@ CHAL_CAM_STATUS_CODES chal_cam_cfg_afe_cntrl(CHAL_HANDLE handle, CHAL_CAM_AFE_CF
         {
             reg |= (1 << CAM_ANA_DDL_SHIFT);
         }
-    reg = BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_ANA,reg);
+    BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_ANA,reg);
     return chal_status;
 }    
 
@@ -1646,8 +1546,11 @@ CHAL_CAM_STATUS_CODES chal_cam_set_intf(CHAL_HANDLE handle, CHAL_CAM_CFG_INTF_st
             BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_CTL,CPM,0);
             BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_CTL,PFT,5);
         // Lane Timing
-            BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_CLT,( (0<<CAM_CLT_CLT1_SHIFT)|(0<<CAM_CLT_CLT2_SHIFT) ));
-            BRCM_WRITE_REG(pCamDevice->baseAddr,CAM_DLT,( (5<<CAM_DLT_DLT1_SHIFT)|(0<<CAM_DLT_DLT2_SHIFT)|(0<<CAM_DLT_DLT3_SHIFT) ));
+		BRCM_WRITE_REG(pCamDevice->baseAddr, CAM_CLT,
+		((0x0<<CAM_CLT_CLT1_SHIFT)|(0x05<<CAM_CLT_CLT2_SHIFT)));
+		BRCM_WRITE_REG(pCamDevice->baseAddr, CAM_DLT,
+		((0x8<<CAM_DLT_DLT1_SHIFT)|(0<<CAM_DLT_DLT2_SHIFT)
+		|(0<<CAM_DLT_DLT3_SHIFT)));
         }
     #ifndef __KERNEL__
         reg = MM_CFG_BASE_ADDR;
@@ -2333,6 +2236,7 @@ CHAL_CAM_STATUS_CODES chal_cam_rx_start(CHAL_HANDLE handle, CHAL_CAM_PARAM_st_t*
 
 // Disable Data Lane
     BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_ANA,DDL,1);
+	BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr, CAM_ICTL, FCM, 1);
 // Power Up Analog
     BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_ANA,APD,0);
     BRCM_WRITE_REG_FIELD(pCamDevice->baseAddr,CAM_ANA,BPD,0);
@@ -2482,110 +2386,26 @@ CHAL_CAM_STATUS_CODES chal_cam_rx_bytes_written(CHAL_HANDLE handle, CHAL_CAM_PAR
  ******************************************************************************/
 CHAL_CAM_STATUS_CODES chal_cam_clock(CHAL_HANDLE handle, cUInt32 clk_select, cUInt32 divider, cBool enable)
 {
-    cUInt32 base_addr;
-    CHAL_CAM_STATUS_CODES chal_status = CHAL_OP_OK;
+	cUInt32 base_addr;
 
+	DBG_OUT(chal_dprintf(CDBG_INFO, "%s():\n", __func__));
 
-   /*--- Enable Camera Clk ---*/
-  /* Camera clocks dclk1 & dclk2 are generated from
-   * ROOT_CLK. dclk1 is 13 MHz by default
-   * There is a DIG_PRE_DIV value set at 26 MHZ
-   * DIG0_DIV (DCLK1) is set to 1 (div 2) by default => 13 MHz
-   * DIG1_DIV (DCLK2) is set to 0 default is ?
-   * If the numbers are changed then DIG_TRIG must be set again
-   */
-    DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): \n", __FUNCTION__) ); 
+	if (enable == 1) {
+		/* Enable Clock Select 1*/
+		if (clk_select == 1) {
+			/* Select GPIO32 to be DCLK2 (bits 10:8 = 0x300 => DCLK2
+			 * bits 2:0 = 3 => 8 mAmps strength*/
+			base_addr = HW_IO_PHYS_TO_VIRT(PAD_CTRL_BASE_ADDR);
+			BRCM_WRITE_REG_FIELD(base_addr, PADCTRLREG_GPIO32,
+				PINSEL_GPIO32, 3);
+		} else {
+			/* Select DCLK1 (bits 10:8 = 0x000 => DCLK1 ,
+			 * bits 2:0 = 3 => 8 mAmps strength*/
+			base_addr = HW_IO_PHYS_TO_VIRT(PAD_CTRL_BASE_ADDR);
+			BRCM_WRITE_REG_FIELD(base_addr , PADCTRLREG_DCLK1,
+				PINSEL_DCLK1, 0);
+		}
+	}
 
-        base_addr = HW_IO_PHYS_TO_VIRT(ROOT_CLK_BASE_ADDR);
-    BRCM_WRITE_REG(base_addr,ROOT_CLK_MGR_REG_WR_ACCESS,0xA5A501);  // Enable access to registers in block
-  // Is there a POLICY for this block ?
-
-  /* Using default values */
-   // ROOT CLOCK MGR 0x35001000  APB6
-   // Use PRE_DIV default value  (using CRYSTAL CLOCK 0 = crystal_clk). It can be changed to PLL0 or PLL1_clk
-   // BRCM_WRITE_REG( ROOT_CLK_BASE_ADDR , ROOT_PRE_DIV, 0x0);  // PRE DIV value already default set to 0 the reference clock (26 MHz)
-    if ( BRCM_READ_REG_FIELD( base_addr, ROOT_CLK_MGR_REG_DIG_PRE_DIV, DIGITAL_PRE_PLL_SELECT ) != 0 )
-    {
-        chal_status |= CHAL_OP_INVALID;
-    }
-// Enable clock    
-    if ( (chal_status == CHAL_OP_OK) && (enable == 1) )
-    {
-    // Enable Clock Select 1
-        if (clk_select == 1)
-        {
-        // Select GPIO32 to be DCLK2  ( bits 10:8 = 0x300 => DCLK2 , bits 2:0 = 3 => 8 mAmps strength
-            base_addr = HW_IO_PHYS_TO_VIRT(PAD_CTRL_BASE_ADDR);
-            BRCM_WRITE_REG_FIELD(base_addr, PADCTRLREG_GPIO32, PINSEL_GPIO32, 3);
-        // Disable Dig Clk1
-            base_addr = HW_IO_PHYS_TO_VIRT(ROOT_CLK_BASE_ADDR);
-            BRCM_WRITE_REG_FIELD( base_addr, ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_CLK_EN, 0);
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_STPRSTS ) != 0 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH1_STPRSTS: Clk not Stopped \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-            BRCM_WRITE_REG( base_addr , ROOT_CLK_MGR_REG_DIG1_DIV, divider);
-        // Enable Dig Clk 1
-            BRCM_WRITE_REG_FIELD( base_addr, ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_CLK_EN, 1);
-        // Check Clock started
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_STPRSTS ) != 1 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH1_STPRSTS: Clk not Started \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-        }
-        else
-        {
-        // Select DCLK1  ( bits 10:8 = 0x000 => DCLK1 , bits 2:0 = 3 => 8 mAmps strength
-            base_addr = HW_IO_PHYS_TO_VIRT(PAD_CTRL_BASE_ADDR);
-            BRCM_WRITE_REG_FIELD(base_addr , PADCTRLREG_DCLK1, PINSEL_DCLK1, 0);
-        // Disable Dig Clk0
-            base_addr = HW_IO_PHYS_TO_VIRT(ROOT_CLK_BASE_ADDR);
-            BRCM_WRITE_REG_FIELD( base_addr, ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_CLK_EN, 0);
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_STPRSTS ) != 0 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH0_STPRSTS: Clk not Stopped \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-            
-        // Set Dig Clk0 Divider
-            BRCM_WRITE_REG( base_addr, ROOT_CLK_MGR_REG_DIG0_DIV, divider);
-        // Start Dig Clk0
-            BRCM_WRITE_REG_FIELD( base_addr, ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_CLK_EN, 1);
-        // Check Clock running
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_STPRSTS ) != 1 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH0_STPRSTS: Clk not Started \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-        }
-    }
-    else if ( (chal_status == CHAL_OP_OK) && (enable == 0) )
-    {
-            base_addr = HW_IO_PHYS_TO_VIRT(ROOT_CLK_BASE_ADDR);
-    // Disable Dig Clk1
-        if (clk_select == 1)
-        {
-            BRCM_WRITE_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_CLK_EN, 0);
-        // Check Clock setting
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH1_STPRSTS ) != 0 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH1_STPRSTS: Clk not Stopped \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-        }
-        else
-        {
-    // Disable Clock Select 0
-            BRCM_WRITE_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_CLK_EN, 0);
-        // Check Clock setting
-            if ( BRCM_READ_REG_FIELD( base_addr , ROOT_CLK_MGR_REG_DIG_CLKGATE, DIGITAL_CH0_STPRSTS ) != 0 )  
-            { 
-                DBG_OUT( chal_dprintf( CDBG_INFO, "%s(): DIGITAL_CH0_STPRSTS: Clk not Stopped \n", __FUNCTION__) ); 
-                chal_status |= CHAL_OP_INVALID;
-            }
-        }
-    }
-    return chal_status;
+	return CHAL_OP_OK;
 }            

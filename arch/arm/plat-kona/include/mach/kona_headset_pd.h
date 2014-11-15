@@ -38,13 +38,14 @@ struct kona_headset_pd {
 	 * platform.
 	 */
 	unsigned int (*button_adc_values_low)[2];
+
 	unsigned int (*button_adc_values_high)[2];
-	unsigned int (*button_adc_values)[2];
 	/*
 	 * GPIO number to ground the mic line.
 	 */
 	int gpio_mic_gnd;
-        char ldo_id[10];
+	char *ldo_id;
+	int gpio_external_micbias;
 };
 /* This API is used by Audio code to switch
  * the mic bias when required.

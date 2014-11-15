@@ -83,6 +83,14 @@ extern "C" {
 /* log a signal */
 #define BCMLOG_IOC_LOGSIGNAL	104
 
+#define BCMLOG_IOREMAP_GUARD		(SZ_4K)
+#define BCMLOG_IOREMAP_AREA_SZ		(SZ_8K)
+#define BCMLOG_IOREMAP_AREA		(0)
+#define BCMLOG_IOREMAP_NUM_PAGES	((BCMLOG_IOREMAP_AREA_SZ +	\
+			BCMLOG_IOREMAP_GUARD) >> PAGE_SHIFT)
+
+#define free_size_bcmlog(size) (size + BCMLOG_IOREMAP_GUARD)
+
 /**
  *  for ioctl cmd BCMLOG_IOC_LOGSTR, a variable of this type
  *	is passed as the 'arg' to ioctl()
@@ -194,7 +202,8 @@ extern "C" {
  *	Prepare to handle CP crash dump. During CP crash
  *  dump, all other logging requests are ignored.
  **/
-	void BCMLOG_StartCpCrashDump(struct file *inDumpFile);
+	void BCMLOG_StartCpCrashDump(struct file *inDumpFile,
+				     int cpresetStatus);
 
 /**
  *	Done with CP crash dump. Normal logging is resumed.
@@ -252,18 +261,6 @@ extern "C" {
 				unsigned short state, unsigned short sender);
 
 /**
- *	Acquire lock on output stream
- *	@return irql value to be passed to ReleaseOutputLock()
- **/
-	unsigned long AcquireOutputLock(void);
-
-/**
- *	Release lock on output stream
- *	@param irql (in) value returned by AcquireOutputLock()
- **/
-	void ReleaseOutputLock(unsigned long irql);
-
-/**
  *	Logging output devices.
  **/
 #define BCMLOG_OUTDEV_NONE		0	/* undefined or disabled */
@@ -276,39 +273,30 @@ extern "C" {
 #define BCMLOG_OUTDEV_CUSTOM	7	/* custom handler */
 #define BCMLOG_OUTDEV_MAX		8
 
-/**
- *	Custom Log type
- **/
-#define BCMLOG_CUSTOM_RUN_LOG		0
-#define BCMLOG_CUSTOM_AP_CRASH_LOG	1
-#define BCMLOG_CUSTOM_CP_CRASH_LOG	2
-
-/**
- *	Custom Logging payload type
- **/
-#define BCMLOG_CUSTOM_COMPLETE		0	/* complete message */
-#define BCMLOG_CUSTOM_START		1	/* partial message start */
-#define BCMLOG_CUSTOM_DATA		2	/* partial message data */
-#define BCMLOG_CUSTOM_END		3	/* partial message end */
-
 	extern struct apanic_data drv_ctx;
 #ifdef CONFIG_BRCM_CP_CRASH_DUMP_EMMC
 	extern unsigned long get_apanic_start_address(void);
+	extern unsigned long get_apanic_end_address(void);
 #endif
 
 /* help functions for STM crash dump */
+#ifdef CONFIG_BCM_STM
 	extern int stm_trace_buffer_onchannel(int channel, const void *data,
 					      size_t length);
 	extern void stm_trace_buffer_end(int channel);
 	extern int stm_trace_buffer_data(int channel, const void *data_ptr,
 					 size_t length);
 	extern void stm_trace_buffer_start(int channel);
+#endif
 
 /**
  *	Get runtime log device
  **/
 	int BCMLOG_GetRunlogDevice(void);
-
+	int BCMLOG_GetCpCrashLogDevice(void);
+	int BCMLOG_GetApCrashLogDevice(void);
+	void ReleaseOutputLock(unsigned long irql);
+	unsigned long AcquireOutputLock(void);
 /**
  *	Set runtime log device
  **/
@@ -318,31 +306,28 @@ extern "C" {
  *	Get runtime SD log file size in bytes
  **/
 	int BCMLOG_GetSdFileMax(void);
-	int BCMLOG_GetSdFileMin(void);
 
-	int BCMLOG_GetCpCrashLogDevice(void);
-	int BCMLOG_GetApCrashLogDevice(void);
-	void BCMLOG_SetCpCrashLogDevice(int port);
+	int BCMLOG_GetBufferSize(void);
+	void BCMLOG_SetBufferSize(int buffer_size);
 
 
 	extern void (*BrcmLogString) (const char *inLogString,
 				      unsigned short inSender);
-#ifdef CONFIG_APANIC_ON_MMC
+#ifdef CONFIG_BRCM_CP_CRASH_DUMP_EMMC
 	extern int ap_triggered;
 #endif
+	extern struct vm_struct *ipc_cpmap_area;
+	extern int cp_crashed;
 	extern int brcm_klogging(char *data, int length);
 	extern int brcm_retrive_early_printk(void);
 	extern int bcmlog_mtt_on;
 	extern unsigned ramdump_enable;
 	extern unsigned short bcmlog_log_ulogging_id;
 	extern unsigned long BCMLOG_GetFreeSize(void);
-	extern int BCMLOG_CallHandler(char log_type, const char *p_src,
-				      unsigned int len, char type);
-	extern int BCMLOG_RegisterHandler(char log_type,
-					  int (*handler) (const char *,
-							  unsigned int, char));
+#ifdef BCMLOG_DEBUG_FLAG
+	extern unsigned int g_malloc_sig_buf;
+#endif
 	extern void abort(void);
-
 /**
  *	printk redirect callback registration
  **/	typedef int (*BrcmRedirectPrintkCbk)(const char *str);

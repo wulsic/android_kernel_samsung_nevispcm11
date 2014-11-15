@@ -18,7 +18,6 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <asm/mach/arch.h>
@@ -29,8 +28,8 @@
 #include <linux/uaccess.h>
 #include <linux/i2c.h>
 #include <linux/mfd/bcmpmu.h>
-#ifdef CONFIG_KONA_AVS
-#include <plat/kona_avs.h>
+#ifdef CONFIG_RHEA_AVS
+#include <mach/rhea_avs.h>
 #endif
 #include "pm_params.h"
 
@@ -1092,7 +1091,7 @@ const u8 *bcmpmu_get_sr_vlt_table(int sr, u32 freq_inx,
 			sr, freq_inx, silicon_type);
 
 	BUG_ON(freq_inx > A9_FREQ_1_GHZ);
-#ifdef CONFIG_KONA_AVS
+#ifdef CONFIG_RHEA_AVS
 	switch (silicon_type) {
 	case SILICON_TYPE_SLOW:
 		return csr_vlt_table_ss[freq_inx];

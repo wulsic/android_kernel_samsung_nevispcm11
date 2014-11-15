@@ -82,6 +82,8 @@
 #define CCU_FREQ_POLICY3_SHIFT	24
 #define CCU_FREQ_POLICY_MASK	7
 
+#define CCU_POLICY_FREQ_REG_INIT	0xFFFFFFFF
+
 #define CCU_ACT_INT_SHIFT	1
 #define CCU_TGT_INT_SHIFT	0
 #define CCU_INT_EN			1
@@ -114,6 +116,8 @@
 #define CCU_DBG_BUS_SEL_MASK		(0x1F << 16)
 #define CCU_DBG_BUS_SEL_SHIFT		16
 
+#define POLICY_RESUME_INS_COUNT	20000
+#define CLK_EN_INS_COUNT	1000
 
 #define CCU_POLICY_MASK_ENABLE_ALL_MASK	0x7FFFFFFF
 
@@ -164,15 +168,29 @@
 			struct pi *pi = pi_mgr_get((ccu)->pi_id);\
 			BUG_ON(pi == NULL);\
 			if (en)\
-				__pi_enable(pi);\
+				pi_enable(pi, 1);\
 			else\
-				__pi_disable(pi);\
+				pi_enable(pi, 0);\
 		}
 #else
 #define CCU_ACCESS_EN(ccu, en)	{}
 #endif
 
 #define PLL_VCO_RATE_MAX	0xFFFFFFFF
+
+#define INIT_SRC_CLK(c, sel) {\
+		.clk = CLK_PTR(c),\
+		.val = sel,\
+}
+
+/*PLL OFFSET register offsets and masks*/
+#define PLL_OFFSET_NDIV_MASK	(0x1FF << PLL_OFFSET_NDIV_SHIFT)
+#define PLL_OFFSET_NDIV_SHIFT	20
+#define PLL_OFFSET_NDIV_F_MASK	(0xFFFFF << PLL_OFFSET_NDIV_F_SHIFT)
+#define PLL_OFFSET_NDIV_F_SHIFT	0
+#define PLL_OFFSET_MODE_MASK	(1 << 28)
+#define PLL_OFFSET_SW_CTRL_MASK	(1 << 29)
+
 
 /* CCU Policy ids*/
 enum {
@@ -283,9 +301,7 @@ enum {
 	/*Ref clk flags */
 	CLK_RATE_FIXED = (1 << 24),
 
-	/* PLL flags */
-	INIT_PLL_OFFSET_CFG = (1 << 28),
-
+	DELAYED_PLL_LOCK = (1 << 28),
 };
 
 /*clk type*/
@@ -336,7 +352,6 @@ struct peri_clk_ops {
 
 struct bus_clk_ops {
 };
-
 struct ccu_clk;
 struct ccu_clk_ops {
 	int (*write_access) (struct ccu_clk * ccu_clk, int enable);
@@ -348,7 +363,7 @@ struct ccu_clk_ops {
 	int (*int_enable) (struct ccu_clk * ccu_clk, int int_type, int enable);
 	int (*int_status_clear) (struct ccu_clk * ccu_clk, int int_type);
 	int (*set_freq_policy) (struct ccu_clk * ccu_clk, int policy_id,
-				int freq_id);
+				struct opp_info *opp_info);
 	int (*get_freq_policy) (struct ccu_clk * ccu_clk, int policy_id);
 	int (*set_peri_voltage) (struct ccu_clk * ccu_clk, int peri_volt_id,
 				 u8 voltage);
@@ -468,7 +483,7 @@ struct ccu_clk {
 	struct clk clk;
 	int pi_id;
 	struct list_head clk_list;
-
+	u32 lock_flag;
 	u32 pol_engine_dis_cnt;
 	u32 write_access_en_count;
 
@@ -501,7 +516,8 @@ struct ccu_clk {
 	u8 active_policy;
 	u32 *freq_tbl[MAX_CCU_FREQ_COUNT];
 	struct ccu_state_save *ccu_state_save;
-	spinlock_t lock;
+	spinlock_t clk_lock;
+	spinlock_t access_lock;
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dent_ccu_dir;
 	u32 policy_dbg_offset;
@@ -517,7 +533,6 @@ struct peri_clk {
 
 	struct ccu_clk *ccu_clk;
 	int mask_set;
-	int clk_sel_val;
 	u32 policy_bit_mask;
 	u8 policy_mask_init[4];
 	u32 clk_gate_offset;
@@ -542,7 +557,6 @@ struct peri_clk {
 };
 
 struct bus_clk {
-	int clk_sel_val;
 	struct clk clk;
 
 	struct ccu_clk *ccu_clk;
@@ -565,7 +579,6 @@ struct bus_clk {
 };
 
 struct ref_clk {
-	int clk_sel_val;
 	struct clk clk;
 	struct ccu_clk *ccu_clk;
 	u32 clk_gate_offset;
@@ -587,6 +600,20 @@ struct pll_cfg_ctrl_info {
 	u32 *vco_thold;
 	u32 *pll_config_value;
 	u32 thold_count;
+};
+
+/*PLL desense adjust params*/
+enum {
+	PLL_OFFSET_EN = 1,
+	PLL_OFFSET_NDIV = 1 << 1,
+	PLL_OFFSET_NDIV_FRAC = 1 << 2,
+	PLL_OFFSET_SW_MODE = 1 << 3,
+
+};
+struct pll_desense {
+	u32 flags;
+	u32 pll_offset_offset;
+	int def_delta;
 };
 
 struct pll_clk {
@@ -614,9 +641,7 @@ struct pll_clk {
 	u32 ndiv_frac_offset;
 	u32 ndiv_frac_mask;
 	u32 ndiv_frac_shift;
-
-	u32 pll_offset_offset;
-	u32 pll_offset_cfg_val;
+	struct pll_desense *desense;
 	struct pll_cfg_ctrl_info *cfg_ctrl_info;
 };
 
@@ -730,7 +755,7 @@ unsigned long clock_get_xtal(void);
 #ifdef CONFIG_DEBUG_FS
 int clock_debug_init(void);
 int clock_debug_add_clock(struct clk *c);
-int __init clock_debug_add_ccu(struct clk *c);
+int __init clock_debug_add_ccu(struct clk *c, bool is_root_ccu);
 #else
 #define	clock_debug_init() do {} while(0)
 #define	clock_debug_add_clock(clk) do {} while(0)
@@ -741,7 +766,6 @@ int clk_init(struct clk *clk);
 int clk_reset(struct clk *clk);
 int clk_get_usage(struct clk *clk);
 int clk_register(struct clk_lookup *clk_lkup, int num_clks);
-int ccu_set_freq_policy(struct ccu_clk *ccu_clk, int policy_id, int freq_id);
 int peri_clk_set_hw_gating_ctrl(struct clk *clk, int gating_ctrl);
 int peri_clk_hyst_enable(struct peri_clk *peri_clk, int enable, int delay);
 int peri_clk_set_pll_select(struct peri_clk *peri_clk, int source);
@@ -752,7 +776,8 @@ int ccu_policy_engine_stop(struct ccu_clk *ccu_clk);
 int ccu_set_policy_ctrl(struct ccu_clk *ccu_clk, int pol_ctrl_id, int action);
 int ccu_int_enable(struct ccu_clk *ccu_clk, int int_type, int enable);
 int ccu_int_status_clear(struct ccu_clk *ccu_clk, int int_type);
-int ccu_set_freq_policy(struct ccu_clk *ccu_clk, int policy_id, int freq_id);
+int ccu_set_freq_policy(struct ccu_clk *ccu_clk, int policy_id,
+				struct opp_info *opp_info);
 int ccu_get_freq_policy(struct ccu_clk *ccu_clk, int policy_id);
 int ccu_set_peri_voltage(struct ccu_clk *ccu_clk, int peri_volt_id, u8 voltage);
 int ccu_set_voltage(struct ccu_clk *ccu_clk, int volt_id, u8 voltage);
@@ -764,6 +789,15 @@ int ccu_get_dbg_bus_status(struct ccu_clk *ccu_clk);
 int ccu_set_dbg_bus_sel(struct ccu_clk *ccu_clk, u32 sel);
 int ccu_get_dbg_bus_sel(struct ccu_clk *ccu_clk);
 int ccu_print_sleep_prevent_clks(struct clk *clk);
+int clk_trace_init(int size);
+
+int pll_set_desense_offset(struct clk *clk, int offset);
+int pll_get_desense_offset(struct clk *clk);
+int pll_desense_enable(struct clk *clk, int enable);
+
+int pll_set_desense_offset(struct clk *clk, int offset);
+int pll_get_desense_offset(struct clk *clk);
+int pll_desense_enable(struct clk *clk, int enable);
 
 /*These clock API should only be called after
 * appropriate locks are acquired*/

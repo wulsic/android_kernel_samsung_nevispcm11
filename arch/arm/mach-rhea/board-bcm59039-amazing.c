@@ -29,8 +29,8 @@
 #include <linux/i2c.h>
 #include <linux/mfd/bcmpmu.h>
 #include <linux/broadcom/bcmpmu-ponkey.h>
-#ifdef CONFIG_KONA_AVS
-#include <plat/kona_avs.h>
+#ifdef CONFIG_RHEA_AVS
+#include <mach/rhea_avs.h>
 #endif
 #include "pm_params.h"
 
@@ -42,11 +42,7 @@ static int vlt_tbl_init;
 
 static struct bcmpmu_rw_data __initdata register_init_data[] = {
 	{.map = 0, .addr = 0x01, .val = 0x00, .mask = 0x01},
-
-	/* pmic_set_7sec_mode in pmic_bcm59039.c set 0x0c value accroding to debug level */
-#if 0
-	{.map = 0, .addr = 0x0c, .val = 0xdb, .mask = 0xFF},
-#endif
+	{.map = 0, .addr = 0x0c, .val = 0x1b, .mask = 0xFF},
 #if defined(CONFIG_MACH_RHEA_STONE) || defined(CONFIG_MACH_RHEA_STONE_EDN2X)
 	{.map = 0, .addr = 0x13, .val = 0x3d, .mask = 0xFF},
 	{.map = 0, .addr = 0x14, .val = 0x79, .mask = 0xFF},
@@ -80,7 +76,7 @@ static struct bcmpmu_rw_data __initdata register_init_data[] = {
 	{.map = 0, .addr = 0xB4, .val = 0x27, .mask = 0xFF},
 	{.map = 0, .addr = 0xB5, .val = 0x05, .mask = 0xFF},
 	{.map = 0, .addr = 0xB6, .val = 0x07, .mask = 0xFF},
-	{.map = 0, .addr = 0xB7, .val = 0x26, .mask = 0xFF},
+	{.map = 0, .addr = 0xB7, .val = 0x25, .mask = 0xFF},
 	{.map = 0, .addr = 0xB8, .val = 0x06, .mask = 0xFF},
 	{.map = 0, .addr = 0xB9, .val = 0x07, .mask = 0xFF},
 	{.map = 0, .addr = 0xBD, .val = 0x21, .mask = 0xFF},
@@ -130,13 +126,11 @@ static struct bcmpmu_rw_data __initdata register_init_data[] = {
 	{.map = 0, .addr = 0xCA, .val = 0x1A, .mask = 0xFF},
 #endif /*CONFIG_MACH_RHEA_STONE_EDN2X*/
 
- /* pmic_set_7sec_mode in pmic_bcm59039.c set 0x0c & 0x0d value accroding to debug level */
-#if 0
     {.map = 0, .addr = 0x0C, .val = 0x64, .mask = 0xFF}, //  Smart Reset Change as suggested by Ismael
-    {.map = 0, .addr = 0x05, .val = 0xB6, .mask = 0xFF},
-#endif
     {.map = 0, .addr = 0x0D, .val = 0x6D, .mask = 0xFF},
     {.map = 0, .addr = 0x0E, .val = 0x41, .mask = 0xFF},
+    {.map = 0, .addr = 0x05, .val = 0xB6, .mask = 0xFF},
+
 
 	/* Disable the charging elapsed timer by TCH[2:0]=111b 
 	   OTP default value; TCH[2:0] = 010b (5hrs) ,TTR[2:0] = 011b (45mins)
@@ -154,31 +148,38 @@ static struct bcmpmu_temp_map batt_temp_map[] = {
 	/*
 	* This table is hardware dependent and need to get from platform team
 	*/
-	/*
+  /*
    * { adc readings 10-bits,  temperature in degree K }
    */
-	// Murata NCP15WB473F03RC for 160kohm use
-	
-	{938, -400},			/* -40 */
-	{869, -300},			/* -30 */
-	{769, -200},			/* -20 */
-	{644, -100},			/* -10 */
-	{509,    0},			/* 0   */
-	{382,  100},			/* 10  */
-	{276,  200},			/* 20  */
-	{232,  250},			/* 25  */
-	{195,  300},			/* 30  */
-	{136,  400},			/* 40  */
-	{95 ,  500},			/* 50  */
-	{67 ,  600},			/* 60  */
-	{56 ,  650},			/* 65  */
-	{47 ,  700},			/* 70  */  /*BatteryService will shut down the handset if > 680  */
-	{34 ,  800},			/* 80  */
-	{24 ,  900},			/* 90  */
-	{18 , 1000},			/* 100 */
-	{13 , 1100},			/* 110 */
-	{10 , 1200},			/* 120 */
-	{8  , 1250},			/* 125 */
+  {932, 233},    /* -40 C */
+  {900, 238},    /* -35 C */
+  {860, 243},    /* -30 C */
+  {816, 248},    /* -25 C */
+  {760, 253},    /* -20 C */
+  {704, 258},    /* -15 C */
+  {636, 263},    /* -10 C */
+  {568, 268},    /* -5 C */
+  {500, 273},    /* 0 C */
+  {440, 278},    /* 5 C */
+  {376, 283},    /* 10 C */
+  {324, 288},    /* 15 C */
+  {272, 293},    /* 20 C */
+  {228, 298},    /* 25 C */
+  {192, 303},    /* 30 C */
+  {160, 308},    /* 35 C */
+  {132, 313},    /* 40 C */
+  {112, 318},    /* 45 C */
+  {92, 323},     /* 50 C */
+  {76, 328},     /* 55 C */
+  {64, 333},     /* 60 C */
+  {52, 338},     /* 65 C */
+  {44, 343},     /* 70 C */
+  {36, 348},     /* 75 C */
+  {32, 353},     /* 80 C */
+  {28, 358},     /* 85 C */
+  {24, 363},     /* 90 C */
+  {20, 368},     /* 95 C */
+  {16, 373},     /* 100 C */
 };
 
 __weak struct regulator_consumer_supply rf_supply[] = {
@@ -683,11 +684,9 @@ static struct bcmpmu_adc_setting adc_setting = {
 
 static struct bcmpmu_charge_zone chrg_zone[] = {
  	{.tl = 268, .th = 333, .v = 3000, .fc = 10, .qc = 100},	/* Zone QC */
-	{.tl = 268, .th = 272, .v = 4200, .fc = 36, .qc = 0},	/* Zone LL */
-	{.tl = 273, .th = 282, .v = 4200, .fc = 36, .qc = 0},	/* Zone L */
- 	{.tl = 283, .th = 318, .v = 4200, .fc = 36, .qc = 0},	/* Zone N */
-	{.tl = 319, .th = 323, .v = 4200, .fc = 36, .qc = 0},	/* Zone H */
-	{.tl = 324, .th = 333, .v = 4200, .fc = 36, .qc = 0},	/* Zone HH */
+	{.tl = 268, .th = 272, .v = 4200, .fc = 100, .qc = 0},	/* Zone LL */
+	{.tl = 273, .th = 282, .v = 4200, .fc = 100, .qc = 0},	/* Zone L */
+ 	{.tl = 283, .th = 318, .v = 4200, .fc = 100, .qc = 0},	/* Zone N */
 	{.tl = 319, .th = 323, .v = 4200, .fc = 100, .qc = 0},	/* Zone H */
 	{.tl = 324, .th = 333, .v = 4200, .fc = 100, .qc = 0},	/* Zone HH */
 	{.tl = 268, .th = 333, .v = 0, .fc = 0, .qc = 0},	/* Zone OUT */
@@ -701,7 +700,7 @@ static struct bcmpmu_voltcap_map batt_voltcap_map[] = {
 	* volt capacity
 	*/
 	{4160, 100},
-    {4122, 95},
+        {4122, 95},
 	{4072, 90},
 	{4031, 85},
 	{3978, 80},
@@ -1128,7 +1127,7 @@ const u8 *bcmpmu_get_sr_vlt_table(int sr, u32 freq_inx,
 	BUG_ON(!vlt_tbl_init ||
 		freq_inx > A9_FREQ_1_GHZ);
 
-#ifdef CONFIG_KONA_AVS
+#ifdef CONFIG_RHEA_AVS
 	switch (silicon_type) {
 	case SILICON_TYPE_SLOW:
 		return csr_vlt_table_ss[freq_inx];

@@ -10,6 +10,7 @@
 *****************************************************************************/
 
 #include <linux/sched.h>
+#include <linux/dma-mapping.h>
 #include <linux/pm.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -25,9 +26,7 @@
 #include <mach/io_map.h>
 #include <mach/clock.h>
 #include <plat/clock.h>
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 #include <linux/completion.h>
-#endif
 #if defined(CONFIG_KONA_CPU_FREQ_DRV)
 #include <plat/kona_cpufreq_drv.h>
 #endif
@@ -37,6 +36,11 @@
 #include <linux/seq_file.h>
 #endif
 #include <mach/pm.h>
+#include <mach/memory.h>
+#include <plat/kona_pm.h>
+#include <mach/io_map.h>
+#include <mach/rdb/brcm_rdb_a9cpu.h>
+#include <mach/rdb/brcm_rdb_gicdist.h>
 
 #ifndef PWRMGR_I2C_VAR_DATA_REG
 #define PWRMGR_I2C_VAR_DATA_REG 6
@@ -49,16 +53,10 @@
 #ifndef PWRMGR_HW_SEM_LOCK_WA_PI_OPP
 #define PWRMGR_HW_SEM_LOCK_WA_PI_OPP 2
 #endif
-#ifndef PWRMGR_HW_SEM_LOCK_WA_PI_LATENCY
-#define PWRMGR_HW_SEM_LOCK_WA_PI_LATENCY 0
-#endif
 #ifndef PWRMGR_HW_SEM_UNLOCK_WA_PI_OPP
 #define	PWRMGR_HW_SEM_UNLOCK_WA_PI_OPP	0
 #endif
-#ifndef PWRMGR_HW_SEM_UNLOCK_WA_PI_LATENCY
-#define PWRMGR_HW_SEM_UNLOCK_WA_PI_LATENCY     PI_MGR_QOS_DEFAULT_VALUE
-#endif
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 #ifndef PWRMGR_SW_SEQ_PC_PIN
 #define PWRMGR_SW_SEQ_PC_PIN		PC3
 #endif
@@ -80,7 +78,7 @@
 static char *pwr_mgr_event2str(int event)
 {
 	static char str[10];
-	sprintf(str, "event_%d", event);
+	snprintf(str, 10, "event_%d", event);
 	return str;
 }
 
@@ -118,24 +116,47 @@ static char *pwr_mgr_event2str(int event)
 #define PWR_MGR_PI_ADDR(pi_offset) (\
 				pwr_mgr.info->base_addr+(pi->pi_info.pi_offset))
 
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 
 #ifndef PWRMGR_NUM_EVENT_BANK
 #define PWRMGR_NUM_EVENT_BANK			6
-#endif
 
 #define PWR_MGR_EVENT_ID_TO_BANK_REG_OFF(event) (PWRMGR_EVENT_BANK1_OFFSET+(4*((event)/32)))
 #define PWR_MGR_EVENT_ID_TO_BIT_POS(event)	((event)%32)
-#define PWR_MGR_I2C_CMD_OFF_TO_REG_OFF(x)	(4*((x)/2) +\
-						PWRMGR_POWER_MANAGER_I2C_COMMAND_DATA_LOCATION_01_OFFSET)
-#define PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_SHIFT(x) ((((x) % 2) == 0) ? \
-												I2C_CMD0_DATA_SHIFT : I2C_CMD1_DATA_SHIFT)
-#define PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_MASK(x) ((((x) % 2) == 0) ? \
-												I2C_CMD0_DATA_MASK : I2C_CMD1_DATA_MASK)
+
+#define PWR_MGR_I2C_CMDS_PER_BANK		(64)
+#define PWR_MGR_I2C_CMDS_PER_REG		(2)
+
+#define PWR_MGR_I2C_MAX_BANKS			\
+	(PM_I2C_CMD_MAX / PWR_MGR_I2C_CMDS_PER_BANK)
+
+#define PWR_MGR_I2C_CMD_OFF_TO_BANK(x)		((x) >> 6)
+
+#define PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_SHIFT(x) \
+	((((x) % PWR_MGR_I2C_CMDS_PER_REG) == 0) ? \
+		I2C_CMD0_DATA_SHIFT : I2C_CMD1_DATA_SHIFT)
+#define PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_MASK(x) \
+	((((x) % PWR_MGR_I2C_CMDS_PER_REG) == 0) ? \
+		I2C_CMD0_DATA_MASK : I2C_CMD1_DATA_MASK)
+
+#ifndef PWRMGR_I2C_CMD_BANK0_OFFSET
+#define PWRMGR_I2C_CMD_BANK0_OFFSET				(0x4104)
+#endif
 
 #define PWR_MGR_INTR_MASK(x)			(1 << (x))
-#define PWR_MGR_SEQ_RETRIES			(10)
+#define PWR_MGR_SEQ_RETRIES			(50)
 #define PWR_MGR_SEQ_INTR_POLL_TIMEOUT_US	(200)
+
+/**
+ * SW SEQUENCER logging related
+ */
+#define SEQ_LOG_BUFF_SIZE			(SZ_1K)
+#define SEQ_LOG_BUFF_OFFSET			(0)
+#define SEQ_LOG_PACK_U24(d2, d1, d0) \
+	((d2 << 16) | (d1 << 8) | (d0))
+#define SEQ_LOG_HDR_MASK	(0xFF)
+#define SEQ_LOG_HDR_SHIFT	24
+#define SEQ_LOG_DATA_MASK	(0x00FFFFFF)
+#define SEQ_LOG_DATA_SHIFT	0
 
 /* I2C SW seq operations*/
 enum {
@@ -145,8 +166,21 @@ enum {
 };
 
 enum {
-	PWR_MGR_I2C_MODE_IRQ,
-	PWR_MGR_I2C_MODE_POLL,
+	SEQ_LOG_READ_BYTE = 1,
+	SEQ_LOG_WRITE_BYTE,
+	SEQ_LOG_NACK,
+	SEQ_LOG_SEQ_START,
+	SEQ_LOG_SEQ_TRIG,
+	SEQ_LOG_CLR_TRIG_OFF,
+	SEQ_LOG_WAIT_INTR,
+	SEQ_LOG_WAIT_TIMEOUT,
+	SEQ_LOG_INTR,
+	SEQ_LOG_FAKE_INTR,
+	SEQ_LOG_INTR_HANDLED,
+	SEQ_LOG_PC_UNALTRD,
+	SEQ_LOG_POLL_INTR,
+	SEQ_LOG_POLL_RETRY,
+	SEQ_LOG_SET_MODE,
 };
 
 #endif
@@ -174,21 +208,66 @@ struct pwr_mgr_event {
 struct pwr_mgr {
 	struct pwr_mgr_info *info;
 	struct pwr_mgr_event event_cb[PWR_MGR_NUM_EVENTS];
-	struct pi_mgr_qos_node sem_qos_client;
-	struct pi_mgr_qos_node seq_qos_client;
 	bool sem_locked;
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	u32 i2c_seq_trg;
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 	int pc_status;
 #endif
 	int i2c_mode;
+	u32 seq_qos_cnt;
 	struct completion i2c_seq_done;
 	struct work_struct pwrmgr_work;
-#endif
+	struct pi_mgr_qos_node seq_qos_client;
+	struct pi_mgr_dfs_node seq_dfs_client;
 };
 
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
+static u32 *seq_log_buf_v;
+static u32 *seq_log_buf_p;
+static atomic_t seq_log_buf_init;
+#endif
+
 static struct pwr_mgr pwr_mgr;
+
+static void pwr_mgr_dump_i2c_cmd_regs(void);
+
+static void dump_jig_registers(void)
+{
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
+	pr_info("pwr_mgr intr mask: %x intr status: %x\n",
+			readl(KONA_PWRMGR_VA + PWRMGR_POWER_MANAGER_INTERRUPT_MASK_OFFSET),
+			readl(KONA_PWRMGR_VA + PWRMGR_POWER_MANAGER_INTERRUPT_STATUS_OFFSET));
+
+	pr_info("GIC enable set:\n");
+	pr_info("%x %x %x %x %x %x %x\n",
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET1_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET2_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET3_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET4_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET5_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET6_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ENABLE_SET7_OFFSET));
+	pr_info("GIC active status:\n");
+	pr_info("%x %x %x %x %x %x %x\n",
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS1_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS2_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS3_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS4_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS5_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS6_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_ACTIVE_STATUS7_OFFSET));
+	pr_info("GIC pending status:\n");
+	pr_info("%x %x %x %x %x %x %x\n",
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET1_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET2_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET3_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET4_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET5_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET6_OFFSET),
+			readl(KONA_GICDIST_VA + GICDIST_PENDING_SET7_OFFSET));
+#endif
+}
+
 int pwr_mgr_event_trg_enable(int event_id, int event_trg_type)
 {
 	u32 reg_val = 0;
@@ -358,7 +437,7 @@ int pwr_mgr_event_set_pi_policy(int event_id, int pi_id,
 {
 	u32 reg_val = 0;
 	const struct pi *pi;
-	int realEventId, i;
+	u32 event_offset;
 	unsigned long flgs;
 
 	pwr_pi_dbg(pi_id, PWR_LOG_PI,
@@ -381,23 +460,11 @@ int pwr_mgr_event_set_pi_policy(int event_id, int pi_id,
 	pi = pi_mgr_get(pi_id);
 	BUG_ON(pi == NULL);
 
-	realEventId = event_id * 4;
-	if (pwr_mgr.info->num_special_event_range) {
-		for (i = 0; i < pwr_mgr.info->num_special_event_range; i++) {
-			if (event_id >=
-			    pwr_mgr.info->special_event_list[i].start
-			    && event_id <=
-			    pwr_mgr.info->special_event_list[i].end) {
-				realEventId =
-				    pwr_mgr.info->special_event_list[i].start *
-				    4;
-				break;
-			}
-		}
-	}
-
+	event_offset = pwr_mgr.info->event_policy_offset[event_id];
+	BUG_ON(event_offset == INVALID_EVENT_OFFSET);
 	reg_val =
-	    readl(PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset, realEventId));
+	    readl(PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset,
+								event_offset));
 
 	if (pm_policy_cfg->ac)
 		reg_val |= (1 << pi->pi_info.ac_shift);
@@ -417,7 +484,7 @@ int pwr_mgr_event_set_pi_policy(int event_id, int pi_id,
 		__func__, reg_val, pi->pi_info.pm_policy_shift);
 
 	writel_relaxed(reg_val,
-	       PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset, realEventId));
+	       PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset, event_offset));
 	pwr_pi_dbg(pi_id, PWR_LOG_PI,
 	"%s : event_id = %d : pi_id = %d, ac : %d,ATL : %d, policy: %d\n",
 	__func__, event_id, pi_id, pm_policy_cfg->ac, pm_policy_cfg->atl,
@@ -440,7 +507,7 @@ int pwr_mgr_event_get_pi_policy(int event_id, int pi_id,
 {
 	u32 reg_val = 0;
 	const struct pi *pi;
-	int realEventId, i;
+	u32 event_offset;
 	unsigned long flgs;
 
 	pwr_pi_dbg(pi_id, PWR_LOG_PI, "%s : event_id = %d : pi_id = %d\n",
@@ -460,22 +527,12 @@ int pwr_mgr_event_get_pi_policy(int event_id, int pi_id,
 	spin_lock_irqsave(&pwr_mgr_lock, flgs);
 	pi = pi_mgr_get(pi_id);
 	BUG_ON(pi == NULL);
-	realEventId = event_id * 4;
-	if (pwr_mgr.info->num_special_event_range) {
-		for (i = 0; i < pwr_mgr.info->num_special_event_range; i++) {
-			if (event_id >=
-			    pwr_mgr.info->special_event_list[i].start
-			    && event_id <=
-			    pwr_mgr.info->special_event_list[i].end) {
-				realEventId =
-				    pwr_mgr.info->special_event_list[i].start *
-				    4;
-				break;
-			}
-		}
-	}
+
+	event_offset = pwr_mgr.info->event_policy_offset[event_id];
+	BUG_ON(event_offset == INVALID_EVENT_OFFSET);
 	reg_val =
-	    readl(PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset, realEventId));
+	    readl(PWR_MGR_PI_EVENT_POLICY_ADDR(policy_reg_offset,
+							event_offset));
 
 	pm_policy_cfg->ac = !!(reg_val & (1 << pi->pi_info.ac_shift));
 	pm_policy_cfg->atl = !!(reg_val & (1 << pi->pi_info.atl_shift));
@@ -866,6 +923,10 @@ EXPORT_SYMBOL(pwr_mgr_pi_counter_read);
 
 #ifdef CONFIG_KONA_PWRMGR_ENABLE_HW_SEM_WORKAROUND
 
+#ifdef CONFIG_KONA_CPU_FREQ_DRV
+static struct cpufreq_lmt_node frq_min_lmt_node;
+#endif
+
 int pwr_mgr_pm_i2c_sem_lock()
 {
 	int pc_val;
@@ -885,18 +946,16 @@ int pwr_mgr_pm_i2c_sem_lock()
 	if ((pwr_mgr.info->flags & PM_HW_SEM_NO_DFS_REQ) == 0) {
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
 		cpu_freq = get_cpu_freq_from_opp(PWRMGR_HW_SEM_LOCK_WA_PI_OPP);
-		if (cpu_freq != 0)
-			set_cpufreq_limit(cpu_freq, MIN_LIMIT);
+		if (cpu_freq != 0) {
+			if (!frq_min_lmt_node.valid)
+				cpufreq_add_lmt_req(&frq_min_lmt_node,
+						"sem_wa", cpu_freq, MIN_LIMIT);
+			else
+				cpufreq_update_lmt_req(&frq_min_lmt_node,
+						cpu_freq);
+		}
 #endif
-		if (!pwr_mgr.sem_qos_client.valid)
-			ret =
-			    pi_mgr_qos_add_request(&pwr_mgr.sem_qos_client,
-					"sem_wa",
-					PWRMGR_HW_SEM_WA_PI_ID,
-					PWRMGR_HW_SEM_LOCK_WA_PI_LATENCY);
-		else
-			pi_mgr_qos_request_update(&pwr_mgr.sem_qos_client,
-					PWRMGR_HW_SEM_LOCK_WA_PI_LATENCY);
+		kona_pm_disable_idle_state(CSTATE_ALL, 1);
 	}
 	spin_lock_irqsave(&pwr_mgr_lock, flgs);
 
@@ -937,10 +996,9 @@ int pwr_mgr_pm_i2c_sem_unlock()
 		cpu_freq =
 			get_cpu_freq_from_opp(PWRMGR_HW_SEM_UNLOCK_WA_PI_OPP);
 		if (cpu_freq != 0)
-			set_cpufreq_limit(cpu_freq, MIN_LIMIT);
+			cpufreq_update_lmt_req(&frq_min_lmt_node, cpu_freq);
 #endif
-		pi_mgr_qos_request_update(&pwr_mgr.sem_qos_client,
-					  PWRMGR_HW_SEM_UNLOCK_WA_PI_LATENCY);
+		kona_pm_disable_idle_state(CSTATE_ALL, 0);
 	}
 	return 0;
 }
@@ -950,6 +1008,7 @@ EXPORT_SYMBOL(pwr_mgr_pm_i2c_sem_unlock);
 #else
 int pwr_mgr_pm_i2c_sem_lock()
 {
+#if 0
 	u32 value, read_val, write_val;
 	u32 ret = 0;
 	u32 insurance = 1000;
@@ -969,8 +1028,14 @@ int pwr_mgr_pm_i2c_sem_lock()
 	if ((pwr_mgr.info->flags & PM_HW_SEM_NO_DFS_REQ) == 0) {
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
 		cpu_freq = get_cpu_freq_from_opp(PWRMGR_HW_SEM_LOCK_WA_PI_OPP);
-		if (cpu_freq != 0)
-			set_cpufreq_limit(cpu_freq, MIN_LIMIT);
+		if (cpu_freq != 0) {
+			if (!frq_min_lmt_node.valid)
+				cpufreq_add_lmt_req(&frq_min_lmt_node,
+					"sem_wa", cpu_freq, MIN_LIMIT);
+		else
+				cpufreq_update_lmt_req(&frq_min_lmt_node,
+					cpu_freq);
+		}
 #endif
 		if (!pwr_mgr.sem_qos_client.valid)
 			ret =
@@ -1017,12 +1082,15 @@ int pwr_mgr_pm_i2c_sem_lock()
 		pwr_mgr.sem_locked = true;
 	spin_unlock_irqrestore(&pwr_mgr_lock, flgs);
 	return ret;
+#endif
+	return 0;
 }
 
 EXPORT_SYMBOL(pwr_mgr_pm_i2c_sem_lock);
 
 int pwr_mgr_pm_i2c_sem_unlock()
 {
+#if 0
 	unsigned long flgs;
 	int ret = 0;
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
@@ -1044,18 +1112,42 @@ int pwr_mgr_pm_i2c_sem_unlock()
 		cpu_freq =
 			get_cpu_freq_from_opp(PWRMGR_HW_SEM_UNLOCK_WA_PI_OPP);
 		if (cpu_freq != 0)
-			set_cpufreq_limit(cpu_freq, MIN_LIMIT);
+			cpufreq_update_lmt_req(&frq_min_lmt_node, cpu_freq);
 #endif
 		pi_mgr_qos_request_update(&pwr_mgr.sem_qos_client,
 					  PWRMGR_HW_SEM_UNLOCK_WA_PI_LATENCY);
 	}
 
 	return ret;
+#endif
+	return 0;
 }
 
 EXPORT_SYMBOL(pwr_mgr_pm_i2c_sem_unlock);
 
 #endif /* CONFIG_KONA_PWRMGR_ENABLE_HW_SEM_WORKAROUND */
+
+static inline u32 pwr_mgr_pm_i2c_get_cmd_bank_base(int bank)
+{
+	u32 bank_off;
+
+	BUG_ON(bank > PWR_MGR_I2C_MAX_BANKS);
+
+	switch (bank) {
+	case 0:
+		bank_off = PWRMGR_I2C_CMD_BANK0_OFFSET;
+		break;
+#if defined(CONFIG_KONA_PWRMGR_REV2)
+	case 1:
+		bank_off = PWRMGR_I2C_CMD_BANK1_OFFSET;
+		break;
+#endif
+	default:
+		BUG_ON(1);
+		break;
+	}
+	return PWR_MGR_REG_ADDR(bank_off);
+}
 
 int pwr_mgr_pm_i2c_enable(bool enable)
 {
@@ -1088,6 +1180,9 @@ int pwr_mgr_set_v0x_specific_i2c_cmd_ptr(int v0x,
 {
 	u32 reg_val;
 	u32 offset;
+#ifdef CONFIG_KONA_PWRMGR_REV2
+	u32 offset_addl;
+#endif
 	unsigned long flgs;
 
 	pwr_dbg(PWR_LOG_CONFIG, "%s:v0x = %d\n", __func__, v0x);
@@ -1102,6 +1197,7 @@ int pwr_mgr_set_v0x_specific_i2c_cmd_ptr(int v0x,
 		pwr_dbg(PWR_LOG_ERR, "%s:ERROR - invalid param\n", __func__);
 		return -EINVAL;
 	}
+
 	spin_lock_irqsave(&pwr_mgr_lock, flgs);
 	offset = PWRMGR_VO0_SPECIFIC_I2C_COMMAND_POINTER_OFFSET + 4 * v0x;
 
@@ -1127,13 +1223,48 @@ int pwr_mgr_set_v0x_specific_i2c_cmd_ptr(int v0x,
 	    (cmd_ptr->other_ptr << PWRMGR_VO_SPECIFIC_I2C_COMMAND_POINTER_SHIFT)
 	    & PWRMGR_VO_SPECIFIC_I2C_COMMAND_POINTER_MASK;
 	writel(reg_val, PWR_MGR_REG_ADDR(offset));
+#ifdef CONFIG_KONA_PWRMGR_REV2
+	offset_addl = PWRMGR_VO0_SPECIFIC_I2C_COMMAND_ADDL_POINTER_OFFSET +
+		4 * v0x;
+	reg_val = 0;
+	reg_val =
+	    ((((cmd_ptr->set2_ptr &
+	      PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_MASK) >>
+	      PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_SHIFT) <<
+	      PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_SET2_ADDL_SHIFT)) &
+	    PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_SET2_ADDL_MASK;
+	reg_val |=
+	    ((((cmd_ptr->set1_ptr &
+	       PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_MASK) >>
+	       PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_SHIFT) <<
+	      PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_SET1_ADDL_SHIFT)) &
+	    PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_SET1_ADDL_MASK;
+	reg_val |=
+	    ((((cmd_ptr->
+	     zerov_ptr & PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_MASK) >>
+	     PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_SHIFT) <<
+	      PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_ZEROV_ADDL_SHIFT)) &
+	    PWRMGR_VO_SPECIFIC_I2C_COMMAND_PTR_ZEROV_ADDL_MASK;
+	reg_val |=
+	    ((((cmd_ptr->other_ptr &
+	       PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_MASK) >>
+	       PWRMGR_Vx_SPECIFIC_I2C_COMMAND_PTR_ADDRL_BIT_SHIFT) <<
+	      PWRMGR_VO_SPECIFIC_I2C_COMMAND_POINTER_ADDL_SHIFT)) &
+	    PWRMGR_VO_SPECIFIC_I2C_COMMAND_POINTER_ADDL_MASK;
 
+	writel(reg_val, PWR_MGR_REG_ADDR(offset_addl));
+#endif
 	pwr_dbg(PWR_LOG_CONFIG, "%s: %x set to %x register\n", __func__,
 			reg_val, PWR_MGR_REG_ADDR(offset));
+#ifdef CONFIG_KONA_PWRMGR_REV2
+	pwr_dbg(PWR_LOG_CONFIG, "%s: %x set to %x register\n", __func__,
+			reg_val, PWR_MGR_REG_ADDR(offset_addl));
+#endif
 	spin_unlock_irqrestore(&pwr_mgr_lock, flgs);
 	return 0;
 
 }
+
 int pwr_mgr_pm_i2c_cmd_write(const struct i2c_cmd *i2c_cmd, u32 num_cmds)
 {
 	u32 inx;
@@ -1141,6 +1272,9 @@ int pwr_mgr_pm_i2c_cmd_write(const struct i2c_cmd *i2c_cmd, u32 num_cmds)
 	u8 cmd0, cmd1;
 	u8 cmd0_data, cmd1_data;
 	unsigned long flgs;
+	u32 cmd_reg_base;
+	u32 reg_offset;
+	int bank;
 
 	pwr_dbg(PWR_LOG_CONFIG, "%s:num_cmds = %d\n", __func__, num_cmds);
 
@@ -1162,7 +1296,13 @@ int pwr_mgr_pm_i2c_cmd_write(const struct i2c_cmd *i2c_cmd, u32 num_cmds)
 	}
 
 	spin_lock_irqsave(&pwr_mgr_lock, flgs);
-	for (inx = 0; inx < (num_cmds + 1) / 2; inx++) {
+
+	for (inx = 0; inx < (num_cmds + 1) / PWR_MGR_I2C_CMDS_PER_REG; inx++) {
+		bank = PWR_MGR_I2C_CMD_OFF_TO_BANK(inx * 2);
+		cmd_reg_base = pwr_mgr_pm_i2c_get_cmd_bank_base(bank);
+		reg_offset =  4 * (inx - (bank * (PWR_MGR_I2C_CMDS_PER_BANK /
+						PWR_MGR_I2C_CMDS_PER_REG)));
+
 		cmd0 = i2c_cmd[inx * 2].cmd;
 		cmd0_data = i2c_cmd[inx * 2].cmd_data;
 
@@ -1170,10 +1310,7 @@ int pwr_mgr_pm_i2c_cmd_write(const struct i2c_cmd *i2c_cmd, u32 num_cmds)
 			cmd1 = i2c_cmd[inx * 2 + 1].cmd;
 			cmd1_data = i2c_cmd[inx * 2 + 1].cmd_data;
 		} else {
-			reg_val =
-			    readl(PWR_MGR_REG_ADDR
-				  (PWRMGR_POWER_MANAGER_I2C_COMMAND_DATA_LOCATION_01_OFFSET
-				   + inx * 4));
+			reg_val = readl(cmd_reg_base + inx * 4);
 			cmd1 = (reg_val & I2C_CMD1_MASK) >> I2C_CMD1_SHIFT;
 			cmd1_data =
 			    (reg_val & I2C_CMD1_DATA_MASK) >>
@@ -1183,15 +1320,11 @@ int pwr_mgr_pm_i2c_cmd_write(const struct i2c_cmd *i2c_cmd, u32 num_cmds)
 			"%s:cmd0 = %x cmd0_data = %x cmd1 = %x cmd1_data = %x",
 			__func__, cmd0, cmd0_data, cmd1, cmd1_data);
 		reg_val = I2C_COMMAND_WORD(cmd1, cmd1_data, cmd0, cmd0_data);
-		writel(reg_val,
-		       PWR_MGR_REG_ADDR
-		       (PWRMGR_POWER_MANAGER_I2C_COMMAND_DATA_LOCATION_01_OFFSET
-			+ inx * 4));
-		pwr_dbg(PWR_LOG_CONFIG, "%s: %x set to %x register\n",
-			__func__, reg_val, PWR_MGR_REG_ADDR
-			(PWRMGR_POWER_MANAGER_I2C_COMMAND_DATA_LOCATION_01_OFFSET
-			 + inx * 4));
+		writel(reg_val, cmd_reg_base + reg_offset);
+		pwr_dbg(PWR_LOG_CONFIG, "inx [%d] bank %d %x set to %x register\n",
+				inx, bank, reg_val, cmd_reg_base + reg_offset);
 	}
+
 	spin_unlock_irqrestore(&pwr_mgr_lock, flgs);
 	return 0;
 }
@@ -1463,11 +1596,10 @@ int pwr_mgr_process_events(u32 event_start, u32 event_end, int clear_event)
 	int inx;
 	unsigned long flgs;
 
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	u32 offset;
 	u32 bit_pos;
 	u32 event_reg;
-#endif
+
 	pwr_dbg(PWR_LOG_EVENT, "%s\n", __func__);
 	if (unlikely(!pwr_mgr.info)) {
 		pwr_dbg(PWR_LOG_ERR, "%s:ERROR - pwr mgr not initialized\n",
@@ -1490,7 +1622,6 @@ int pwr_mgr_process_events(u32 event_start, u32 event_end, int clear_event)
 	}
 
 	spin_lock_irqsave(&pwr_mgr_lock, flgs);
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	offset = PWR_MGR_EVENT_ID_TO_BANK_REG_OFF(event_start);
 	reg_val = readl(PWR_MGR_REG_ADDR(offset));
 	bit_pos = PWR_MGR_EVENT_ID_TO_BIT_POS(event_start);
@@ -1519,34 +1650,71 @@ int pwr_mgr_process_events(u32 event_start, u32 event_end, int clear_event)
 			reg_val = readl(PWR_MGR_REG_ADDR(offset));
 		}
 	}
-#else
-	for (inx = event_start; inx <= event_end; inx++) {
-		reg_val = readl(PWR_MGR_REG_ADDR(inx * 4));
-		if (reg_val & PWRMGR_EVENT_CONDITION_ACTIVE_MASK) {
-			pwr_dbg(PWR_LOG_EVENT, "%s:event id : %x\n",
-					__func__, inx);
-			if (pwr_mgr.event_cb[inx].pwr_mgr_event_cb)
-				pwr_mgr.event_cb[inx].pwr_mgr_event_cb(inx,
-								       pwr_mgr.
-								       event_cb
-								       [inx].
-								       param);
-			if (clear_event) {
-				reg_val &= ~PWRMGR_EVENT_CONDITION_ACTIVE_MASK;
-				writel_relaxed(reg_val,
-					       PWR_MGR_REG_ADDR(inx * 4));
-
-			}
-		}
-	}
-#endif
 	spin_unlock_irqrestore(&pwr_mgr_lock, flgs);
 	return 0;
 }
 
 EXPORT_SYMBOL(pwr_mgr_process_events);
 
-#if defined(CONFIG_KONA_PWRMGR_REV2)
+void pwr_mgr_seq_log_buf_init(void)
+{
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
+	void *virt;
+	dma_addr_t phy_addr;
+
+	virt = dma_zalloc_coherent(NULL, SEQ_LOG_BUFF_SIZE, &phy_addr,
+			GFP_ATOMIC);
+	if (virt == NULL) {
+		pwr_dbg(PWR_LOG_ERR, "%s: dma_zalloc_coherent failed!!\n",
+				__func__);
+		return;
+	}
+	seq_log_buf_v = (u32 *)virt;
+	seq_log_buf_p = (u32 *)phy_addr;
+	pwr_dbg(PWR_LOG_ERR, "sequencer log buffer: phy: %p virt: %p\n",
+			seq_log_buf_p, seq_log_buf_v);
+	*seq_log_buf_v = 1;
+	atomic_set(&seq_log_buf_init, 1);
+#endif
+}
+
+static void pwr_mgr_seq_log_buf_put(int hdr, int data)
+{
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
+	int next_off;
+
+	if (atomic_read(&seq_log_buf_init) == 0)
+		return;
+
+	next_off = *seq_log_buf_v;
+	if (next_off == ((SEQ_LOG_BUFF_SIZE / SZ_4) - 1))
+		next_off = 1;
+
+	*(seq_log_buf_v + next_off) =
+		(((hdr & SEQ_LOG_HDR_MASK) << SEQ_LOG_HDR_SHIFT) |
+		 ((data & SEQ_LOG_DATA_MASK)));
+	*seq_log_buf_v = ++next_off;
+#endif
+}
+
+static void pwr_mgr_seq_log_buf_dump(void)
+{
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
+	int i;
+
+	if (atomic_read(&seq_log_buf_init) == 0)
+		return;
+
+	pwr_dbg(PWR_LOG_ERR, " +++ I2C SEQUNCER LOG BUFF +++\n");
+	pwr_dbg(PWR_LOG_ERR, "offset : %d\n", *seq_log_buf_v);
+
+	for (i = 0; i < (SEQ_LOG_BUFF_SIZE / SZ_4); i++)
+		pwr_dbg(PWR_LOG_ERR, "[%d]: %x", i, *(seq_log_buf_v + i));
+
+	pwr_dbg(PWR_LOG_ERR, " --- I2C SEQUNCER LOG BUFF ---\n");
+#endif
+}
+
 static void pwr_mgr_work_handler(struct work_struct *work)
 {
 	pwr_mgr_process_events(EVENT_ID_ALL, EVENT_ID_ALL, false);
@@ -1556,6 +1724,8 @@ static irqreturn_t pwr_mgr_irq_handler(int irq, void *dev_id)
 {
 	u32 status, mask;
 	u32 reg;
+
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_INTR, 0);
 
 	pwr_dbg(PWR_LOG_DBG, "%s\n", __func__);
 
@@ -1571,15 +1741,18 @@ static irqreturn_t pwr_mgr_irq_handler(int irq, void *dev_id)
 	    mask & PWR_MGR_INTR_MASK(PWRMGR_INTR_I2C_SW_SEQ)) {
 		/* Clear interrupts */
 		pwr_mgr_clr_intr_status(PWRMGR_INTR_I2C_SW_SEQ);
-#ifdef CONFIG_RHEA_WA_HWJIRA_2706
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_INTR_ERRATUM
 		/**
 		 * busy bit is still high that means PWRMGR is still
 		 * executing the sequencer. This is a fake interrupt
 		 * we will just clear the interrupt pending here
 		 */
-		if (reg & PWRMGR_I2C_REQ_BUSY_MASK)
+		if (reg & PWRMGR_I2C_REQ_BUSY_MASK) {
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_FAKE_INTR, 0);
 			return IRQ_HANDLED;
+		}
 #endif
+		pwr_mgr_seq_log_buf_put(SEQ_LOG_INTR_HANDLED, 0);
 		complete(&pwr_mgr.i2c_seq_done);
 	}
 	if (pwr_mgr.info->flags & PROCESS_EVENTS_ON_INTR) {
@@ -1596,38 +1769,51 @@ static irqreturn_t pwr_mgr_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static u32 pwr_mgr_i2c_cmd_off_to_reg(int cmd_offset)
+{
+	u32 offset;
+	int bank;
+
+	bank = PWR_MGR_I2C_CMD_OFF_TO_BANK(cmd_offset);
+
+	BUG_ON(bank > PWR_MGR_I2C_MAX_BANKS);
+
+	offset = 4 * ((cmd_offset - (bank * PWR_MGR_I2C_CMDS_PER_BANK)) /
+			PWR_MGR_I2C_CMDS_PER_REG);
+	return pwr_mgr_pm_i2c_get_cmd_bank_base(bank) + offset;
+}
+
 static void pwr_mgr_update_i2c_cmd_data(u32 cmd_offset, u8 cmd_data)
 {
+	u32 reg_addr;
 	u32 reg_val = 0;
 	u32 mask, shift;
 
-	pwr_dbg(PWR_LOG_CONFIG,
-		"%s:cmd_offset = %d, cmd_data = %x reg_Addr = %x\n", __func__,
-		cmd_offset, cmd_data,
-		PWR_MGR_REG_ADDR(PWR_MGR_I2C_CMD_OFF_TO_REG_OFF(cmd_offset)));
-
-	reg_val =
-	    readl(PWR_MGR_REG_ADDR(PWR_MGR_I2C_CMD_OFF_TO_REG_OFF(cmd_offset)));
+	reg_addr = pwr_mgr_i2c_cmd_off_to_reg(cmd_offset);
 	shift = PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_SHIFT(cmd_offset);
 	mask = PWR_MGR_I2C_CMD_OFF_TO_CMD_DATA_MASK(cmd_offset);
+	reg_val = readl(reg_addr);
+	pwr_dbg(PWR_LOG_CONFIG,
+			"%s:cmd_offset = %d, cmd_data = %x reg_Addr = %x\n",
+			__func__, cmd_offset, cmd_data, reg_addr);
+
 	pwr_dbg(PWR_LOG_CONFIG, "%s:reg_val = %x, shift = %d, mask = %x\n",
-		__func__, reg_val, shift, mask);
+			__func__, reg_val, shift, mask);
+
 	reg_val &= ~mask;
 	reg_val |= cmd_data << shift;
 	pwr_dbg(PWR_LOG_CONFIG, "%s:new reg  = %x,\n", __func__, reg_val);
-	writel(reg_val,
-	       PWR_MGR_REG_ADDR(PWR_MGR_I2C_CMD_OFF_TO_REG_OFF(cmd_offset)));
-
+	writel(reg_val, reg_addr);
 }
+
 int pwr_mgr_set_i2c_mode(int poll)
 {
-	unsigned long flag;
-	spin_lock_irqsave(&pwr_mgr_lock, flag);
+	mutex_lock(&seq_mutex);
 	if (poll)
 		pwr_mgr.i2c_mode = PWR_MGR_I2C_MODE_POLL;
 	else
 		pwr_mgr.i2c_mode = PWR_MGR_I2C_MODE_IRQ;
-	spin_unlock_irqrestore(&pwr_mgr_lock, flag);
+	mutex_unlock(&seq_mutex);
 	return 0;
 }
 EXPORT_SYMBOL(pwr_mgr_set_i2c_mode);
@@ -1642,7 +1828,7 @@ static int pwr_mgr_get_i2c_mode(void)
 	return mode;
 }
 
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 static void pwr_mgr_seq_set_pc_pin_cmd(u32 offset, int pc_pin, int set)
 {
 	u8 cmd = 0;
@@ -1677,6 +1863,7 @@ static void pwr_mgr_seq_set_pc_pin_cmd(u32 offset, int pc_pin, int set)
 
 	pwr_mgr_update_i2c_cmd_data(offset, cmd);
 }
+
 static int pwr_mgr_sw_i2c_seq_start(u32 action)
 {
 	u32 reg_val;
@@ -1690,7 +1877,10 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 	int retry = PWR_MGR_SEQ_RETRIES;
 	int pc_status;
 	int i;
-
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_RETRY_WORKAROUND
+	bool qos_req_act = false;
+#endif
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_SEQ_START, action);
 	pwr_mgr_clr_intr_status(PWRMGR_INTR_I2C_SW_SEQ);
 	switch (action) {
 	case I2C_SEQ_READ:
@@ -1714,6 +1904,34 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 	}
 
 	for (i = 0; i < retry; i++) {
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_RETRY_WORKAROUND
+		if ((i == retry - 1) && (!qos_req_act)) {
+			/**
+			 * sequencer operation could not succeed for 9 attempts
+			 * This could be because HW sequencer is hogging i2c bus
+			 * last chance of success is to disable DVS change, so
+			 * that HW sequencer does not run and trigger sw
+			 * sequencer again
+			 */
+			pwr_dbg(PWR_LOG_ERR,
+					"SEQ attempting with MM turbo\n");
+			if (pwr_mgr.seq_qos_client.valid &&
+					pwr_mgr.seq_dfs_client.valid) {
+				ret = pi_mgr_qos_request_update(
+						&pwr_mgr.seq_qos_client,
+						0);
+				ret = pi_mgr_dfs_request_update(
+						&pwr_mgr.seq_dfs_client,
+						pi_get_dfs_lmt(
+							PI_MGR_PI_ID_MM,
+							true));
+				BUG_ON(ret);
+				qos_req_act = true;
+				pwr_mgr.seq_qos_cnt++;
+				i = 0;
+			}
+		}
+#endif
 		if (pwr_mgr_get_i2c_mode() != PWR_MGR_I2C_MODE_POLL)
 			INIT_COMPLETION(pwr_mgr.i2c_seq_done);
 		reg_val = readl(PWR_MGR_REG_ADDR(
@@ -1746,8 +1964,11 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 			/**
 			 * Trigger the sequencer and immediately
 			 * clear the the interrupt status register
-			 * (JIRA 2706)
+			 * (Fake intr trigger errta - 2706)
 			 */
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_SEQ_TRIG,
+					pwr_mgr.i2c_seq_trg);
+
 			writel(reg_val, PWR_MGR_REG_ADDR(
 						PWRMGR_I2C_SW_CMD_CTRL_OFFSET));
 			reg = readl(PWR_MGR_REG_ADDR(
@@ -1778,6 +1999,7 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 				writel(reg, PWR_MGR_REG_ADDR(
 							PWRMGR_INTR_MASK_OFFSET)
 						);
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_CLR_TRIG_OFF, 0);
 		} else {
 			if (pwr_mgr_get_i2c_mode() != PWR_MGR_I2C_MODE_POLL)
 				pwr_mgr_mask_intr(PWRMGR_INTR_I2C_SW_SEQ,
@@ -1786,13 +2008,23 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 						PWRMGR_I2C_SW_CMD_CTRL_OFFSET));
 		}
 		if (pwr_mgr_get_i2c_mode() != PWR_MGR_I2C_MODE_POLL) {
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_WAIT_INTR,
+					readl(PWR_MGR_REG_ADDR(
+						PWRMGR_INTR_MASK_OFFSET)));
 			timeout = wait_for_completion_timeout(
 					&pwr_mgr.i2c_seq_done,
 					msecs_to_jiffies(
 						pwr_mgr.info->i2c_seq_timeout));
 
 			if (!timeout) {
-				pwr_dbg(PWR_LOG_SEQ, "%s seq timedout !!\n",
+				pwr_mgr_seq_log_buf_put(SEQ_LOG_WAIT_TIMEOUT,
+					readl(PWR_MGR_REG_ADDR(
+						PWRMGR_INTR_MASK_OFFSET)));
+				pwr_mgr_seq_log_buf_put(SEQ_LOG_WAIT_TIMEOUT,
+					readl(PWR_MGR_REG_ADDR(
+						PWRMGR_INTR_STATUS_OFFSET)));
+
+				pwr_dbg(PWR_LOG_ERR, "%s seq timedout !!\n",
 						__func__);
 				continue;
 			} else {
@@ -1803,14 +2035,28 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 							(!pwr_mgr.pc_status &&
 							 pc_status))
 						break;
+					else {
+						pwr_mgr_seq_log_buf_put(
+							SEQ_LOG_PC_UNALTRD,
+							0);
+						pwr_dbg(PWR_LOG_SEQ,
+								"%s: PC pin"
+								"unaltered\n",
+								__func__);
+					}
 				} else
 					break;
 			}
 		} else {
 			while (poll_timeout) {
 				if (!pwr_mgr_get_intr_status(
-							PWRMGR_INTR_I2C_SW_SEQ))
+						PWRMGR_INTR_I2C_SW_SEQ)) {
+					pwr_mgr_seq_log_buf_put(
+							SEQ_LOG_POLL_INTR, 0);
+					udelay(5);
+					poll_timeout -= 5;
 					continue;
+				}
 				pwr_mgr_clr_intr_status(PWRMGR_INTR_I2C_SW_SEQ);
 				if (action != I2C_SEQ_READ_FIFO) {
 					pc_status = pm_get_pc_value(
@@ -1821,9 +2067,9 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 						goto exit;
 				} else
 					goto exit;
-
 				udelay(poll_delay);
 				poll_timeout -= poll_delay;
+				pwr_mgr_seq_log_buf_put(SEQ_LOG_POLL_RETRY, 0);
 			}
 		}
 		/**
@@ -1840,8 +2086,19 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 		usleep_range(60, 120);
 	}
 exit:
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_RETRY_WORKAROUND
+	if (qos_req_act) {
+		ret = pi_mgr_dfs_request_update(&pwr_mgr.seq_dfs_client,
+				PI_MGR_DFS_MIN_VALUE);
+		ret = pi_mgr_qos_request_update(&pwr_mgr.seq_qos_client,
+				PI_MGR_QOS_DEFAULT_VALUE);
+		BUG_ON(ret);
+	}
+#endif
 	if (i == retry) {
 		pwr_dbg(PWR_LOG_ERR, "%s: max tries\n", __func__);
+		dump_jig_registers();
+		pwr_mgr_seq_log_buf_dump();
 		ret = -EAGAIN;
 	}
 	pwr_mgr_mask_intr(PWRMGR_INTR_I2C_SW_SEQ, true);
@@ -1899,7 +2156,7 @@ static int pwr_mgr_sw_i2c_seq_start(u32 action)
 	reg_val |= pwr_mgr.i2c_seq_trg << PWRMGR_I2C_REQ_TRG_SHIFT;
 
 	INIT_COMPLETION(pwr_mgr.i2c_seq_done);
-#ifdef CONFIG_RHEA_WA_HWJIRA_2706
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_INTR_ERRATUM
 	/**
 	 * Clear the fake interrupt if any generated by the PWRMGR
 	 * when sequencer is triggered
@@ -1942,17 +2199,21 @@ int pwr_mgr_pmu_reg_read(u8 reg_addr, u8 slave_id, u8 *reg_val)
 {
 	int ret;
 	u32 reg;
-
+#if defined(CONFIG_KONA_PWRMGR_REV2)
+	u32 bsc_isr;
+#endif
 	pwr_dbg(PWR_LOG_SEQ, "%s\n", __func__);
 	if (unlikely(!pwr_mgr.info)) {
 		pwr_dbg(PWR_LOG_ERR, "%s:ERROR - pwr mgr not initialized\n",
 			__func__);
 		return -EPERM;
 	}
-
+	if (!reg_val)
+		return -EINVAL;
 	mutex_lock(&seq_mutex);
-	pi_mgr_qos_request_update(&pwr_mgr.seq_qos_client, 0);
-
+	kona_pm_disable_idle_state(CSTATE_ALL, 1);
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_READ_BYTE,
+			SEQ_LOG_PACK_U24(0 , slave_id, reg_addr));
 	if (pwr_mgr.info->i2c_rd_slv_id_off1 >= 0)
 		pwr_mgr_update_i2c_cmd_data((u32) pwr_mgr.info->
 					    i2c_rd_slv_id_off1,
@@ -1965,9 +2226,9 @@ int pwr_mgr_pmu_reg_read(u8 reg_addr, u8 slave_id, u8 *reg_val)
 					    i2c_rd_slv_id_off2,
 					    I2C_READ_ADDR(slave_id));
 	ret = pwr_mgr_sw_i2c_seq_start(I2C_SEQ_READ);
-	if (!ret && reg_val) {
+	if (!ret) {
 		reg = readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_SW_CMD_CTRL_OFFSET));
-#if defined(CONFIG_KONA_PWRMGR_REV2)
+#if !defined(CONFIG_KONA_PWRMGR_REV2)
 		reg = ((reg & PWRMGR_I2C_READ_DATA_MASK) >>
 				PWRMGR_I2C_READ_DATA_SHIFT);
 		if (reg & 0x1) {
@@ -1984,6 +2245,23 @@ int pwr_mgr_pmu_reg_read(u8 reg_addr, u8 slave_id, u8 *reg_val)
 		if (ret < 0)
 			goto out_unlock;
 		reg = readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_SW_CMD_CTRL_OFFSET));
+#else
+		/**
+		 * In KONA REV2 (hawaii), we don't need to trigger the sequencer
+		 * two times, there is another register(POWER_MANAGER_APB_READ)
+		 * is added apart from
+		 * POWER_MANAGER_I2C_SOFTWARE_COMMAND_CONTROL:I2C_READ_DATA.
+		 * So in the single trigger we can read i2c data and i2c isr
+		 * register both.
+		 */
+		bsc_isr = readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_APB_READ_OFFSET)) &
+			PWRMGR_I2C_APB_READ_DATA_MASK;
+		if (bsc_isr & 0x1) {
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_NACK, 0);
+			pwr_dbg(PWR_LOG_SEQ, "PWRMGR: I2C READ NACK\n");
+			ret = -EAGAIN;
+			goto out_unlock;
+		}
 #endif
 		*reg_val = (reg & PWRMGR_I2C_READ_DATA_MASK) >>
 		    PWRMGR_I2C_READ_DATA_SHIFT;
@@ -1993,8 +2271,9 @@ int pwr_mgr_pmu_reg_read(u8 reg_addr, u8 slave_id, u8 *reg_val)
 		__func__, reg_addr, slave_id, *reg_val, ret);
 	}
 out_unlock:
-	pi_mgr_qos_request_update(&pwr_mgr.seq_qos_client,
-			PI_MGR_QOS_DEFAULT_VALUE);
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_READ_BYTE,
+			SEQ_LOG_PACK_U24(slave_id, reg_addr, *reg_val));
+	kona_pm_disable_idle_state(CSTATE_ALL, 0);
 	mutex_unlock(&seq_mutex);
 	pwr_dbg(PWR_LOG_SEQ, "%s : ret = %d\n", __func__, ret);
 	return ret;
@@ -2016,7 +2295,10 @@ int pwr_mgr_pmu_reg_write(u8 reg_addr, u8 slave_id, u8 reg_val)
 	}
 
 	mutex_lock(&seq_mutex);
-	pi_mgr_qos_request_update(&pwr_mgr.seq_qos_client, 0);
+	kona_pm_disable_idle_state(CSTATE_ALL, 1);
+
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_WRITE_BYTE,
+			SEQ_LOG_PACK_U24(slave_id, reg_addr, reg_val));
 
 	if (pwr_mgr.info->i2c_wr_slv_id_off >= 0)
 		pwr_mgr_update_i2c_cmd_data((u32) pwr_mgr.info->
@@ -2035,16 +2317,23 @@ int pwr_mgr_pmu_reg_write(u8 reg_addr, u8 slave_id, u8 reg_val)
 	 * This code check for the NACK from the PMU
 	 */
 	if (ret == 0) {
+#if !defined(CONFIG_KONA_PWRMGR_REV2)
 		reg = readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_SW_CMD_CTRL_OFFSET));
 		i2c_data = reg & PWRMGR_I2C_READ_DATA_MASK;
+#else
+		reg = readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_APB_READ_OFFSET));
+		i2c_data = reg & PWRMGR_I2C_APB_READ_DATA_MASK;
+#endif
 		if (i2c_data & 0x1) {
+			pwr_mgr_seq_log_buf_put(SEQ_LOG_NACK, 0);
 			pwr_dbg(PWR_LOG_SEQ,
 				"PWRMGR: I2C WRITE NACK from PMU\n");
 			ret = -EAGAIN;
 		}
 	}
-	pi_mgr_qos_request_update(&pwr_mgr.seq_qos_client,
-			PI_MGR_QOS_DEFAULT_VALUE);
+	pwr_mgr_seq_log_buf_put(SEQ_LOG_WRITE_BYTE,
+			SEQ_LOG_PACK_U24(slave_id, reg_addr, reg_val));
+	kona_pm_disable_idle_state(CSTATE_ALL, 0);
 	mutex_unlock(&seq_mutex);
 	pwr_dbg(PWR_LOG_SEQ,
 		"%s reg_addr:0x%0x; slave_id:%d; reg_val:0x%0x; ret_val:%d\n",
@@ -2195,14 +2484,14 @@ EXPORT_SYMBOL(pwr_mgr_clr_intr_status);
  * Added for debugging purpose but not called
  */
 
-#if 0
-static void pwr_mgr_dump_i2c_cmd_regs(void)
+void pwr_mgr_dump_i2c_cmd_regs(void)
 {
+#ifdef CONFIG_KONA_I2C_SEQUENCER_LOG
 	int idx;
 	u32 reg_val;
 	int cmd0, cmd1, data0, data1;
 
-	for (idx = 0; idx < 31; idx++) {
+	for (idx = 0; idx < 32; idx++) {
 		reg_val =
 		    readl(PWR_MGR_REG_ADDR
 			  (PWRMGR_POWER_MANAGER_I2C_COMMAND_DATA_LOCATION_01_OFFSET
@@ -2212,52 +2501,71 @@ static void pwr_mgr_dump_i2c_cmd_regs(void)
 		data0 = reg_val & 0xFF;
 		cmd1 = (reg_val & (0xF << 20)) >> 20;
 		data1 = (reg_val & (0xFF << 12)) >> 12;
-		pwr_dbg(PWR_LOG_DBG, "[%d]\t%02x\t%02x\n[%d]\t%02x\t%02x\n",
+		pwr_dbg(PWR_LOG_ERR, "[%d]\t%02x\t%02x\n[%d]\t%02x\t%02x\n",
 			idx * 2, cmd0, data0, (idx * 2) + 1, cmd1, data1);
 	}
+#if defined(CONFIG_KONA_PWRMGR_REV2)
+	for (idx = 0; idx < 32; idx++) {
+		reg_val =
+			readl(PWR_MGR_REG_ADDR(PWRMGR_I2C_CMD_BANK1_OFFSET +
+						idx * 4));
+
+		cmd0 = (reg_val & (0xf << 8)) >> 8;
+		data0 = reg_val & 0xFF;
+		cmd1 = (reg_val & (0xF << 20)) >> 20;
+		data1 = (reg_val & (0xFF << 12)) >> 12;
+		pwr_dbg(PWR_LOG_ERR, "[%d]\t%02x\t%02x\n[%d]\t%02x\t%02x\n",
+				(idx + 32) * 2, cmd0, data0,
+				((idx + 32) * 2) + 1, cmd1, data1);
+	}
+#endif
+#endif
 }
-#endif
-#endif
+EXPORT_SYMBOL(pwr_mgr_dump_i2c_cmd_regs);
+
 void pwr_mgr_init_sequencer(struct pwr_mgr_info *info)
 {
 	u32 v_set;
+
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_RETRY_WORKAROUND
+	int ret = 0;
+	if (!pwr_mgr.seq_qos_client.valid) {
+		ret = pi_mgr_qos_add_request(&pwr_mgr.seq_qos_client,
+				"sequencer",
+				PI_MGR_PI_ID_MM,
+				PI_MGR_QOS_DEFAULT_VALUE);
+		if (ret)
+			pwr_dbg(PWR_LOG_SEQ, "%s: qos_add_request failed\n",
+					__func__);
+	}
+
+	if (!pwr_mgr.seq_dfs_client.valid) {
+		ret = pi_mgr_dfs_add_request(&pwr_mgr.seq_dfs_client,
+				"sequencer",
+				PI_MGR_PI_ID_MM,
+				PI_MGR_DFS_MIN_VALUE);
+		if (ret)
+			pwr_dbg(PWR_LOG_SEQ, "%s: dfs_add_request failed\n",
+					__func__);
+	}
+#endif
+
 	/*init I2C seq, var data & cmd ptr if valid data available */
 	/*Disable seq. before updating seq. params */
 	pwr_mgr_pm_i2c_enable(false);
-	if (info->i2c_cmds) {
+	if (info->i2c_cmds)
 		pwr_mgr_pm_i2c_cmd_write(info->i2c_cmds,
 				info->num_i2c_cmds);
-		/**
-		 * update the i2c_rd_nack_jump_off location
-		 * for at i2c_rd_nack_off location
-		 */
-		pwr_mgr_update_i2c_cmd_data(info->i2c_rd_nack_off,
-				info->i2c_rd_nack_jump_off);
-		pwr_mgr_update_i2c_cmd_data(info->i2c_rd_nack_off + 1,
-				info->i2c_rd_nack_jump_off);
-	}
-	if (info->i2c_var_data) {
+
+	if (info->i2c_var_data)
 		pwr_mgr_pm_i2c_var_data_write(info->i2c_var_data,
 				info->num_i2c_var_data);
-	}
+
 	for (v_set = VOLT0; v_set < V_SET_MAX; v_set++) {
 		if (info->i2c_cmd_ptr[v_set])
 			pwr_mgr_set_v0x_specific_i2c_cmd_ptr(v_set,
 					info->i2c_cmd_ptr[v_set]);
 	}
-
-	/**
-	 * Create A9 PM QoS client for SW Sequencer to forbit A9
-	 * to enter into low power state during i2c
-	 * read/write operation. This is needed to reduce the
-	 * interrupt latency for sequencer complete interrupt
-	 */
-	if (!pwr_mgr.seq_qos_client.valid)
-		pi_mgr_qos_add_request(&pwr_mgr.seq_qos_client,
-				"seq_qos",
-				PI_MGR_PI_ID_ARM_CORE,
-				PI_MGR_QOS_DEFAULT_VALUE);
-
 }
 EXPORT_SYMBOL(pwr_mgr_init_sequencer);
 
@@ -2265,13 +2573,11 @@ int pwr_mgr_init(struct pwr_mgr_info *info)
 {
 	int ret = 0;
 	pwr_mgr.info = info;
-	pwr_mgr.sem_qos_client.name = NULL;
 	pwr_mgr.sem_locked = false;
 
 	/* I2C seq is disabled by default */
 	pwr_mgr_pm_i2c_enable(false);
 	pwr_mgr_init_sequencer(info);
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 
 	pwr_mgr.i2c_seq_trg = 0;
 	init_completion(&pwr_mgr.i2c_seq_done);
@@ -2282,11 +2588,8 @@ int pwr_mgr_init(struct pwr_mgr_info *info)
 	ret = request_irq(info->pwrmgr_intr, pwr_mgr_irq_handler,
 			  IRQF_TRIGGER_RISING | IRQF_NO_SUSPEND,
 			  "pwr_mgr", NULL);
-
-#endif
 	return ret;
 }
-
 EXPORT_SYMBOL(pwr_mgr_init);
 
 static int pwr_mgr_pm_i2c_var_data_modify(u8 index, u8 val)
@@ -2422,7 +2725,8 @@ static int pwr_mgr_pm_i2c_var_data_read(u8 *data)
 #ifdef CONFIG_DEBUG_FS
 
 
-__weak void pwr_mgr_mach_debug_fs_init(int type, int db_mux, int mux_param)
+__weak void pwr_mgr_mach_debug_fs_init(int type, int db_mux, int mux_param,
+		u32 dbg_bit_sel)
 {
 }
 
@@ -2458,6 +2762,7 @@ static ssize_t set_pm_mgr_dbg_bus(struct file *file, char const __user *buf,
 	int param = 0;
 	char input_str[100];
 	u32 reg_val;
+	u32 dbg_bit_sel = 0;
 
 	if (count > 100)
 		len = 100;
@@ -2466,9 +2771,10 @@ static ssize_t set_pm_mgr_dbg_bus(struct file *file, char const __user *buf,
 
 	if (copy_from_user(input_str, buf, len))
 		return -EFAULT;
-	sscanf(input_str, "%x%x%x", &val, &db_sel, &param);
+	/* coverity[secure_coding] */
+	sscanf(input_str, "%x%x%x%x", &val, &db_sel, &param, &dbg_bit_sel);
 
-	pwr_mgr_mach_debug_fs_init(0, db_sel, param);
+	pwr_mgr_mach_debug_fs_init(0, db_sel, param, dbg_bit_sel);
 	reg_val =
 	    readl(PWR_MGR_REG_ADDR(PWRMGR_PC_PIN_OVERRIDE_CONTROL_OFFSET));
 	reg_val &= ~(0xF << 20);
@@ -2517,6 +2823,7 @@ static ssize_t set_bmdm_mgr_dbg_bus(struct file *file, char const __user *buf,
 	int db_sel = 0;
 	int val = 0;
 	int param = 0;
+	u32 dbg_bit_sel  = 0;
 	char input_str[100];
 	u32 reg_val;
 	u32 reg_addr = (u32)file->private_data +
@@ -2528,10 +2835,11 @@ static ssize_t set_bmdm_mgr_dbg_bus(struct file *file, char const __user *buf,
 
 	if (copy_from_user(input_str, buf, len))
 		return -EFAULT;
-	sscanf(input_str, "%x%x%x", &val, &db_sel, &param);
+	/* coverity[secure_coding] */
+	sscanf(input_str, "%x%x%x%x", &val, &db_sel, &param, &dbg_bit_sel);
 
 	pwr_dbg(PWR_LOG_DBGFS, "%s: val: %d\n", __func__, val);
-	pwr_mgr_mach_debug_fs_init(1, db_sel, param);
+	pwr_mgr_mach_debug_fs_init(1, db_sel, param, dbg_bit_sel);
 	reg_val = readl(reg_addr);
 	reg_val &=
 	    ~(BMDM_PWRMGR_DEBUG_AND_COUNTER_CONTROL_DEBUG_BUS_SELECT_MASK);
@@ -2720,8 +3028,6 @@ static int pwr_mgr_dbg_event_set_policy(void *data, u64 val)
 DEFINE_SIMPLE_ATTRIBUTE(pwr_mgr_dbg_policy_ops, pwr_mgr_dbg_event_get_policy,
 			pwr_mgr_dbg_event_set_policy, "%llu\n");
 
-#if defined(CONFIG_KONA_PWRMGR_REV2)
-
 static int pwr_mgr_debugfs_open(struct inode *inode, struct file *file)
 {
 	file->private_data = inode->i_private;
@@ -2745,6 +3051,7 @@ static ssize_t pwr_mgr_i2c_req(struct file *file, char const __user *buf,
 
 	if (copy_from_user(input_str, buf, len))
 		return -EFAULT;
+	/* coverity[secure_coding] */
 	sscanf(input_str, "%x%x%x", &slv_addr, &reg_addr, &reg_val);
 	if (reg_addr == 0xFFFF || slv_addr == 0xFFFF) {
 		pwr_dbg(PWR_LOG_ERR, "invalid param\n");
@@ -2769,7 +3076,7 @@ static struct file_operations i2c_sw_seq_ops = {
 	.open = pwr_mgr_debugfs_open,
 	.write = pwr_mgr_i2c_req,
 };
-#endif
+
 static int pwr_mgr_pmu_volt_inx_tbl_open(struct inode *inode, struct file *file)
 {
 	file->private_data = inode->i_private;
@@ -2799,7 +3106,7 @@ static ssize_t pwr_mgr_pmu_volt_inx_tbl_display(struct file *file, char __user *
 
     count = pwr_mgr_pm_i2c_var_data_read(volt_tbl);
     for (i=0;i<count;i++) {
-	length = sprintf(out_ptr, "volt_id[%d]: %x\n", i, volt_tbl[i]);
+	length = snprintf(out_ptr, 20, "volt_id[%d]: %x\n", i, volt_tbl[i]);
 	out_ptr += length;
 	total_len += length;
     }
@@ -2832,6 +3139,7 @@ static ssize_t pwr_mgr_pmu_volt_inx_tbl_update(struct file *file, char const __u
 
 	str_ptr = &input_str[0];
 	while (*str_ptr && *str_ptr != 0xA) { /*not null && not LF character*/
+		/* coverity[secure_coding] */
 		sscanf(str_ptr, "%x%n", &val, &len);
 		if (val == 0xFFFF)
 			break;
@@ -2881,7 +3189,7 @@ static struct file_operations set_pmu_volt_inx_tbl_fops = {
 
 
 struct dentry *dent_pwr_root_dir = NULL;
-#ifdef CONFIG_RHEA_DELAYED_PM_INIT
+#ifdef CONFIG_DELAYED_PM_INIT
 int pwr_mgr_debug_init(u32 bmdm_pwr_base)
 #else
 int __init pwr_mgr_debug_init(u32 bmdm_pwr_base)
@@ -2900,6 +3208,8 @@ int __init pwr_mgr_debug_init(u32 bmdm_pwr_base)
 		return -EPERM;
 	}
 
+	pwr_mgr_seq_log_buf_init();
+
 	dent_pwr_root_dir = debugfs_create_dir("power_mgr", 0);
 	if (!dent_pwr_root_dir)
 		return -ENOMEM;
@@ -2916,6 +3226,10 @@ int __init pwr_mgr_debug_init(u32 bmdm_pwr_base)
 	    ("flags", S_IWUSR | S_IRUSR, dent_pwr_root_dir,
 	     (int *)&pwr_mgr.info->flags))
 		return -ENOMEM;
+	if (!debugfs_create_u32
+	     ("seq_qos_cnt", S_IWUSR | S_IRUSR, dent_pwr_root_dir,
+	       (int *)&pwr_mgr.seq_qos_cnt))
+		return -ENOMEM;
 	/* Debug Bus control via Debugfs */
 	if (!debugfs_create_file
 	    ("pm_debug_bus", S_IWUSR | S_IRUSR, dent_pwr_root_dir, NULL,
@@ -2926,12 +3240,12 @@ int __init pwr_mgr_debug_init(u32 bmdm_pwr_base)
 		(void *)bmdm_pwr_base,
 	     &set_bmdm_dbg_bus_fops))
 		return -ENOMEM;
-#if defined(CONFIG_KONA_PWRMGR_REV2)
+
 	if (!debugfs_create_file
 	    ("i2c_sw_seq", S_IWUSR | S_IRUSR, dent_pwr_root_dir, NULL,
 	     &i2c_sw_seq_ops))
 		return -ENOMEM;
-#endif
+
 	if (!debugfs_create_file
 	    ("pmu_volt_inx", S_IRUGO | S_IWUSR , dent_pwr_root_dir, NULL,
 	     &set_pmu_volt_inx_tbl_fops))
@@ -2941,6 +3255,8 @@ int __init pwr_mgr_debug_init(u32 bmdm_pwr_base)
 	if (!dent_event_tbl)
 		return -ENOMEM;
 	for (event = 0; event < PWR_MGR_NUM_EVENTS; event++) {
+		if (PWRMGR_EVENT_ID_TO_STR(event) == NULL)
+			continue;
 		dent_event =
 		    debugfs_create_dir(PWRMGR_EVENT_ID_TO_STR(event),
 				       dent_event_tbl);

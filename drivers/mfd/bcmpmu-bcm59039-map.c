@@ -104,9 +104,11 @@ static struct bcmpmu_reg_map bcm59039_reg_map[PMU_REG_MAX] = {
 	[PMU_REG_RTCYR_ALM] =		{.map = 0x00, .addr = 0x2C, .mask = 0xFF, .ro = 0},
 	[PMU_REG_RTC_CORE] =		{.map = 0x00, .addr = 0x2D, .mask = 0xFF, .ro = 0},
 	[PMU_REG_RTC_C2C1_XOTRIM] =	{.map = 0x00, .addr = 0x2E, .mask = 0xFF, .ro = 0},
+/*init C0 values by default */
 	[PMU_REG_RFOPMODCTRL] =		{.map = 0x00, .addr = 0xA2, .mask = 0xFF, .ro = 0},
-	[PMU_REG_CAMOPMODCTRL] =	{.map = 0x00, .addr = 0xA1, .mask = 0xFF, .ro = 0},
 	[PMU_REG_HV1OPMODCTRL] =	{.map = 0x00, .addr = 0xA0, .mask = 0xFF, .ro = 0},
+
+	[PMU_REG_CAMOPMODCTRL] =	{.map = 0x00, .addr = 0xA1, .mask = 0xFF, .ro = 0},
 	[PMU_REG_HV2OPMODCTRL] =	{.map = 0x00, .addr = 0xA3, .mask = 0xFF, .ro = 0},
 	[PMU_REG_HV3OPMODCTRL] =	{.map = 0x00, .addr = 0xA4, .mask = 0xFF, .ro = 0},
 	[PMU_REG_HV4OPMODCTRL] =	{.map = 0x00, .addr = 0xA5, .mask = 0xFF, .ro = 0},
@@ -124,6 +126,7 @@ static struct bcmpmu_reg_map bcm59039_reg_map[PMU_REG_MAX] = {
 	/*init C0 values by default */
 	[PMU_REG_RFLDOCTRL] =		{.map = 0x00, .addr = 0xB3, .mask = 0x07, .ro = 0},
 	[PMU_REG_HVLDO1CTRL] =		{.map = 0x00, .addr = 0xB1, .mask = 0x07, .ro = 0},
+
 	[PMU_REG_CAMLDOCTRL] =		{.map = 0x00, .addr = 0xB2, .mask = 0x07, .ro = 0},
 	[PMU_REG_HVLDO2CTRL] =		{.map = 0x00, .addr = 0xB4, .mask = 0x07, .ro = 0},
 	[PMU_REG_HVLDO3CTRL] =		{.map = 0x00, .addr = 0xB5, .mask = 0x07, .ro = 0},
@@ -260,10 +263,8 @@ static struct bcmpmu_reg_map bcm59039_reg_map[PMU_REG_MAX] = {
 	[PMU_REG_FG_GAINTRIM] =		{.map = 0x01, .addr = 0x45, .mask = 0xFF, .ro = 0, .shift = 0},
 	[PMU_REG_FG_DELTA] =		{.map = 0x01, .addr = 0x5A, .mask = 0xFF, .ro = 0, .shift = 0},
 	[PMU_REG_FG_CAP] =		{.map = 0x01, .addr = 0x59, .mask = 0xFF, .ro = 0, .shift = 0},
-	[PMU_REG_FG_CIC] =		{.map = 0x01, .addr = 0x43,
-					 .mask = 0xFF, .ro = 0, .shift = 0},
-	[PMU_REG_FG_ST] =		{.map = 0x01, .addr = 0x58,
-					 .mask = 0xFF, .ro = 0, .shift = 0},
+	[PMU_REG_FG_CIC] =	{.map = 0x01, .addr = 0x43,
+				.mask = 0xFF, .ro = 0, .shift = 0},
 	/* usb control */
 	[PMU_REG_OTG_VBUS_PULSE] =	{.map = 0, .addr = 0, .mask = 0x00, .ro = 0, .shift = 0},
 	[PMU_REG_OTG_VBUS_BOOST] =	{.map = 0, .addr = 0, .mask = 0x00, .ro = 0, .shift = 2},
@@ -475,13 +476,7 @@ const unsigned int bcmpmu_chrgr_icc_fc_settings[PMU_CHRGR_CURR_MAX] = {
 	[PMU_CHRGR_CURR_350] = 0x12,
 	[PMU_CHRGR_CURR_400] = 0x13,
 	[PMU_CHRGR_CURR_450] = 0x14,
-//modify USB charging current to under 500mA, hunama.yan, 20120503
-#if defined(CONFIG_MACH_ZANIN_CHN_OPEN)
-	[PMU_CHRGR_CURR_500] = 0x14,
-#else	
 	[PMU_CHRGR_CURR_500] = 0x15,
-#endif
-//end
 	[PMU_CHRGR_CURR_550] = 0x16,
 	[PMU_CHRGR_CURR_600] = 0x17,
 	[PMU_CHRGR_CURR_650] = 0x18,

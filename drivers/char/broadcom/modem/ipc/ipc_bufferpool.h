@@ -1,5 +1,5 @@
 /*******************************************************************************
-*    ©2007 Broadcom Corporation
+*    ?007 Broadcom Corporation
 *
 *    Unless you and Broadcom execute a separate written software license
 *    agreement governing use of this software, this software is licensed to you
@@ -61,6 +61,7 @@ typedef volatile struct IPC_BufferPool_S {
 	volatile IPC_U32 FlowStopCalls;
 	volatile IPC_U32 BytesSent;
 	volatile void *EmptyEvent;
+	volatile void *Lock;
 } IPC_BufferPool_T;
 
 /*============================================================
@@ -101,6 +102,9 @@ void IPC_BufferReturnToPool(IPC_Buffer Buffer, IPC_BufferPool Pool);
 
 /**************************************************/
 void IPC_PoolNextPoolSet(IPC_BufferPool Pool, IPC_BufferPool NextPool);
+
+/**************************************************/
+void IPC_PoolDelete(IPC_BufferPool Pool);
 
 /**************************************************/
 void IPC_PoolDump(IPC_BufferPool Pool);

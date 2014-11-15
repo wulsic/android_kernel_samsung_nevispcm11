@@ -89,7 +89,7 @@
 #define  NUM_MTRBUTTONS             2
 
 static int prev_wdog_val = -1;
-static int check_ic_counter = 3;
+
 
 static struct workqueue_struct *check_ic_wq;
 
@@ -216,7 +216,6 @@ void touch_ctrl_regulator(int on_off)
 		{
 			printk("[TSP] touch_power_control unable to request GPIO pin");
 			//printk(KERN_ERR "unable to request GPIO pin %d\n", TSP_INT_GPIO_PIN);
-			return rc;
 		}
 		gpio_direction_output(TOUCH_EN,1);
 		gpio_set_value(TOUCH_EN,1);
@@ -477,8 +476,6 @@ static irqreturn_t  silabs_ts_work_func(int irq, void *dev_id)
 
 static irqreturn_t silabs_ts_irq_handler(int irq, void *dev_id)
 {
-	struct silabs_ts_data *ts = dev_id;
-
       touch_check=1;
 
        #ifdef __TOUCH_DEBUG__
@@ -500,7 +497,7 @@ void set_tsp_for_ta_detect(int state)
 		printk("[TSP] [1] set_tsp_for_ta_detect!!! state=1\n");
         
 		wdog_val[5] = 0x20;
-        ret = i2c_master_send(ts_global->client, &wdog_val, 7);
+		ret = i2c_master_send(ts_global->client, (const char *)&wdog_val, 7);
     
         if(ret<0) {
 		printk("[TSP] Error code : %d, %d\n", __LINE__, ret );
@@ -513,7 +510,7 @@ void set_tsp_for_ta_detect(int state)
 		printk("[TSP] [2] set_tsp_for_ta_detect!!! state=0\n");
         
 		wdog_val[5] = 0x00;
-        ret = i2c_master_send(ts_global->client, &wdog_val, 7);
+		ret = i2c_master_send(ts_global->client, (const char *)&wdog_val, 7);
             
         if(ret<0) {
 		printk("[TSP] Error code : %d, %d\n", __LINE__, ret );
@@ -528,7 +525,7 @@ static void check_ic_work_func(struct work_struct *work_timer)
 {
 	int ret=0;
       uint8_t buf_esd[2];
-	uint8_t i2c_addr = 0x1F;
+
 	uint8_t wdog_val[1];
 
 	struct silabs_ts_data *ts = container_of(work_timer, struct silabs_ts_data, work_timer);
@@ -548,7 +545,7 @@ static void check_ic_work_func(struct work_struct *work_timer)
 			set_tsp_for_ta_detect(tsp_charger_type_status);
 		}
 #endif
-        ret = i2c_master_send(ts->client, &buf_esd, 2);
+		ret = i2c_master_send(ts->client, (const char *)&buf_esd, 2);
             
 		if(ret >=0)
 		{
@@ -700,7 +697,7 @@ static int silabs_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		ret = request_threaded_irq(tsp_irq, silabs_ts_irq_handler,  silabs_ts_work_func, IRQF_TRIGGER_FALLING|IRQF_ONESHOT, client->name, ts);
 
 		if (ret < 0)
-			dev_err(&client->dev, "request_irq failed\n");
+		  dev_err(&client->dev, "request_irq failed, ret:%d \n", ret);
 	}
 
 #if 1
@@ -722,7 +719,7 @@ static int silabs_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 	buf_firmware[0] = ESCAPE_ADDR;
 	buf_firmware[1] = TS_READ_VERSION_ADDR;
-	ret = i2c_master_send(ts->client, &buf_firmware, 2);
+	ret = i2c_master_send(ts->client,(const char *) &buf_firmware, 2);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_send [%d]\n", ret);
@@ -732,7 +729,7 @@ static int silabs_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	if(tsp_chheck==0)   
 	{
 
-	ret = i2c_master_recv(ts->client, &buf_firmware, 3);
+	  ret = i2c_master_recv(ts->client, (char *)&buf_firmware, 3);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_recv [%d]\n", ret);	
@@ -919,7 +916,7 @@ static int silabs_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	    msleep(400);    
 	}
     	else
-		printk("[TSP] TSP isn't present.\n", __func__ );
+		printk("[TSP] TSP isn't present.\n");
 
         TSP_forced_release_forkey();
 
@@ -929,7 +926,7 @@ static int silabs_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 
 static int silabs_ts_resume(struct i2c_client *client)
 {
-	int retry_count, key;
+	int key;
 	struct silabs_ts_data *ts = i2c_get_clientdata(client);
 
 	printk("[TSP] %s, %d\n", __func__, __LINE__ );
@@ -974,7 +971,7 @@ static int silabs_ts_resume(struct i2c_client *client)
 	enable_irq(tsp_irq);
 	}
 	else
-		printk("[TSP] TSP isn't present.\n", __func__ );
+		printk("[TSP] TSP isn't present.\n");
 
 	printk("[TSP] %s-\n", __func__ );
         tsp_status=0; 
@@ -1102,7 +1099,7 @@ int silabs_quicksense ( int address, int size, char* buff )
 
 static ssize_t rawdata_pass_fail_silabs(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	int Tx_Channel = NUM_TX_CHANNEL;
+
 	int Rx_Channel = NUM_RX_CHANNEL;
 	uint8_t buffer1[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
     uint8_t buffer2[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
@@ -1248,13 +1245,13 @@ static ssize_t rawdata_pass_fail_silabs(struct device *dev, struct device_attrib
 
 	buf_firmware_show[0] = ESCAPE_ADDR;
 	buf_firmware_show[1] = TS_READ_VERSION_ADDR;
-	ret = i2c_master_send(ts_global->client, &buf_firmware_show, 2);
+	ret = i2c_master_send(ts_global->client, (const char *)&buf_firmware_show, 2);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_send [%d]\n", ret);			
 	}
 
-	ret = i2c_master_recv(ts_global->client, &buf_firmware_show, 3);
+	ret = i2c_master_recv(ts_global->client, (char *)&buf_firmware_show, 3);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_recv [%d]\n", ret);			
@@ -1301,9 +1298,9 @@ static ssize_t rawdata_show_silabs(struct device *dev, struct device_attribute *
 	uint8_t buffer1[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
     	uint8_t buffer2[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
 	uint16_t rawdata[NUM_TX_CHANNEL][NUM_RX_CHANNEL]={{0,},};
-	uint16_t button_rawdata[NUM_MTRBUTTONS]={0,};
+
 	uint16_t baseline[NUM_TX_CHANNEL][NUM_RX_CHANNEL]={{0,},};
-	uint16_t button_baseline[NUM_MTRBUTTONS]={0,};
+
       int i, j, ret;
 
       printk("[TSP] %s entered. line : %d, \n", __func__,__LINE__);
@@ -1377,7 +1374,7 @@ static ssize_t baseline_show_silabs(struct device *dev, struct device_attribute 
 	int written_bytes = 0 ;  /* & error check */
 	uint8_t buffer[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
 	uint16_t baseline[NUM_TX_CHANNEL][NUM_RX_CHANNEL]={{0,},};
-	uint16_t button_baseline[NUM_MTRBUTTONS]={0,};
+
     int i, j, ret;
 
 
@@ -1442,9 +1439,9 @@ static ssize_t diff_show_silabs(struct device *dev, struct device_attribute *att
 	uint8_t buffer1[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
     uint8_t buffer2[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
 	uint16_t rawdata[NUM_TX_CHANNEL][NUM_RX_CHANNEL]={{0,},};
-	uint16_t button_rawdata[NUM_MTRBUTTONS]={0,};
+
 	uint16_t baseline[NUM_TX_CHANNEL][NUM_RX_CHANNEL]={{0,},};
-	uint16_t button_baseline[NUM_MTRBUTTONS]={0,};
+
       int i, j, ret;
 
       printk("[TSP] %s entered. line : %d, \n", __func__,__LINE__);
@@ -1528,13 +1525,13 @@ static ssize_t firmware_show(struct device *dev, struct device_attribute *attr, 
 
 	buf_firmware_show[0] = ESCAPE_ADDR;
 	buf_firmware_show[1] = TS_READ_VERSION_ADDR;
-	ret = i2c_master_send(ts_global->client, &buf_firmware_show, 2);
+	ret = i2c_master_send(ts_global->client,(const char *) &buf_firmware_show, 2);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_send [%d]\n", ret);			
 	}
 
-	ret = i2c_master_recv(ts_global->client, &buf_firmware_show, 3);
+	ret = i2c_master_recv(ts_global->client, (char *)&buf_firmware_show, 3);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_recv [%d]\n", ret);			
@@ -1609,13 +1606,13 @@ static ssize_t fimware_show_versname(struct device *dev, struct device_attribute
 
 	buf_firmware_ver[0] = ESCAPE_ADDR;
 	buf_firmware_ver[1] = TS_READ_VERSION_ADDR;
-	ret = i2c_master_send(ts_global->client, &buf_firmware_ver, 2);
+	ret = i2c_master_send(ts_global->client,(const char *) &buf_firmware_ver, 2);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_send [%d]\n", ret);			
 	}
 
-	ret = i2c_master_recv(ts_global->client, &buf_firmware_ver, 3);
+	ret = i2c_master_recv(ts_global->client, (char *) &buf_firmware_ver, 3);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "silabs_ts_work_func : i2c_master_recv [%d]\n", ret);			
@@ -1634,7 +1631,7 @@ static ssize_t read_node(struct device *dev, struct device_attribute *attr, char
 
 	int written_bytes = 0 ;  /* & error check */
 	uint8_t buffer[NUM_TX_CHANNEL*NUM_RX_CHANNEL*2+QUICKSENSE_OVERHEAD]={0,};
-	uint16_t button_baseline[NUM_MTRBUTTONS]={0,};
+
        int i, j, ret;
        
 	check_node = simple_strtoul(buf, &after, 10);	

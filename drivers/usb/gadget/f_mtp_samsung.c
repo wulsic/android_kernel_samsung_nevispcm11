@@ -93,7 +93,7 @@
 #endif
 /*-------------------------------------------------------------------------*/
 
-#define MTPG_BULK_BUFFER_SIZE	4096
+#define MTPG_BULK_BUFFER_SIZE	32768
 #define MTPG_INTR_BUFFER_SIZE	28
 
 /* number of rx and tx requests to allocate */
@@ -717,11 +717,13 @@ static ssize_t mtpg_write(struct file *fp, const char __user *buf,
 					 __func__, __LINE__, r);
 	return r;
 }
-
+//remove_warning remove unused function
+/*
 static void interrupt_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	printk(KERN_DEBUG "Finished Writing Interrupt Data\n");
 }
+*/
 
 static ssize_t interrupt_write(struct file *fd,
 			const char __user *buf, size_t count)
@@ -769,7 +771,7 @@ static void read_send_work(struct work_struct *work)
 {
 	struct mtpg_dev	*dev = container_of(work, struct mtpg_dev,
 							read_send_work);
-	struct usb_composite_dev *cdev = dev->cdev;
+
 	struct usb_request *req = 0;
 	struct usb_container_header *hdr;
 	struct file *file;
@@ -1319,6 +1321,75 @@ static int mtpg_function_set_alt(struct usb_function *f,
 
 	if (dev->int_in->driver_data)
 		usb_ep_disable(dev->int_in);
+		
+	ret = config_ep_by_speed(cdev->gadget, f, dev->int_in);
+	if (ret)
+		return ret;
+	ret = usb_ep_enable(dev->int_in);
+	if (ret) {
+		usb_ep_disable(dev->int_in);
+		dev->int_in->driver_data = NULL;
+		printk(KERN_ERR "[%s]Error in enabling INT EP\n", __func__);
+		return ret;
+	}
+	dev->int_in->driver_data = dev;
+	
+
+	if (dev->bulk_in->driver_data)
+		usb_ep_disable(dev->bulk_in);
+
+	ret = config_ep_by_speed(cdev->gadget, f, dev->bulk_in);
+	if (ret)
+		return ret;
+	ret = usb_ep_enable(dev->bulk_in);
+		
+	if (ret) {
+		usb_ep_disable(dev->bulk_in);
+		dev->bulk_in->driver_data = NULL;
+		 printk(KERN_ERR "[%s] Enable Bulk-IN EP error%d\n",
+							__func__, __LINE__);
+		 return ret;
+	}
+	dev->bulk_in->driver_data = dev;
+
+	if (dev->bulk_out->driver_data)
+		usb_ep_disable(dev->bulk_out);
+		
+	ret = config_ep_by_speed(cdev->gadget, f, dev->bulk_out);
+	if (ret)
+		return ret;
+	ret = usb_ep_enable(dev->bulk_out);
+	
+	if (ret) {
+		usb_ep_disable(dev->bulk_out);
+		dev->bulk_out->driver_data = NULL;
+		 printk(KERN_ERR "[%s] Enable Bulk-Out EP error%d\n",
+							__func__, __LINE__);
+		return ret;
+	}
+	dev->bulk_out->driver_data = dev;
+
+	dev->online = 1;
+	dev->error = 0;
+	dev->read_ready = 1;
+	dev->cancel_io = 0;
+
+	/* readers may be blocked waiting for us to go online */
+	wake_up(&dev->read_wq);
+
+	return 0;
+}
+
+#if 0
+static int mtpg_function_set_alt(struct usb_function *f,
+		unsigned intf, unsigned alt)
+{
+	struct mtpg_dev	*dev = mtpg_func_to_dev(f);
+	struct usb_composite_dev *cdev = f->config->cdev;
+	int ret;
+
+	if (dev->int_in->driver_data)
+		usb_ep_disable(dev->int_in);
 
 	ret = usb_ep_enable(dev->int_in,
 			ep_choose(cdev->gadget, &int_hs_notify_desc,
@@ -1371,7 +1442,7 @@ static int mtpg_function_set_alt(struct usb_function *f,
 
 	return 0;
 }
-
+#endif
 static void mtpg_function_disable(struct usb_function *f)
 {
 	struct mtpg_dev	*dev = mtpg_func_to_dev(f);

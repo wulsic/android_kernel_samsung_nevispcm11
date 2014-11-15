@@ -1,5 +1,5 @@
 /*******************************************************************************
-*    ©2007-2009 Broadcom Corporation
+*    ?007-2009 Broadcom Corporation
 *
 *    Unless you and Broadcom execute a separate written software license
 *    agreement governing use of this software, this software is licensed to you
@@ -120,8 +120,13 @@ static void IPC_RaiseInterrupt(void)
 /**************************************************/
 void IPC_SmFifoWrite(IPC_Fifo Fifo, IPC_Buffer Message)
 {
-	CRITICAL_REIGON_SETUP IPC_U32 OriginalWritePointer;
-
+	CRITICAL_REIGON_SETUP 
+	IPC_U32 OriginalWritePointer;
+	static void * Lock = NULL;	// use same lock for Send FIFO and FreeFIFO
+	
+	if (Lock == NULL)
+		Lock = CRITICAL_REIGON_CREATE();
+	
 	IPC_TRACE(IPC_Channel_Sm, "IPC_SmFifoWrite", "Fifo %08X, Buffer %08X",
 		  Fifo, Message, 0, 0);
 
@@ -129,7 +134,8 @@ void IPC_SmFifoWrite(IPC_Fifo Fifo, IPC_Buffer Message)
 		  "Fifo %08X,  %d entries, read: %d, Write %d", Fifo,
 		  IPC_FIFOCOUNT(Fifo), Fifo->ReadIndex, Fifo->WriteIndex);
 
-	CRITICAL_REIGON_ENTER OriginalWritePointer = Fifo->WriteIndex;
+	CRITICAL_REIGON_ENTER(Lock); 
+	OriginalWritePointer = Fifo->WriteIndex;
 
 	Fifo->Buffer[OriginalWritePointer] = Message;
 	Fifo->WriteIndex = IPC_FIFOINCREMENT(OriginalWritePointer);
@@ -138,7 +144,8 @@ void IPC_SmFifoWrite(IPC_Fifo Fifo, IPC_Buffer Message)
 	if (IPC_FIFOCOUNT(Fifo) > Fifo->HighWaterMark)
 		Fifo->HighWaterMark = IPC_FIFOCOUNT(Fifo);
 
-	CRITICAL_REIGON_LEAVE if (OriginalWritePointer == 0) {
+	CRITICAL_REIGON_LEAVE(Lock); 
+	if (OriginalWritePointer == 0) {
 		IPC_TRACE(IPC_Channel_Debug, "IPC_SmFifoWrite",
 			  "Fifo %08X, Count %d, HighWaterMark %d", Fifo,
 			  Fifo->WriteCount, Fifo->HighWaterMark, 0);
@@ -605,8 +612,7 @@ void IPC_Initialise(void *Sm_BaseAddress,
 	SmLocalControl.CpuId = CPUID;
 	SmLocalControl.SmControl = (IPC_SmControl) Sm_BaseAddress;
 	SmLocalControl.RaiseInterrupt = ControlInfo->RaiseEventFptr;
-	SmLocalControl.DisableReentrancy = ControlInfo->DisableReEntrancyFPtr;
-	SmLocalControl.EnableReentrancy = ControlInfo->EnableReEntrancyFPtr;
+	SmLocalControl.LockFunctions = ControlInfo->LockFunctions;
 	SmLocalControl.OsToPhyAddress = ControlInfo->OSToPhyAddrFPtr;
 	SmLocalControl.PhyToOSAddress = ControlInfo->PhyToOSAddrFPtr;
 	SmLocalControl.IPCInitialisedFunction = IPCConfigured;
@@ -619,17 +625,20 @@ void IPC_Initialise(void *Sm_BaseAddress,
 	SmLocalControl.Event.Set = ControlInfo->EventFunctions.Set;
 	SmLocalControl.Event.Clear = ControlInfo->EventFunctions.Clear;
 	SmLocalControl.Event.Wait = ControlInfo->EventFunctions.Wait;
+	SmLocalControl.Event.Delete = ControlInfo->EventFunctions.Delete;
 
 	if ((SmLocalControl.Event.Create == 0) ||
 	    (SmLocalControl.Event.Set == 0) ||
 	    (SmLocalControl.Event.Clear == 0) ||
-	    (SmLocalControl.Event.Wait == 0)
+	    (SmLocalControl.Event.Wait == 0) ||
+	    (SmLocalControl.Event.Delete == 0)
 	    ) {
-		/* Need all four to be useful */
+		/* Need all five to be useful */
 		SmLocalControl.Event.Create = 0;
 		SmLocalControl.Event.Set = 0;
 		SmLocalControl.Event.Clear = 0;
 		SmLocalControl.Event.Wait = 0;
+		SmLocalControl.Event.Delete = 0;
 	}
 #ifdef FUSE_IPC_CRASH_SUPPORT
 	SmLocalControl.IPCCPCrashed = IPCCPCrashedCb;

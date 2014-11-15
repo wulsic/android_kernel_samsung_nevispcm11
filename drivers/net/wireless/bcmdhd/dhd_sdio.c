@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_sdio.c 394918 2013-04-04 06:36:07Z $
+ * $Id: dhd_sdio.c 408730 2013-06-20 08:54:49Z $
  */
 
 #include <typedefs.h>
@@ -1541,10 +1541,10 @@ dhdsdio_func_blocksize(dhd_pub_t *dhd, int function_num, int block_size)
 void
 dhd_enable_oob_intr(struct dhd_bus *bus, bool enable)
 {
-#if defined(HW_OOB)
-	bcmsdh_enable_hw_oob_intr(bus->sdh, enable);
-#elif defined(BCMSPI_ANDROID)
+#if defined(BCMSPI_ANDROID)
 	bcmsdh_intr_enable(bus->sdh);
+#elif defined(HW_OOB)
+	bcmsdh_enable_hw_oob_intr(bus->sdh, enable);
 #else
 	sdpcmd_regs_t *regs = bus->regs;
 	uint retries = 0;
@@ -1578,9 +1578,10 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt, bool queue_on
 	int ret;
 	osl_t *osh;
 	uint8 *frame;
-	uint16 len, pad1 = 0;
+	uint16 len, pad1 = 0, act_len = 0;
 	uint32 swheader;
 	uint retries = 0;
+	uint32 real_pad = 0;
 	bcmsdh_info_t *sdh;
 	void *new;
 	int i;
@@ -1618,7 +1619,7 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt, bool queue_on
 #endif /* WLMEDIA_HTSF */
 
 	/* Add alignment padding, allocate new packet if needed */
-	if ((pad1 = ((uintptr)frame % DHD_SDALIGN))) {
+	if (!((uintptr)frame & 1) && (pad1 = ((uintptr)frame % DHD_SDALIGN))) {
 		if (PKTHEADROOM(osh, pkt) < pad1) {
 			DHD_INFO(("%s: insufficient headroom %d for %d pad1\n",
 			          __FUNCTION__, (int)PKTHEADROOM(osh, pkt), pad1));
@@ -1658,7 +1659,8 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt, bool queue_on
 
 #ifdef BCMSDIOH_TXGLOM
 	if (bus->glom_enable) {
-		uint32 hwheader1 = 0, hwheader2 = 0, act_len = len;
+		uint32 hwheader1 = 0, hwheader2 = 0;
+		act_len = len;
 
 		/* Software tag: channel, sequence number, data offset */
 		swheader = ((chan << SDPCM_CHANNEL_SHIFT) & SDPCM_CHANNEL_MASK) |
@@ -1727,6 +1729,7 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt, bool queue_on
 	} else
 #endif /* BCMSDIOH_TXGLOM */
 	{
+	act_len = len;
 	/* Software tag: channel, sequence number, data offset */
 	swheader = ((chan << SDPCM_CHANNEL_SHIFT) & SDPCM_CHANNEL_MASK) | bus->tx_seq |
 	        (((pad1 + SDPCM_HDRLEN) << SDPCM_DOFFSET_SHIFT) & SDPCM_DOFFSET_MASK);
@@ -1771,6 +1774,23 @@ dhdsdio_txpkt(dhd_bus_t *bus, void *pkt, uint chan, bool free_pkt, bool queue_on
 			DHD_ERROR(("%s: sending unrounded %d-byte packet\n", __FUNCTION__, len));
 #endif
 	}
+	real_pad = len - act_len;
+	if (PKTTAILROOM(osh, pkt) < real_pad) {
+		DHD_INFO(("%s 3: insufficient tailroom %d for %d real_pad\n",
+		__FUNCTION__, (int)PKTTAILROOM(osh, pkt), real_pad));
+		if (PKTPADTAILROOM(osh, pkt, real_pad)) {
+			DHD_ERROR(("padding error size %d\n", real_pad));
+			ret = BCME_NOMEM;
+			goto done;
+		}
+#ifndef BCMLXSDMMC
+		else
+			PKTSETLEN(osh, pkt, act_len);
+#endif
+	}
+#ifdef BCMLXSDMMC
+	PKTSETLEN(osh, pkt, len);
+#endif /* BCMLXSDMMC */
 	}
 
 	do {
@@ -1843,7 +1863,11 @@ done:
 		} else
 #endif
 		{
-	PKTPULL(osh, pkt, SDPCM_HDRLEN + pad1);
+#ifdef BCMLXSDMMC
+			if (act_len > 0)
+				PKTSETLEN(osh, pkt, act_len);
+#endif /* BCMLXSDMMC */
+			PKTPULL(osh, pkt, SDPCM_HDRLEN + pad1);
 		}
 #ifdef PROP_TXSTATUS
 	if (bus->dhd->wlfc_state) {
@@ -2343,7 +2367,7 @@ done:
 	else
 		bus->dhd->tx_ctlpkts++;
 
-	if (bus->dhd->txcnt_timeout >= MAX_CNTL_TIMEOUT)
+	if (bus->dhd->txcnt_timeout >= MAX_CNTL_TX_TIMEOUT)
 		return -ETIMEDOUT;
 
 	return ret ? -EIO : 0;
@@ -2412,7 +2436,7 @@ dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 	else
 		bus->dhd->rx_ctlerrs++;
 
-	if (bus->dhd->rxcnt_timeout >= MAX_CNTL_TIMEOUT)
+	if (bus->dhd->rxcnt_timeout >= MAX_CNTL_RX_TIMEOUT)
 		return -ETIMEDOUT;
 
 	if (bus->dhd->dongle_trap_occured)

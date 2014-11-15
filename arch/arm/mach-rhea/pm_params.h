@@ -150,9 +150,18 @@
 
 /* PLL Offset config values for RF interference reduction
 *  as suggested by modem team */
-#define PLLARM_OFFEST_CONFIG    0x10000000
+#define PLLARM_OFFEST_CONFIG    0x35589D9
 #define PLLDSI_OFFEST_CONFIG    0x0
 #define PLL1_OFFSET_CONFIG	0xBFFFF
+
+/*supported A9 freqs*/
+enum {
+	A9_FREQ_700_MHZ,
+	A9_FREQ_800_MHZ,
+	A9_FREQ_850_MHZ,
+	A9_FREQ_1_GHZ,
+	A9_FREQ_MAX
+};
 
 #ifdef CONFIG_KONA_POWER_MGR
 struct pwrmgr_init_param {
@@ -161,21 +170,17 @@ struct pwrmgr_init_param {
 	struct v0x_spec_i2c_cmd_ptr *v0ptr;
 	u8 *def_vlt_tbl;
 	u32 vlt_tbl_size;
-#if defined(CONFIG_KONA_PWRMGR_REV2)
 	u32 i2c_rd_off;
 	int i2c_rd_slv_id_off1;	/*slave id offset -  write reg address */
 	int i2c_rd_slv_id_off2;	/*slave id offset - read reg value */
 	int i2c_rd_reg_addr_off;
-	int i2c_rd_nack_off;
-	int i2c_rd_nack_jump_off;
 	int i2c_rd_fifo_off;
 	u32 i2c_wr_off;
 	int i2c_wr_slv_id_off;
 	int i2c_wr_reg_addr_off;
 	int i2c_wr_val_addr_off;
 	u32 i2c_seq_timeout;	/*timeout in ms */
-#endif
-#ifdef CONFIG_RHEA_WA_HWJIRA_2747
+#ifdef CONFIG_KONA_PWRMGR_SWSEQ_FAKE_TRG_ERRATUM
 	int pc_toggle_off;
 #endif
 };
@@ -189,6 +194,7 @@ extern const u8 *bcmpmu_get_sr_vlt_table(int sr, u32 freq_inx,
 			u32 silicon_type);
 extern int __jira_wa_enabled(u32 jira);
 extern int __init rhea_pm_params_init(void);
-extern int pm_init_pmu_sr_vlt_map_table(u32 *silicon_type, int *freq_id);
+extern int pm_init_pmu_sr_vlt_map_table(int silicon_type, int freq_id);
 
 #endif	/*__PM_PARAMS_H__*/
+

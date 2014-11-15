@@ -7,7 +7,7 @@
  */
 #include <linux/rwsem.h>
 #include <linux/sched.h>
-#include <linux/module.h>
+#include <linux/export.h>
 
 struct rwsem_waiter {
 	struct list_head list;
@@ -22,9 +22,9 @@ int rwsem_is_locked(struct rw_semaphore *sem)
 	int ret = 1;
 	unsigned long flags;
 
-	if (spin_trylock_irqsave(&sem->wait_lock, flags)) {
+	if (raw_spin_trylock_irqsave(&sem->wait_lock, flags)) {
 		ret = (sem->activity != 0);
-		spin_unlock_irqrestore(&sem->wait_lock, flags);
+		raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 	}
 	return ret;
 }
@@ -47,7 +47,7 @@ void __init_rwsem(struct rw_semaphore *sem, const char *name,
 #ifdef CONFIG_BRCM_DEBUG_RWSEM
 	sem->wr_owner = NULL;
 #endif
-	spin_lock_init(&sem->wait_lock);
+	raw_spin_lock_init(&sem->wait_lock);
 	INIT_LIST_HEAD(&sem->wait_list);
 }
 EXPORT_SYMBOL(__init_rwsem);
@@ -154,12 +154,12 @@ void __sched __down_read(struct rw_semaphore *sem)
 	struct task_struct *tsk;
 	unsigned long flags;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	if (sem->activity >= 0 && list_empty(&sem->wait_list)) {
 		/* granted */
 		sem->activity++;
-		spin_unlock_irqrestore(&sem->wait_lock, flags);
+		raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 		goto out;
 	}
 
@@ -174,7 +174,7 @@ void __sched __down_read(struct rw_semaphore *sem)
 	list_add_tail(&waiter.list, &sem->wait_list);
 
 	/* we don't need to touch the semaphore struct anymore */
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 
 	/* wait to be given the lock */
 	for (;;) {
@@ -198,7 +198,7 @@ int __down_read_trylock(struct rw_semaphore *sem)
 	int ret = 0;
 
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	if (sem->activity >= 0 && list_empty(&sem->wait_list)) {
 		/* granted */
@@ -206,7 +206,7 @@ int __down_read_trylock(struct rw_semaphore *sem)
 		ret = 1;
 	}
 
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 
 	return ret;
 }
@@ -221,7 +221,7 @@ void __sched __down_write_nested(struct rw_semaphore *sem, int subclass)
 	struct task_struct *tsk;
 	unsigned long flags;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	if (sem->activity == 0 && list_empty(&sem->wait_list)) {
 		/* granted */
@@ -229,7 +229,7 @@ void __sched __down_write_nested(struct rw_semaphore *sem, int subclass)
 #ifdef CONFIG_BRCM_DEBUG_RWSEM
 		sem->wr_owner = current;
 #endif
-		spin_unlock_irqrestore(&sem->wait_lock, flags);
+		raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 		goto out;
 	}
 
@@ -244,7 +244,7 @@ void __sched __down_write_nested(struct rw_semaphore *sem, int subclass)
 	list_add_tail(&waiter.list, &sem->wait_list);
 
 	/* we don't need to touch the semaphore struct anymore */
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 
 	/* wait to be given the lock */
 	for (;;) {
@@ -272,18 +272,18 @@ int __down_write_trylock(struct rw_semaphore *sem)
 	unsigned long flags;
 	int ret = 0;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	if (sem->activity == 0 && list_empty(&sem->wait_list)) {
 		/* granted */
 		sem->activity = -1;
-		ret = 1;
 #ifdef CONFIG_BRCM_DEBUG_RWSEM
 		sem->wr_owner = current;
 #endif
+		ret = 1;
 	}
 
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 
 	return ret;
 }
@@ -295,12 +295,12 @@ void __up_read(struct rw_semaphore *sem)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	if (--sem->activity == 0 && !list_empty(&sem->wait_list))
 		sem = __rwsem_wake_one_writer(sem);
 
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 }
 
 /*
@@ -310,7 +310,7 @@ void __up_write(struct rw_semaphore *sem)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	sem->activity = 0;
 #ifdef CONFIG_BRCM_DEBUG_RWSEM
@@ -319,7 +319,7 @@ void __up_write(struct rw_semaphore *sem)
 	if (!list_empty(&sem->wait_list))
 		sem = __rwsem_do_wake(sem, 1);
 
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 }
 
 /*
@@ -330,12 +330,12 @@ void __downgrade_write(struct rw_semaphore *sem)
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(&sem->wait_lock, flags);
+	raw_spin_lock_irqsave(&sem->wait_lock, flags);
 
 	sem->activity = 1;
 	if (!list_empty(&sem->wait_list))
 		sem = __rwsem_do_wake(sem, 0);
 
-	spin_unlock_irqrestore(&sem->wait_lock, flags);
+	raw_spin_unlock_irqrestore(&sem->wait_lock, flags);
 }
 

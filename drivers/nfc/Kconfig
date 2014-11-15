@@ -8,9 +8,7 @@ menuconfig NFC_DEVICES
 	---help---
 	  You'll have to say Y if your computer contains an NFC device that
 	  you want to use under Linux.
-
-	  You can say N here if you don't have any Near Field Communication
-	  devices connected to your computer.
+	  You can say N here if you don't have any Near Field Communication devices connected to your computer.
 
 if NFC_DEVICES
 
@@ -22,9 +20,7 @@ config PN544_NFC
 	---help---
 	  Say yes if you want PN544 Near Field Communication driver.
 	  This is for i2c connected version. If unsure, say N here.
-
-	  To compile this driver as a module, choose m here. The module will
-	  be called pn544.
+	  To compile this driver as a module, choose m here. The module will be called pn544.
 
 config BCM2079X_NFC_I2C
 	tristate "BCM2079X NFC driver for I2C interface"
@@ -33,9 +29,7 @@ config BCM2079X_NFC_I2C
 	---help---
 	  Say yes if you want BCM2079X Near Field Communication driver.
 	  This is for i2c connected version. If unsure, say N here.
-
-	  To compile this driver as a module, choose m here. The module will
-	  be called bcm2079x-i2c.
+	  To compile this driver as a module, choose m here. The module will be called bcm2079x-i2c.
 
 config BCM2079X_NFC_SPI
 	tristate "BCM2079X NFC driver for SPI interface"
@@ -44,8 +38,6 @@ config BCM2079X_NFC_SPI
 	---help---
 	  Say yes if you want BCM2079X Near Field Communication driver.
 	  This is for spi connected version. If unsure, say N here.
-
-	  To compile this driver as a module, choose m here. The module will
-	  be called bcm2079x-spi.
+	  To compile this driver as a module, choose m here. The module will be called bcm2079x-spi.
 
 endif # NFC_DEVICES

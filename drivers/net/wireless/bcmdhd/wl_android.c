@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_android.c 392845 2013-03-25 07:44:30Z $
+ * $Id: wl_android.c 397119 2013-04-17 08:58:29Z $
  */
 
 #include <linux/module.h>
@@ -1600,11 +1600,7 @@ int wl_android_set_roam_mode(struct net_device *dev, char *command, int total_le
 
 int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 {
-#ifdef CUSTOMER_HW4
-#define PRIVATE_COMMAND_MAX_LEN	16384
-#else
 #define PRIVATE_COMMAND_MAX_LEN	8192
-#endif /* CUSTOMER_HW4 */
 	int ret = 0;
 	char *command = NULL;
 	int bytes_written = 0;

@@ -15,29 +15,33 @@
 
 #ifndef KONA_CPUFREQ_DRV_H
 #define KONA_CPUFREQ_DRV_H
+
 #include <linux/plist.h>
 
-struct kona_freq_tbl{
+struct kona_freq_tbl {
 	u32 cpu_freq;		/* in MHz */
 	int opp;		/* Operating point eg: ECONOMY, NORMAL, TURBO */
+	long max_temp;		/* max temperature supported in celcius */
 };
 
 /* Helper to initialize array of above structures */
-#define FTBL_INIT(freq, __opp)  \
+#define FTBL_INIT(freq, __opp, temp)  \
 {                              \
 	.cpu_freq    = freq,   \
 	.opp = __opp,   \
+	.max_temp = temp, \
 }
 
 enum {
 	KONA_CPUFREQ_UPDATE_LPJ = 1,
+	KONA_CPUFREQ_TMON = (1 << 1),
 };
 
 #define DEFAULT_LIMIT   (-1)
 #define MIN_LIMIT       (0)
 #define CURRENT_FREQ    (1)
 #define MAX_LIMIT       (2)
-
+#define TEMP_DONT_CARE  0xFFFFFFFF
 /* Platform data for Kona cpufreq driver */
 struct kona_cpufreq_drv_pdata {
 	/* Number of cpus */
@@ -55,12 +59,6 @@ struct kona_cpufreq_drv_pdata {
 	void (*cpufreq_init) (void);
 };
 
-enum {
-	FREQ_LMT_NODE_ADD,
-	FREQ_LMT_NODE_DEL,
-	FREQ_LMT_NODE_UPDATE,
-};
-
 struct cpufreq_lmt_node {
 	char *name;
 	struct plist_node node;
@@ -76,7 +74,7 @@ int cpufreq_update_lmt_req(struct cpufreq_lmt_node *lmt_node,
 	int lmt);
 
 int get_cpufreq_limit(unsigned int *val, int limit_type);
-int set_cpufreq_limit(int val, int limit_type);
+int set_cpufreq_limit(unsigned int val, int limit_type);
 u32 get_cpu_freq_from_opp(int opp);
 
 #endif /* BCM_CPUFREQ_DRV_H */

@@ -21,7 +21,7 @@
 
 /* /proc file to accept configuration changes */
 #define BCMLOG_CONFIG_PROC_FILE		"brcm_logcfg"
-#define BCMLOG_DEFAULT_FILE_BASE "/sdcard/"
+#define BCMLOG_DEFAULT_FILE_BASE "/storage/sdcard0/"
 #define BCMLOG_DEFAULT_UART_DEV "/dev/ttyS0"
 #define BCMLOG_DEFAULT_ACM_DEV "/dev/ttyGS1"
 #define MAX_STR_NAME 40
@@ -68,6 +68,15 @@ int BCMLOG_LogIdIsEnabled(unsigned short inLogId);
  **/
 void BCMLOG_InitConfig(void *dev);
 
+void BCMLOG_SetCpCrashLogDevice(int port);
+
+void WriteToLogDev_ACM(void);
+
+/**
+ *	Write log to data/log (for run modem log *#9900#)
+ **/
+int WriteToLogDev_MODEMLOG(void);
+
 /**
  *	If the runtime log is on USB
  **/
@@ -78,5 +87,4 @@ char *BCMLOG_GetUartDev(void);
 char *BCMLOG_GetAcmDev(void);
 
 
-int WriteToLogDev_MODEMLOG(void);
 #endif /* __BCMLOG_FIFO_H__ */

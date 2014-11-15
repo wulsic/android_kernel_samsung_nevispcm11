@@ -146,16 +146,19 @@ struct _csl_caph_Mic_Gain_t {
 };
 #define csl_caph_Mic_Gain_t struct _csl_caph_Mic_Gain_t
 
+struct _csl_caph_Sidetone_Gain_t {
+	short gain;  /*In Q13.2 */
+	UInt16 sidetoneGain_Linear;
+	UInt16 sidetoneGain_Log;
+};
+#define csl_caph_Sidetone_Gain_t struct _csl_caph_Sidetone_Gain_t
+
 void *csl_caph_audioh_init(UInt32 baseAddr, UInt32 sdtBaseAddr);
 void csl_caph_audioh_deinit(void);
 void csl_caph_audioh_config(int path_id, void *pcfg);
 void csl_caph_audioh_unconfig(int path_id);
 CSL_CAPH_AUDIOH_BUFADDR_t csl_caph_audioh_get_fifo_addr(int path_id);
-#if defined(CONFIG_STEREO_SPEAKER)
-void csl_caph_audioh_start(int path_id, Boolean isDitherOff, Boolean stereoOutputSetup);
-#else
-void csl_caph_audioh_start(int path_id, Boolean isDitherOff);
-#endif
+void csl_caph_audioh_start(int path_id);
 void csl_caph_audioh_stop(int path_id);
 void csl_caph_audioh_mute(int path_id, Boolean mute_ctrl);
 
@@ -183,11 +186,14 @@ void csl_caph_audioh_nvinpath_digi_mic_enable(UInt16 ctrl);
 void csl_caph_audioh_set_minimum_filter(int path_id);
 void csl_caph_audioh_set_linear_filter(int path_id);
 void csl_caph_audioh_adcpath_global_enable(Boolean enable);
-void csl_caph_audioh_start_hs(Boolean isDitherOff);
+void csl_caph_audioh_start_hs(void);
 void csl_caph_audioh_start_ihf(void);
 void csl_caph_audioh_stop_hs(void);
 void csl_caph_audioh_stop_ihf(void);
-
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+void csl_caph_audioh_hs_supply_get_hs_ds_indicator(UInt16 *hs_ds_indicator);
+void csl_caph_audioh_hs_supply_set_hs_ds_thres(UInt32 hs_ds_thres);
+#endif
 /**
 *
 *  @brief  Find register values for required mic path gain.

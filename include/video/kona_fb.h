@@ -14,20 +14,48 @@
 #ifndef KONA_FB_H_
 #define KONA_FB_H_
 
-struct kona_fb_platform_data {
-	char			*dispdrv_name;
-	void* 			(*dispdrv_entry) (void);
-	struct 	dispdrv_init_parms   parms;
+#define DISPDRV_NAME_SZ 20
+#define REG_NAME_SZ DISPDRV_NAME_SZ
+
+struct hw_rst_info {
+	uint32_t gpio;	/* gpio number */
+	uint32_t setup;	/* us */
+	uint32_t pulse;	/* us */
+	uint32_t hold;	/* us */
+	bool active;/* low or high */
 };
 
-extern void* DISPDRV_GetFuncTable(void);
-extern void* DISP_DRV_DISP_SMI_GetFuncTable(void);
-extern void* DISP_DRV_LQ043Y1DX01_GetFuncTable(void);
-extern void* DISP_DRV_NT35582_WVGA_SMI_GetFuncTable(void);
-extern void* DISP_DRV_BCM91008_ALEX_GetFuncTable(void);
-extern void* DISP_DRV_R61581_HVGA_SMI_GetFuncTable(void);
-extern void* DISPDRV_ili9486_GetFuncTable(void);
-extern void* DISPDRV_R61531_GetFuncTable(void);
-extern void *DISPDRV_ili9341_GetFuncTable(void);
-extern void *LCD_DISPDRV_GetFuncTable(void);
+struct hw_detect_info {
+	uint32_t gpio;	/* gpio number */
+	bool gpio_val;	/* low or high */
+	bool active;/* low or high */
+};
+
+struct kona_fb_platform_data {
+	char name[DISPDRV_NAME_SZ];
+	char reg_name[REG_NAME_SZ];
+	struct hw_rst_info rst;
+	struct hw_detect_info detect;
+	bool vmode;
+	bool vburst;
+	bool cmnd_LP;
+	bool te_ctrl;
+	uint8_t col_mod_i;
+	uint8_t col_mod_o;
+	uint16_t width;
+	uint16_t height;
+	uint8_t fps;
+	uint8_t lanes;
+	uint32_t hs_bps;
+	uint32_t lp_bps;
+	int desense_offset;
+	uint16_t rotation;
+#ifdef CONFIG_IOMMU_API
+	struct platform_device *pdev_iommu;
+#endif
+#ifdef CONFIG_BCM_IOVMM
+	struct platform_device *pdev_iovmm;
+#endif
+};
+
 #endif /* KONA_FB_H_ */

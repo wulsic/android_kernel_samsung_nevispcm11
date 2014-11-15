@@ -89,10 +89,11 @@
 #include "audio_vdriver_voice_play.h"
 #endif
 
+
 static UInt8 *samplePCM16_inaudiotest;
 static UInt16 *record_test_buf;
 
-UInt8 playback_audiotest[1024000] = { 0 };
+UInt8 playback_audiotest[] = { 0 };
 UInt8 playback_audiotest_srcmixer[] = { 0 };
 
 #define USE_LOOPBACK_SYSPARM
@@ -652,7 +653,7 @@ WRITE_REG32((HUB_CLK_BASE_ADDR+KHUB_CLK_MGR_REG_CAPH_CLKGATE_OFFSET) ,regVal);
 					VoIF_SetGain(sgBrcm_auddrv_TestValues
 						     [4]);
 				audMode = AUDCTRL_GetAudioMode();
-				VoIF_init(audMode, 0);
+				VoIF_init(audMode);
 			} else
 				VoIF_Deinit();
 		}
@@ -1292,13 +1293,13 @@ void AUDTST_VoIP(UInt32 Val2, UInt32 Val3, UInt32 Val4, UInt32 Val5,
 	voip_data_t voip_codec;
 	int app_profile;
 
-	/*if (record_test_buf == NULL)
+	if (record_test_buf == NULL)
 		record_test_buf = kzalloc(1024 * 1024, GFP_KERNEL);
 
 	if (record_test_buf == NULL) {
 		aError("Memory allocation failed\n");
 		return;
-	}*/
+	}
 
 	codecVal = Val5;	/* 0 for 8k PCM */
 	voip_codec.codec_type = cur_codecVal = codecVal;
@@ -1322,16 +1323,18 @@ void AUDTST_VoIP(UInt32 Val2, UInt32 Val3, UInt32 Val4, UInt32 Val5,
 
 	if ((codecVal == 4) || (codecVal == 5)) {
 		/* WB has to use AUDIO_APP_VOICE_CALL_WB */
-		app_profile = AUDIO_Policy_Get_Profile(AUDIO_APP_VOICE_CALL_WB);
+		app_profile = AUDIO_Policy_Get_Profile(
+					AUDIO_APP_VOICE_CALL_WB);
 		if (app_profile != AUDIO_APP_VOICE_CALL_WB) {
 			aWarn("App policy does not allow change to"
-					"AUDIO_APP_VOICE_CALL_WB\n");
+				"AUDIO_APP_VOICE_CALL_WB\n");
 		}
 	} else { /* NB VoIP case */
-		app_profile = AUDIO_Policy_Get_Profile(AUDIO_APP_LOOPBACK);
+		app_profile = AUDIO_Policy_Get_Profile(
+					AUDIO_APP_LOOPBACK);
 		if (app_profile != AUDIO_APP_LOOPBACK) {
 			aWarn("App policy does not allow change to"
-					"AUDIO_APP_LOOPBACK\n");
+				"AUDIO_APP_LOOPBACK\n");
 		}
 	}
 
@@ -1356,19 +1359,7 @@ void AUDTST_VoIP(UInt32 Val2, UInt32 Val3, UInt32 Val4, UInt32 Val5,
 	AUDCTRL_NS(FALSE);
 #endif
 
-#ifdef CONFIG_ENABLE_VOIF
-	VoIF_setLoopbackMode(1);
-#endif
 	AUDCTRL_EnableTelephony(mic, spk);
-
-	// disable NLP due to volume fluctuation for loopback case only, ported from BCM215x / BCM2133x platform.
-	// reset EC/NLP after AUDCTRL_EnableTelephony() calls AUDDRV_Telephony_Init().
-//	if(mode != AUDIO_MODE_SPEAKERPHONE)
-	{
-//		aTrace(LOG_AUDIO_DRIVER, "\n AUDCTRL_ECreset_NLPoff for ear, rcv\n");
-		AUDCTRL_ECreset_NLPoff(TRUE);
-	}	
-
 	AUDCTRL_SetTelephonySpkrVolume(spk, vol, AUDIO_GAIN_FORMAT_mB);
 
 	/* init driver */
@@ -1388,8 +1379,7 @@ void AUDTST_VoIP(UInt32 Val2, UInt32 Val3, UInt32 Val4, UInt32 Val5,
 	AUDIO_DRIVER_Ctrl(drv_handle, AUDIO_DRIVER_SET_VOIP_DL_CB,
 			  (void *)&cbParams);
 
-	//dataDest = (UInt8 *) &record_test_buf[0];
-	dataDest = (UInt8 *) &playback_audiotest[0];
+	dataDest = (UInt8 *) &record_test_buf[0];
 
 	sVtQueue = AUDQUE_Create(dataDest, 2000, 322);
 	if (sVtQueue == NULL) {
@@ -1416,13 +1406,11 @@ void AUDTST_VoIP_Stop(void)
 
 		/* disable the hw */
 		AUDCTRL_DisableTelephony();
-
-#ifdef CONFIG_ENABLE_VOIF
-	VoIF_setLoopbackMode(0);
-#endif
-		
 		/*Restore the App policy state*/
 		AUDIO_Policy_RestoreState();
+
+		/*may need it to avoid crash or freeze*/
+		/*msleep(200);*/
 
 		OSSEMAPHORE_Destroy(AUDDRV_BufDoneSema);
 		OSSEMAPHORE_Destroy(sVtQueue_Sema);
@@ -1439,3 +1427,4 @@ void AUDTST_VoIP_Stop(void)
 	aTrace(LOG_AUDIO_DRIVER, "\nVoIP: Finish\n");
 
 }
+

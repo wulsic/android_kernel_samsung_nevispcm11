@@ -2,23 +2,13 @@
 # Misc strange devices
 #
 
-# This one has to live outside of the MISC_DEVICES conditional,
-# because it may be selected by drivers/platform/x86/hp_accel.
+menu "Misc devices"
+
 config SENSORS_LIS3LV02D
 	tristate
 	depends on INPUT
 	select INPUT_POLLDEV
 	default n
-
-menuconfig MISC_DEVICES
-	bool "Misc devices"
-	---help---
-	  Say Y here to get to see options for device drivers from various
-	  different categories. This option alone does not add any kernel code.
-
-	  If you say N, all options in this submenu will be skipped and disabled.
-
-if MISC_DEVICES
 
 config AD525X_DPOT
 	tristate "Analog Devices Digital Potentiometers"
@@ -85,7 +75,7 @@ config ANDROID_PMEM_LOW_MEMORY_KILLER
 
 config ATMEL_PWM
 	tristate "Atmel AT32/AT91 PWM support"
-	depends on AVR32 || ARCH_AT91SAM9263 || ARCH_AT91SAM9RL || ARCH_AT91CAP9
+	depends on HAVE_CLK
 	help
 	  This option enables device driver support for the PWM channels
 	  on certain Atmel processors.  Pulse Width Modulation is used for
@@ -168,6 +158,7 @@ config PHANTOM
 
 config INTEL_MID_PTI
 	tristate "Parallel Trace Interface for MIPI P1149.7 cJTAG standard"
+	depends on PCI
 	default n
 	help
 	  The PTI (Parallel Trace Interface) driver directs
@@ -373,6 +364,16 @@ config ISL29020
 	  This driver can also be built as a module.  If so, the module
 	  will be called isl29020.
 
+config ISL290XX
+        tristate "Intersil ISL290xx ambient light sensor"
+        depends on I2C
+        help
+          If you say yes here you get support for the Intersil ISL290XX
+          ambient light sensor.
+
+          This driver can also be built as a module.  If so, the module
+          will be called isl290xx.
+
 config SENSORS_TSL2550
 	tristate "Taos TSL2550 ambient light sensor"
 	depends on I2C && SYSFS
@@ -472,21 +473,30 @@ config BMP18X_SPI
 		To compile this driver as a module, choose M here: the
 		module will be called bmp18x-spi.
 
-config SENSORS_BMA150
-	tristate "BMA150 accelerometer sensor"
-	depends on I2C && BRCM_VIRTUAL_SENSOR
+config SENSORS_KIONIX_KXTIK
+	tristate "Analog Devices KIONIX KXTIK Three-Axis Digital Accelerometer"
+	depends on I2C && SYSFS
 	help
-		Say Y or M here if you have BCMRING or BCMHANA and want to
-		support Bosch Sensortec BMA150 accelerometer.
-		If unsure, say N.
+                Say Y or M here if you want to support Bosch Sensortec BMA150
+		accelerometer.
+                If unsure, say N.
 
-config SENSORS_MPU3050
-	tristate "MPU3050 gyro sensor"
-	depends on I2C && BRCM_VIRTUAL_SENSOR
+
+config AMI306
+	tristate "AMI306 Compass Sensors"
+	default n
+	depends on I2C
 	help
-		Say Y or M here if you have BCMHANA and want to
-		support InvenSense MPU3050 gyro.
-		If unsure, say N.
+		If you say yes here you get support for
+		AMI306 standalone compass driver provided by Aichi Stell
+
+
+config SENSORS_AK8963
+	tristate "AK8963 compass support"
+	depends on I2C
+	help
+	  If you say yes here you get support for Asahi Kasei's
+	  orientation sensor AK8963.
 
 config SENSORS_AK8975
 	tristate "AK8975 compass support"
@@ -504,35 +514,6 @@ config SENSORS_AK8975_BRCM
 	  If you say yes here you get support for Asahi Kasei's
 	  orientation sensor AK8975.
 
-config SENSORS_BMA222
-	tristate "BMA acceleration sensor support"
-	depends on I2C
-	default n
-	help
-	  If you say yes here you get support for Bosch Sensortec's 
-	  acceleration sensors BMA.
-
-config SENSORS_K3DH
-	tristate "K3DH acceleration sensor support"
-	depends on I2C
-	default n
-	help
-	  Driver for STMicroelectronic K3DH accelerometer.
-
-config SENSORS_ACC_12BIT
-	tristate "12bit acceleration sensor support"
-	depends on I2C
-	default n
-	help
-	  Driver for 12bit accelerometer.
-
-config SENSORS_ACC_FILTER
-	tristate "acceleration sensor filter support"
-	depends on I2C
-	default n
-	help
-	  Driver for 12bit accelerometer.
-
 config SENSORS_GP2AP002
 	tristate "GP2AP002 sensor support"
 	depends on I2C
@@ -540,67 +521,20 @@ config SENSORS_GP2AP002
 	help
 	  If you say yes here you get support for Sharp's sensor GP2A.
 
-config SENSORS_TAOS
-	tristate "TAOS sensor support"
-	depends on I2C
-	default n
-	help
-	  If you say yes here you get support for sensor TAOS.
-
-config SENSORS_PX3215
-	tristate "PX3215 sensor support"
-	depends on I2C
-	default n
-	help
-	  If you say yes here you get support for Liteon's sensor PX3215.
-
-config SENSORS_MMC328X
-	tristate "MEMSIC Magnetic Sensor MMC328X Driver Support"
-	depends on I2C
-	default n
-	help
-	  If you say yes here you get support for the MEMSIC magnateic sensor
-
-config SENSORS_HSCD
-	tristate "ALPS Magnetic Sensor HSCD Driver Support"
-         depends on I2C
-	default n
-         help
-	  If you say yes here you get support for the ALPS magnateic sensor
-
-config SENSORS_HSCDTD006A
-	tristate "ALPS Magnetic Sensor HSCDTD006A Driver Support"
-         depends on I2C
-	default n
-         help
-	  If you say yes here you get support for the ALPS magnateic sensor
-
-config SENSORS_HSCDTD008A
-	tristate "ALPS Magnetic Sensor HSCDTD008A Driver Support"
-         depends on I2C
-	default n
-         help
-	  If you say yes here you get support for the ALPS magnateic sensor
-
-config SENSORS_MAG_15BIT
-	tristate "15bit Magnetic Sensor Driver Support"
-         depends on I2C
-	default n
-         help
-	  If you say yes here you get support for the ALPS magnateic sensor
-
 config SENSORS_BMC150
 	tristate "BMC150 6-axis Accelerometer and Magnetic Sensor Driver"
-         depends on I2C
+        depends on I2C
 	default n
 	help
 	 BMM050 Magnetic Sensor Driver implemented by Bosch-Sensortec.
 
-config SENSORS_CORE
-	tristate "Sensors core"
+config INPUT_BMA2x2_ACC_ALERT_INT
+	tristate "BMA255/BMA250E/BMA222E/BMA280 acceleration sensor support"
+	depends on I2C
+	default n
 	help
-	  Say Y here to enable debugging messages for power supply class
-	  and drivers.
+	  If you say yes here you get support for Bosch Sensortec's
+	  acceleration sensors BMA255/BMA250E/BMA222E/BMA280.
 
 config EP93XX_PWM
 	tristate "EP93xx PWM support"
@@ -705,6 +639,89 @@ config PCH_PHUB
 	  To compile this driver as a module, choose M here: the module will
 	  be called pch_phub.
 
+config USB_SWITCH_FSA9480
+	tristate "FSA9480 USB Switch"
+	depends on I2C
+	help
+	  The FSA9480 is a USB port accessory detector and switch.
+	  The FSA9480 is fully controlled using I2C and enables USB data,
+	  stereo and mono audio, video, microphone and UART data to use
+	  a common connector port.
+
+config USB_SWITCH_TSU6111
+	tristate "TSU6111 USB Switch"
+	depends on I2C
+	help
+	  The TSU6111 is a USB port accessory detector and switch.
+	  The TSU6111 is fully controlled using I2C and enables USB data,
+	  stereo and mono audio, video, microphone and UART data to use
+	  a common connector port.
+
+config USB_SWITCH_TSU6721
+	tristate "TSU6721 USB Switch"
+	depends on I2C
+	help
+	  The TSU6721 is a USB port accessory detector and switch.
+	  The TSU6721 is fully controlled using I2C and enables USB data,
+	  stereo and mono audio, video, microphone and UART data to use
+	  a common connector port.
+
+config MFD_RT
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RT8973
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RT_I2C_MUSC
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RT8973_CM_AUTO
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RTMUSC_INT_CONFIG
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RTMUSC_IRQ_NUMBER
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RT_SYSFS_DBG
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config RT_SHOW_INFO
+	tristate "Richtek USB Switch"
+	depends on I2C
+	help
+	  The RT8973 is a USB port accessory detector and switch.
+
+config MAX8997_MUIC
+	tristate "MAX8997 MUIC Support"
+	depends on MFD_MAX8997
+	help
+	  If you say yes here you get support for the MUIC device of
+	  Maxim MAX8997 PMIC.
+	  The MAX8997 MUIC is a USB port accessory detector and switch.
+
 config WL127X_RFKILL
 	tristate "Bluetooth power control driver for TI wl127x"
 	depends on RFKILL
@@ -721,20 +738,13 @@ config BTHID
 	This driver adds support for HID for Broadcom bluetooth
 	devices.
 
-config APANIC
-	bool "Android kernel panic diagnostics driver"
-	default n
-	---help---
-	 Driver which handles kernel panics and attempts to write
-	 critical debugging data to flash.
-
 config APANIC_PLABEL
-	string "Android panic dump flash partition label"
-	depends on APANIC || APANIC_ON_MMC
-	default "kpanic"
-	---help---
-	 If your platform uses a different flash partition label for storing
- 	 crashdumps, enter it here.
+        string "Android panic dump flash partition label"
+        depends on APANIC_ON_MMC
+        default "kpanic"
+        ---help---
+         If your platform uses a different flash partition label for storing
+         crashdumps, enter it here.
 
 config APANIC_ON_MMC
 	bool "Dump panic info on eMMC"
@@ -792,20 +802,13 @@ config BCM59055_SELFTEST
 
 config BCMPMU_AUDIO
         tristate "BCM PMU Audio Driver"
-        depends on MFD_BCMPMU
+        depends on (MFD_BCMPMU || MFD_BCM_PMU59xxx || MFD_BCM_PMU59056)
         help
           If you say Y to support Audio drive on BCM PMUs.
 
-config D2083_AUDIO
-	tristate "D2083 Audio driver"
-	depends on MFD_D2083
-        help
-          If you say Y to support Audio drive on DIALOG PMUs.
-
-	
 config BCMPMU_SELFTEST
         bool "BCM PMU Selftest Driver"
-        depends on MFD_BCMPMU
+        depends on MFD_BCMPMU || MFD_BCM_PMU59056
 	default n
         help
           If you say Y to support selftest drive on BCM PMUs.
@@ -857,7 +860,7 @@ config BCM_RFKILL
 
 config BCM_BT_LPM
 	bool "BCM BT Low Power support"
-	default n
+	default y
 	help
 	  This driver adds LPM tty ldisc support for Broadcom bluetooth BT chips.
 	  If your platform uses a BCMxxxx chip for BT, FM or GPS connectivity
@@ -882,13 +885,9 @@ config BCM_USERFAULT_HANDLER
 	  enable/disable crash on user fault. This could be used to
 	  get full dumps of ram on user fault.
 
-config AMI306
-  tristate "AMI306 Compass Sensors"
-  default n
-  depends on I2C
-  help
-    If you say yes here you get support for
-    AMI306 standalone compass driver provided by Aichi Stell
+config SEC_MAKE_LCD_TEST
+	tristate "For LCD TEST Binary"
+	default n
 
 source "drivers/misc/Kconfig.stm"
 source "drivers/misc/c2port/Kconfig"
@@ -898,8 +897,8 @@ source "drivers/misc/iwmc3200top/Kconfig"
 source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
+source "drivers/misc/altera-stapl/Kconfig"
 source "drivers/misc/btport/Kconfig"
 source "drivers/misc/emmc_rpmb/Kconfig"
 source "drivers/misc/bmc150/Kconfig"
-
-endif # MISC_DEVICES
+endmenu

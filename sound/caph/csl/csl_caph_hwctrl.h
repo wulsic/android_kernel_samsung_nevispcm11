@@ -150,9 +150,6 @@ struct __CSL_CAPH_HWCTRL_CONFIG_t {
 	AUDIO_NUM_OF_CHANNEL_t chnlNum;
 	AUDIO_BITS_PER_SAMPLE_t bitPerSample;
 	Int32 sidetone_mode;
-#if defined(CONFIG_STEREO_SPEAKER)
-	Int32 isStereo_mode;
-#endif
 };
 #define CSL_CAPH_HWCTRL_CONFIG_t struct __CSL_CAPH_HWCTRL_CONFIG_t
 
@@ -820,29 +817,6 @@ void csl_caph_SetSRC26MClk(Boolean is26M);
 ****************************************************************************/
 void csl_caph_classG_ctrl(struct classg_G_ctrl *pClassG);
 
-int csl_caph_FindPathWithSink(CSL_CAPH_DEVICE_e sink, int skip_path);
-
-#if defined(CONFIG_D2083_AUDIO)
-/****************************************************************************
-*
-*  Function Name: csl_caph_GetMulticastChannel
-*
-*  Description: Get channel sample_mode for multicast support
-*
-*****************************************************************************/
-AUDIO_NUM_OF_CHANNEL_t csl_caph_GetMulticastChannel(void);
-
-/****************************************************************************
-*
-*  Function Name: csl_caph_SetMulticastChannel
-*
-*  Description: Set channel sample_mode for multicast support
-*
-*****************************************************************************/
-void csl_caph_SetMulticastChannel(AUDIO_NUM_OF_CHANNEL_t chnl, Boolean forced);
-#endif
-
-void csl_caph_hwctrldump(void);
 
 #if defined(CONFIG_BCM_MODEM)
 /****************************************************************************
@@ -865,4 +839,13 @@ void csl_caph_enable_adcpath_by_dsp(UInt16 enabled_path);
 *
 *****************************************************************************/
 void csl_caph_hwctrl_PrintAllPaths(void);
+void csl_caph_dspcb(int path);
+void csl_caph_hwctrl_SetLongDma(CSL_CAPH_PathID pathID);
+#if defined(CONFIG_MFD_BCM59039) | defined(CONFIG_MFD_BCM59042)
+Boolean csl_caph_hwctrl_allPathsDisabled(void);
+Boolean  csl_caph_IsHSActive(void);
+void csl_caph_ClockLock(void);
+void csl_caph_ClockUnLock(void);
+Boolean csl_caph_ClockWaitStatus(void);
+#endif
 #endif

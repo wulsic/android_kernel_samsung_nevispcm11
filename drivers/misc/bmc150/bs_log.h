@@ -1,3 +1,14 @@
+/*
+ * (C) Copyright 2013 Bosch Sensortec GmbH All Rights Reserved
+ *
+ * This software program is licensed subject to the GNU General Public License
+ * (GPL).Version 2,June 1991, available at http://www.fsf.org/copyleft/gpl.html
+ *
+ * @date        Apr 28th, 2011
+ * @version     v1.0
+ * @brief       Log API for Bosch MEMS Sensor drivers
+ */
+
 #ifndef __BS_LOG_H
 #define __BS_LOG_H
 

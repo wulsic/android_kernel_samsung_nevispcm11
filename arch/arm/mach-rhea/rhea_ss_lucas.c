@@ -1342,66 +1342,264 @@ static struct platform_device gps_hostwake= {
 
 static struct i2c_board_info rhea_i2c_camera[] = {
 	{
-		I2C_BOARD_INFO("camdrv_ss", S5K4ECGX_I2C_ADDRESS),
+		I2C_BOARD_INFO("s5k4ecgx", S5K4ECGX_I2C_ADDRESS),
 	},
 };
 
 static struct i2c_board_info rhea_i2c_camera_sub[] = {
 	{
-		I2C_BOARD_INFO("camdrv_ss_sub", SR030PC50_I2C_ADDRESS),
+		I2C_BOARD_INFO("sr030pc50", SR030PC50_I2C_ADDRESS),
 	},
 };
+//@HW
+//Power (common)
+static struct regulator *VCAM_IO_1_8_V;  //LDO_HV9
+static struct regulator *VCAM_A_2_8_V;   //LDO_CAM12/12/2011
+#define CAM_CORE_EN                  42
+#define CAM_AF_EN     121
+
+//main cam 
+#define CAM0_RESET    33
+#define CAM0_STNBY    111
+
+//sub cam
+#define CAM1_RESET    23
+#define CAM1_STNBY    34
+
+#define SENSOR_0_CLK			"dig_ch0_clk"    //(common)
+#define SENSOR_0_CLK_FREQ		(26000000) //@HW, need to check how fast this meaning.
+
+//flash
+//#define	CAM_FLASH_MODE 
+//#define       CAM_FLASH_EN  
 
 static int rhea_camera_power_sub(struct device *dev, int on)
 {
-	printk("rhea_camera_power_sub %d\n",on);
-	if(!camdrv_ss_power(1,(bool)on))
-{
-	     printk("%s,camdrv_ss_power failed for subcam !!!\n", __func__);
-			return -1;
-		}
-
+	printk(" %s \n",__func__);
 	return 0;
-	}
+}
 
 static int rhea_camera_power(struct device *dev, int on)
-	{
+{
+	unsigned int value;
+	struct clk *clock;
+	struct clk *axi_clk;
+	static struct pi_mgr_dfs_node *unicam_dfs_node = NULL; 
 
-	printk("rhea_camera_power %d\n",on);
-	if(!camdrv_ss_power(0,(bool)on))
-	{
-	  printk("%s,camdrv_ss_power failed for MAIN CAM!! \n", __func__);
+	printk(KERN_INFO "%s:camera power %s\n", __func__, (on ? "on" : "off"));
+
+	if (NULL == unicam_dfs_node) {
+		unicam_dfs_node = pi_mgr_dfs_add_request(&unicam_dfs_node, "unicam", PI_MGR_PI_ID_MM,
+                                           PI_MGR_DFS_MIN_VALUE);
+//#		unicam_dfs_node = pi_mgr_dfs_add_request("unicam", PI_MGR_PI_ID_MM, PI_MGR_DFS_MIN_VALUE);
+		if (NULL == unicam_dfs_node) {
+			printk(KERN_ERR "%s: failed to register PI DFS request\n", __func__);
 			return -1;
 		}
-    return 0;
+	}
 
+	clock = clk_get(NULL, SENSOR_0_CLK);
+	if (IS_ERR_OR_NULL(clockaxi_clk)) {
+		printk(KERN_ERR "%s: unable to get clock %s\n", __func__, SENSOR_0_CLK);
+		return -1;
+	}
+	axi_clk = clk_get(NULL, "csi0_axi_clk");
+	if (!axi_clk) {
+		printk(KERN_ERR "%s:unable to get clock csi0_axi_clk\n", __func__);
+		return -1;
+	}
+	VCAM_A_2_8_V = regulator_get(NULL,"cam");
+	if(IS_ERR(VCAM_A_2_8_V))
+	{
+		printk("can not get VCAM_A_2_8_V.8V\n");
+		return -1;
+	}
+	regulator_set_voltage(VCAM_A_2_8_V,2800000,2800000);
+	//ret = regulator_disable(VCAM_A_2_8_V);
+
+	VCAM_IO_1_8_V = regulator_get(NULL,"hv9");
+	if(IS_ERR(VCAM_IO_1_8_V))
+	{
+		printk("can not get VCAM_IO_1.8V\n");
+		return -1;
+	}	
+	regulator_set_voltage(VCAM_IO_1_8_V,1800000,1800000);	
+	//ret = regulator_disable(VCAM_IO_1_8_V);
+
+	
+	gpio_request(CAM_CORE_EN, "cam_1_2v");
+	gpio_direction_output(CAM_CORE_EN,0); 
+
+	gpio_request(CAM_AF_EN, "cam_af_2_8v");
+	gpio_direction_output(CAM_AF_EN,0); 
+	
+	printk("set cam_rst cam_stnby  to low\n");
+	gpio_request(CAM0_RESET, "cam0_rst");
+	gpio_direction_output(CAM0_RESET,0);
+	
+	gpio_request(CAM0_STNBY, "cam0_stnby");
+	gpio_direction_output(CAM0_STNBY,0);
+		
+	gpio_request(CAM1_RESET, "cam1_rst");
+	gpio_direction_output(CAM1_RESET,0);
+
+	gpio_request(CAM1_STNBY, "cam1_stnby");
+	gpio_direction_output(CAM1_STNBY,0);
+
+//	value = ioread32(padctl_base + PADCTRLREG_DCLK1_OFFSET) & (~PADCTRLREG_DCLK1_PINSEL_DCLK1_MASK);
+//		iowrite32(value, padctl_base + PADCTRLREG_DCLK1_OFFSET);
+
+
+	if(on)
+	{
+		printk("power on the sensor \n"); //@HW
+		if (pi_mgr_dfs_request_update(unicam_dfs_node, PI_OPP_TURBO)) {
+			printk(KERN_ERR "%s:failed to update dfs request for unicam\n", __func__);
+			return -1;
+		}
+
+		value = clk_enable(axi_clk);
+		if (value) {
+			printk(KERN_ERR "%s:failed to enable csi2 axi clock\n", __func__);
+			return -1;
+		}
+
+		msleep(100);
+		printk("power on the sensor's power supply\n"); //@HW
+
+	
+		gpio_request(CAM_CORE_EN, "cam_1_2v");
+		gpio_set_value(CAM_CORE_EN,1); 
+		msleep(1);
+
+		VCAM_A_2_8_V = regulator_get(NULL,"cam");
+		if(IS_ERR(VCAM_A_2_8_V))
+		{
+			printk("can not get VCAM_A_2_8_V.8V\n");
+			return -1;
+		}
+		regulator_set_voltage(VCAM_A_2_8_V,2800000,2800000);
+		
+		regulator_enable(VCAM_A_2_8_V);
+		msleep(1);
+		
+
+		VCAM_IO_1_8_V = regulator_get(NULL,"hv9");
+		if(IS_ERR(VCAM_IO_1_8_V))
+		{
+			printk("can not get VCAM_IO_1.8V\n");
+			return -1;
+		}	
+		regulator_set_voltage(VCAM_IO_1_8_V,1800000,1800000);
+		regulator_enable(VCAM_IO_1_8_V);
+	
+		msleep(1);	
+		
+		gpio_set_value(CAM1_STNBY,1);
+		msleep(5);
+	
+		value = clk_enable(clock);
+		if (value) {
+			printk(KERN_ERR "%s: failed to enable clock %s\n", __func__,
+				SENSOR_0_CLK);
+			return -1;
+		}
+		printk("enable camera clock\n");
+		value = clk_set_rate(clock, SENSOR_0_CLK_FREQ);
+		if (value) {
+			printk(KERN_ERR "%s: failed to set the clock %s to freq %d\n",
+					__func__, SENSOR_0_CLK, SENSOR_0_CLK_FREQ);
+			return -1;
+		}
+		printk("set rate\n");
+        msleep(1);
+
+		gpio_set_value(CAM1_RESET,1);
+ 		msleep(6);
+
+		gpio_set_value(CAM1_STNBY,0);
+		msleep(1);
+		
+		gpio_set_value(CAM0_STNBY,1);
+		msleep(1);
+
+		gpio_set_value(CAM0_RESET,1);
+		msleep(1);
+	
+		printk("set cam rst to high\n");
+		msleep(50);
+	}
+	else
+	{
+
+		/* enable reset gpio */
+		gpio_set_value(CAM0_RESET,0);
+		msleep(1);
+		
+        clk_disable(clock);
+		clk_disable(axi_clk);
+
+		gpio_set_value(CAM0_STNBY,0);
+        msleep(1);
+
+		gpio_set_value(CAM1_RESET,0);
+        msleep(1);
+		
+		/* enable power down gpio */
+
+		regulator_disable(VCAM_IO_1_8_V);
+		regulator_disable(VCAM_A_2_8_V);
+
+		gpio_set_value(CAM_CORE_EN, 0);
+
+		if (pi_mgr_dfs_request_update(unicam_dfs_node, PI_MGR_DFS_MIN_VALUE)) {
+			printk(KERN_ERR "%s: failed to update dfs request for unicam\n", __func__);
+		}
+	}
+    return 0;
 }
 
 static int rhea_camera_reset(struct device *dev)
 {
 	/* reset the camera gpio */
-	
+	printk(KERN_INFO"%s:camera reset\n", __func__);
 	return 0;
 }
 static int rhea_camera_reset_sub(struct device *dev)
 {
 	/* reset the camera gpio */
-	
+	printk(KERN_INFO" %s:camera reset\n", __func__);
 	return 0;
 }
+#if 0
+static struct soc_camera_link iclink_ov5640 = {
+	.bus_id		= 0,
+	.board_info	= &rhea_i2c_camera[0],
 
+	.i2c_adapter_id	= 0,
+	.module_name	= "ov5640",
+	.power		= &rhea_camera_power,
+	.reset		= &rhea_camera_reset,
+};
+
+static struct platform_device rhea_camera = {
+	.name	= "soc-camera-pdrv",
+	.id		= 0,
+	.dev	= {
+		.platform_data = &iclink_ov5640,
+	},
+};
+#else
 
 static struct v4l2_subdev_sensor_interface_parms s5k4ecgx_if_params = {
 	.if_type = V4L2_SUBDEV_SENSOR_SERIAL,
 	.if_mode = V4L2_SUBDEV_SENSOR_MODE_SERIAL_CSI2,
-	.orientation =V4L2_SUBDEV_SENSOR_PORTRAIT,
-	.facing = V4L2_SUBDEV_SENSOR_BACK,
+    .orientation =V4L2_SUBDEV_SENSOR_LANDSCAPE,
 	.parms.serial = {
-		.lanes = 2,
+		.lanes = 1,
 		.channel = 0,
 		.phy_rate = 0,
-		.pix_clk = 0,
-		.hs_term_time = 0x7
+		.pix_clk = 0
 	},
 };
 
@@ -1411,7 +1609,7 @@ static struct soc_camera_link iclink_s5k4ecgx = {
 	
 	.board_info	= &rhea_i2c_camera[0],
 	.i2c_adapter_id	= 0,
-	.module_name	= "camdrv_ss",
+	.module_name	= "s5k4ecgx",
 	.power		= &rhea_camera_power,
 	.reset		= &rhea_camera_reset,
 	.priv		= &s5k4ecgx_if_params,
@@ -1426,17 +1624,16 @@ static struct platform_device rhea_camera = {
 };
 
 
+
 static struct v4l2_subdev_sensor_interface_parms sr030pc50_if_params = {
 	.if_type = V4L2_SUBDEV_SENSOR_SERIAL,
 	.if_mode = V4L2_SUBDEV_SENSOR_MODE_SERIAL_CSI2,
-	.orientation =V4L2_SUBDEV_SENSOR_PORTRAIT,
-	.facing = V4L2_SUBDEV_SENSOR_FRONT,
+    .orientation =V4L2_SUBDEV_SENSOR_LANDSCAPE,
 	.parms.serial = {
 		.lanes = 1,
-		.channel = 1,
+		.channel = 0,
 		.phy_rate = 0,
-		.pix_clk = 0,
-		.hs_term_time = 0x7
+		.pix_clk = 0
 	},
 };
 static struct soc_camera_link iclink_sr030pc50 = {
@@ -1444,7 +1641,7 @@ static struct soc_camera_link iclink_sr030pc50 = {
 	
 	.board_info	= &rhea_i2c_camera_sub[0],
 	.i2c_adapter_id	= 0,
-	.module_name	= "camdrv_ss_sub",
+	.module_name	= "sr030pc50",
 	.power		= &rhea_camera_power_sub,
 	.reset		= &rhea_camera_reset_sub,
 	.priv		= &sr030pc50_if_params,
@@ -1457,16 +1654,17 @@ static struct platform_device rhea_camera_sub = {
 		.platform_data = &iclink_sr030pc50,
 	},
 };
+#endif
 
 
 #ifdef CONFIG_WD_TAPPER
 static struct wd_tapper_platform_data wd_tapper_data = {
-  /* Set the count to the time equivalent to the time-out in seconds
+  /* Set the count to the time equivalent to the time-out in milliseconds
    * required to pet the PMU watchdog to overcome the problem of reset in
    * suspend*/
-	.count = 120,
-	.ch_num = 1,
-	.name = "aon-timer",
+  .count = 120000,
+  .ch_num = 1,
+  .name = "aon-timer",
 };
 
 static struct platform_device wd_tapper = {

@@ -1,11 +1,12 @@
 /*
- * Last modified: Arp 28, 2011
- * Revision: V1.0
+ * (C) Copyright 2013 Bosch Sensortec GmbH All Rights Reserved
+ *
  * This software program is licensed subject to the GNU General Public License
  * (GPL).Version 2,June 1991, available at http://www.fsf.org/copyleft/gpl.html
-
- * (C) Copyright 2011 Bosch Sensortec GmbH
- * All Rights Reserved
+ *
+ * @date        Apr 28th, 2011
+ * @version     v1.0
+ * @brief       BMM050 Linux Driver API
  */
 
 #include "bmm050.h"
@@ -240,6 +241,7 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_read_mdataXYZ(struct bmm050_mdata *mdata)
 
 	    /* Output raw resistance value */
 	    mdata->resistance = raw_dataXYZ.raw_dataR;
+
 	}
 	return comres;
 }
@@ -249,7 +251,7 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_read_mdataXYZ_s32(
 {
 	BMM050_RETURN_FUNCTION_TYPE comres;
 
-	unsigned char a_data_u8r[8];
+	unsigned char a_data_u8r[8] = "";
 
 	struct {
 		BMM050_S16 raw_dataX;
@@ -286,6 +288,10 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_read_mdataXYZ_s32(
 					SHIFT_LEFT_7_POSITION) | a_data_u8r[4]);
 
 		/* Reading data for Resistance*/
+		if (!comres)
+			mdata->drdy = BMM050_GET_BITSLICE(a_data_u8r[6],
+					BMM050_DATA_RDYSTAT);
+
 		a_data_u8r[6] = BMM050_GET_BITSLICE(a_data_u8r[6],
 				BMM050_R_LSB_VALUE);
 		raw_dataXYZ.raw_dataR = (BMM050_U16)((((BMM050_U16)
@@ -385,7 +391,7 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_read_register(unsigned char addr,
 	if (p_bmm050 == BMM050_NULL) {
 		comres = E_BMM050_NULL_PTR;
 	} else {
-		comres += p_bmm050->BMM050_BUS_READ_FUNC(p_bmm050->dev_addr,
+		comres = p_bmm050->BMM050_BUS_READ_FUNC(p_bmm050->dev_addr,
 			addr, data, len);
    }
 	return comres;
@@ -518,13 +524,7 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_perform_advanced_selftest(
 		/* set sleep mode to prepare for forced measurement.
 		 * If sensor is off, this will turn it on
 		 * and respect needed delays. */
-		p_bmm050->delay_msec(100);
-		comres = bmm050_set_functional_state(BMM050_SUSPEND_MODE);
-
-		p_bmm050->delay_msec(20);
 		comres = bmm050_set_functional_state(BMM050_SLEEP_MODE);
-
-		p_bmm050->delay_msec(20);
 
 		/* set normal accuracy mode */
 		comres |= bmm050_set_repetitions_Z(BMM050_LOWPOWER_REPZ);
@@ -1129,7 +1129,6 @@ BMM050_RETURN_FUNCTION_TYPE bmm050_get_raw_xyz(struct bmm050_mdata *mdata)
 	if (p_bmm050 == BMM050_NULL) {
 		comres = E_BMM050_NULL_PTR;
 	} else {
-		p_bmm050->delay_msec(10);
 		comres = p_bmm050->BMM050_BUS_READ_FUNC(p_bmm050->dev_addr,
 				BMM050_DATAX_LSB, a_data_u8r, 6);
 

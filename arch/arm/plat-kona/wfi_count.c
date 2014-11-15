@@ -32,6 +32,7 @@ static int __init wfi_workaround_init( void )
    {
       printk(KERN_ERR "%s: could not register sysctl table\n", __FUNCTION__);
    }
+   return 0;
 }
 
 __initcall( wfi_workaround_init );

@@ -174,7 +174,8 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"JO", "XZ", 1},
 	{"PG", "XZ", 1},
 	{"SA", "XZ", 1},
-#endif
+	{"CN", "CL", 0},
+#endif /* BCM4330_CHIP */
 	{"UA", "UA", 2}
 };
 
@@ -205,7 +206,7 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 	return;
 }
 
-#ifdef SLP_PATH
+#if defined(CUSTOMER_HW4) && defined(PLATFORM_SLP)
 #define CIDINFO "/opt/etc/.cid.info"
 #define PSMINFO "/opt/etc/.psm.info"
 #define MACINFO "/opt/etc/.mac.info"
@@ -218,7 +219,7 @@ void get_customized_country_code(char *country_iso_code, wl_country_t *cspec)
 #define	REVINFO "/data/.rev"
 #define CIDINFO "/data/.cid.info"
 #define PSMINFO "/data/.psm.info"
-#endif /* SLP_PATH */
+#endif /* CUSTOMER_HW4 && PLATFORM_SLP */
 
 #ifdef READ_MACADDR
 int dhd_read_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
@@ -229,11 +230,6 @@ int dhd_read_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
 	char randommac[3]    = {0};
 	char buf[18]         = {0};
 	char *filepath_efs       = MACINFO_EFS;
-#ifdef CONFIG_TARGET_LOCALE_VZW
-	char *nvfilepath       = "/data/misc/wifi/.nvmac.info";
-#else
-	char *nvfilepath       = NVMACINFO;
-#endif
 	int ret = 0;
 
 		fp = filp_open(filepath_efs, O_RDONLY, 0);
@@ -1121,81 +1117,6 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 		filp_close(fp, NULL);
 }
 #endif /* CONFIG_CONTROL_PM */
-#ifdef GLOBALCONFIG_WLAN_COUNTRY_CODE
-int dhd_customer_set_country(dhd_pub_t *dhd)
-{
-	struct file *fp = NULL;
-	char *filepath = "/data/.ccode.info";
-	char iovbuf[WL_EVENTING_MASK_LEN + 12] = {0};
-	char buffer[10] = {0};
-	int ret = 0;
-	wl_country_t cspec;
-	int buf_len = 0;
-	char country_code[WLC_CNTRY_BUF_SZ];
-	int country_rev;
-	int country_offset;
-	int country_code_size;
-	char country_rev_buf[WLC_CNTRY_BUF_SZ];
-	fp = filp_open(filepath, O_RDONLY, 0);
-	if (IS_ERR(fp)) {
-		DHD_ERROR(("%s: %s open failed\n", __FUNCTION__, filepath));
-		return -1;
-	} else {
-		if (kernel_read(fp, 0, buffer, sizeof(buffer))) {
-			memset(&cspec, 0, sizeof(cspec));
-			memset(country_code, 0, sizeof(country_code));
-			memset(country_rev_buf, 0, sizeof(country_rev_buf));
-			country_offset = strcspn(buffer, " ");
-			country_code_size = country_offset;
-			if (country_offset != 0) {
-				strncpy(country_code, buffer, country_offset);
-				strncpy(country_rev_buf, buffer+country_offset+1,
-					strlen(buffer) - country_code_size + 1);
-				country_rev = bcm_atoi(country_rev_buf);
-				buf_len = bcm_mkiovar("country", (char *)&cspec,
-					sizeof(cspec), iovbuf, sizeof(iovbuf));
-				ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, buf_len, FALSE, 0);
-				memcpy((void *)&cspec, iovbuf, sizeof(cspec));
-				if (!ret) {
-					DHD_ERROR(("%s: get country ccode:%s"
-						" country_abrev:%s rev:%d  \n",
-						__FUNCTION__, cspec.ccode,
-						cspec.country_abbrev, cspec.rev));
-					if ((strncmp(country_code, cspec.ccode,
-						WLC_CNTRY_BUF_SZ) != 0) ||
-						(cspec.rev != country_rev)) {
-						strncpy(cspec.country_abbrev,
-							country_code, country_code_size);
-						strncpy(cspec.ccode, country_code,
-							country_code_size);
-						cspec.rev = country_rev;
-						DHD_ERROR(("%s: set country ccode:%s"
-							"country_abrev:%s rev:%d\n",
-							__FUNCTION__, cspec.ccode,
-							cspec.country_abbrev, cspec.rev));
-						buf_len = bcm_mkiovar("country", (char *)&cspec,
-							sizeof(cspec), iovbuf, sizeof(iovbuf));
-						ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-							iovbuf, buf_len, TRUE, 0);
-					}
-				}
-			} else {
-				DHD_ERROR(("%s: set country %s failed code \n",
-					__FUNCTION__, country_code));
-				ret = -1;
-			}
-		} else {
-			DHD_ERROR(("%s: Reading from the '%s' returns 0 bytes \n",
-				__FUNCTION__, filepath));
-			ret = -1;
-		}
-	}
-	if (fp)
-		filp_close(fp, NULL);
-
-	return ret;
-}
-#endif /* GLOBALCONFIG_WLAN_COUNTRY_CODE */
 
 #ifdef MIMO_ANT_SETTING
 int dhd_sel_ant_from_file(dhd_pub_t *dhd)
@@ -1265,4 +1186,30 @@ int dhd_sel_ant_from_file(dhd_pub_t *dhd)
 	return 0;
 }
 #endif /* MIMO_ANTENNA_SETTING */
+#ifdef USE_WL_FRAMEBURST
+uint32 sec_control_frameburst(dhd_pub_t *dhd)
+{
+	struct file *fp = NULL;
+	char *filepath = "/data/.frameburst.info";
+	char frameburst_val = 0;
+	uint32 frameburst = 1; /* default enabled */
+	int ret = 0;
+
+	fp = filp_open(filepath, O_RDONLY, 0);
+	if (IS_ERR(fp) || (fp == NULL)) {
+		DHD_INFO(("[WIFI] %s: File open failed, so enable frameburst as a default.\n",
+			__FUNCTION__));
+	} else {
+		ret = kernel_read(fp, fp->f_pos, &frameburst_val, 1);
+		if (ret > 0 && frameburst_val == '0') {
+			/* Set frameburst to frameburst_val */
+			frameburst = 0;
+		}
+
+		DHD_INFO(("set frameburst value = %d\n", frameburst));
+		filp_close(fp, NULL);
+	}
+	return frameburst;
+}
+#endif /* USE_WL_FRAMEBURST */
 #endif /* CUSTOMER_HW4 */

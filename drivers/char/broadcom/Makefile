@@ -1,11 +1,14 @@
 
 EXTRA_CFLAGS := -fno-inline -Wno-multichar -O2
 
-obj-y += v3d/
-obj-y += vce/
+obj-$(CONFIG_HAWAII_MM) += mm/
+obj-$(CONFIG_V3D) += v3d/
+obj-$(CONFIG_MMDMA) += mmdma/
+obj-$(CONFIG_VCE) += vce/
 obj-y += fuse_log/
 obj-$(CONFIG_BCM_MODEM) += modem/
-obj-y += isp/
+obj-$(CONFIG_ISP) += isp/
+obj-y += h264/
 obj-y += unicam/
 obj-$(CONFIG_BCM_MMUTIL) += mmutil/
 obj-$(CONFIG_GPS_IRQ)		 += brcm_gps_irq.o
@@ -20,4 +23,6 @@ obj-$(CONFIG_BCM_MDMGPIO)              += mdmgpio/
 endif
 
 obj-$(CONFIG_BCM_RTC_CAL)           += rtc_cal/
+obj-$(CONFIG_BCM_GPS_CNTIN) += gps/
+obj-$(CONFIG_BCM_GPS_REGUL_CTL) += gps_ctl_driver.o
 obj-$(CONFIG_BCM_LOGRAM_HELPER) += logram.o
