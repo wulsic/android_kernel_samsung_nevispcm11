@@ -1,8 +1,0 @@
-[core]
-	repositoryformatversion = 0
-	filemode = true
-[remote "github"]
-	url = git://github.com/wulsic/android_kernel_samsung_nevispcm11.git
-	review = review.cyanogenmod.org
-	projectname = wulsic/android_kernel_samsung_nevispcm11.git
-	fetch = +refs/heads/*:refs/remotes/github/*
