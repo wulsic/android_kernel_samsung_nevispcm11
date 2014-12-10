@@ -144,6 +144,21 @@ config MACH_RHEA_SS_NEVISP
         bool "Support Broadcom Rhea SS NevisP board"
         help
           Support for the Broadcom Rhea SS NevisP board.
+          
+config MACH_RHEA_SS_NEVISDS
+        bool "Support Broadcom Rhea SS NevisDS board"
+        help
+          Support for the Broadcom Rhea SS NevisDS board.
+
+config MACH_RHEA_SS_CORSICA
+        bool "Support Broadcom Rhea SS Corsica board"
+        help
+          Support for the Broadcom Rhea SS Corsica board.
+
+config MACH_RHEA_SS_CORSICASS
+        bool "Support Broadcom Rhea SS CorsicaSS board"
+        help
+          Support for the Broadcom Rhea SS CorsicaSS board.
 
 endchoice
 
