@@ -39,7 +39,7 @@
 #include <linux/memblock.h>
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
-//#include <linux/gpio.h>
+#include <linux/gpio.h>
 #include <mach/hardware.h>
 #include <linux/i2c.h>
 #include <linux/i2c-kona.h>
@@ -101,6 +101,10 @@ EXPORT_SYMBOL(etm_on);
 #define KONA_UART0_PA	UARTB_BASE_ADDR
 #define KONA_UART1_PA	UARTB2_BASE_ADDR
 #define KONA_UART2_PA	UARTB3_BASE_ADDR
+
+#define KONA_UART_FCR_UART0	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_11)
+#define KONA_UART_FCR_UART1	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
+#define KONA_UART_FCR_UART2	(UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10)
 
 #define KONA_8250PORT(name, clk, freq, uart_name)\
 {								\
@@ -594,15 +598,42 @@ static struct platform_device board_kona_otg_platform_device = {
 
 #ifdef CONFIG_KONA_CPU_FREQ_DRV
 struct kona_freq_tbl kona_freq_tbl[] = {
-	FTBL_INIT(156000, PI_OPP_ECONOMY),
-	FTBL_INIT(467000, PI_OPP_NORMAL),
+	FTBL_INIT(156000, PI_OPP_ECONOMY, TEMP_DONT_CARE),
+	FTBL_INIT(467000, PI_OPP_NORMAL, 100),
 
 #ifdef CONFIG_RHEALC_2093
-	FTBL_INIT(600000, PI_OPP_TURBO),
+	FTBL_INIT(600000, PI_OPP_TURBO, TEMP_DONT_CARE),
+        FTBL_INIT(950000, PI_OPP_TURBO1, TEMP_DONT_CARE),
+        FTBL_INIT(1200000, PI_OPP_TURBO0, TEMP_DONT_CARE),
 #else
-	FTBL_INIT(700000, PI_OPP_TURBO),
+        FTBL_INIT(128000, PI_OPP_NORMAL, 100),
+        FTBL_INIT(256000, PI_OPP_NORMAL, 100),
+        FTBL_INIT(384000, PI_OPP_NORMAL, 100),
+        FTBL_INIT(628000, PI_OPP_NORMAL, 100),
+	FTBL_INIT(700000, PI_OPP_NORMAL, 100),
+        FTBL_INIT(900000, PI_OPP_TURBO, TEMP_DONT_CARE),
+        FTBL_INIT(950000, PI_OPP_TURBO, TEMP_DONT_CARE),
+        FTBL_INIT(1000000, PI_OPP_TURBO, 85),
+        FTBL_INIT(1100000, PI_OPP_TURBO, 85),
+        FTBL_INIT(1200000, PI_OPP_TURBO, 85),
+        FTBL_INIT(1300000, PI_OPP_TURBO, 85),
 #endif
 };
+
+unsigned int get_cpufreq_from_opp(int opp)
+{
+	int i, num_of_opp;
+	if (opp < 0)
+	  return 0;
+	num_of_opp = ARRAY_SIZE(kona_freq_tbl);
+	for (i = 0; i < num_of_opp; i++) {
+	  if (kona_freq_tbl[i].opp == opp)
+	    return kona_freq_tbl[i].cpu_freq;
+	}
+	pr_debug("%s: Invalid OPP as argument\n", __func__);
+	return -EINVAL;
+}
+EXPORT_SYMBOL(get_cpufreq_from_opp);
 
 void rhea_cpufreq_init(void)
 {
@@ -1134,4 +1165,13 @@ void __init board_add_common_devices(void)
 	printk(KERN_EMERG"PMEM : CMA size (0x%08lx, %lu pages)\n",
 				pmem_size, (pmem_size >> PAGE_SHIFT));
 }
+
+/* Return the Rhea chip revision ID */
+int notrace get_chip_rev_id(void)
+{
+	return (readl(KONA_CHIPREG_VA + CHIPREG_CHIPID_REVID_OFFSET) &
+	CHIPREG_CHIPID_REVID_REVID_MASK) >>
+	CHIPREG_CHIPID_REVID_REVID_SHIFT;
+}
+EXPORT_SYMBOL(get_chip_rev_id);
 
